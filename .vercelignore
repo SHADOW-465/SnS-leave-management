@@ -1,0 +1,24 @@
+data
+demo
+graphify-out
+.graphify
+coverage
+playwright-report
+test-results
+*.db
+.env
+.env.local
+apps/desktop
+docs
+.impeccable
+apps/web/src
+apps/web/vite.config.ts
+apps/web/index.html
+apps/web/tsconfig.json
+apps/web/vitest.config.ts
+packages/ui
+**/*.tsx
+
+# gitignore excludes public/; we prebuild the UI into it for Vercel
+!public
+!public/**

@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif; background: #fbfbfa; color: #16161a; -webkit-font-smoothing: antialiased; }
+  a { color: #4f46e5; text-decoration: none; }
+  a:hover { color: #3730a3; text-decoration: underline; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid #4f46e5; outline-offset: 2px; border-radius: 4px; }
+  table { border-collapse: collapse; }
+  ::placeholder { color: #8a8a94; }
+  .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+</style>
+</helmet>
+
+<sc-if value="{{ isLogin }}" hint-placeholder-val="{{ true }}">
+  <main style="min-height: 100vh; display: grid; grid-template-columns: 1.1fr 1fr; font-size: 15px">
+    <div style="padding: 56px 64px; display: flex; flex-direction: column; justify-content: space-between; background: #ffffff; border-right: 1px solid #e8e8e4">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <div style="width: 26px; height: 26px; border-radius: 7px; background: #16161a; color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 700">S</div>
+        <span style="font-weight: 600; letter-spacing: -0.01em">Simon &amp; Sons</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6b6b76; border: 1px solid #e8e8e4; border-radius: 5px; padding: 2px 6px">Leave OS</span>
+      </div>
+      <div style="max-width: 420px; display: flex; flex-direction: column; gap: 28px">
+        <div>
+          <h1 style="margin: 0 0 10px; font-size: 38px; line-height: 1.08; letter-spacing: -0.03em; font-weight: 600; text-wrap: pretty">Sign in to Leave OS</h1>
+          <p style="margin: 0; color: #5c5c66; line-height: 1.55">Two workspaces, one source of truth. Employees apply and track. Admins approve, plan and publish the calendar.</p>
+        </div>
+        <form style="display: flex; flex-direction: column; gap: 16px" onSubmit="{{ onLoginSubmit }}">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="lg-email" style="font-size: 13px; font-weight: 600">Work email</label>
+            <input id="lg-email" type="email" autoComplete="username" value="{{ loginEmail }}" onChange="{{ onLoginEmail }}" style="height: 42px; padding: 0 12px; border: 1px solid #d9d9d2; border-radius: 8px; background: #fff" />
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="lg-pass" style="font-size: 13px; font-weight: 600">Password</label>
+            <input id="lg-pass" type="password" autoComplete="current-password" value="demo1234" onChange="{{ noop }}" style="height: 42px; padding: 0 12px; border: 1px solid #d9d9d2; border-radius: 8px; background: #fff" />
+          </div>
+          <fieldset style="border: 1px solid #e8e8e4; border-radius: 10px; padding: 12px 14px 14px; margin: 4px 0 0; display: flex; flex-direction: column; gap: 10px">
+            <legend style="padding: 0 6px; font-size: 12px; font-weight: 600; color: #5c5c66; text-transform: uppercase; letter-spacing: 0.06em">Sign in as</legend>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
+              <label style="display: flex; gap: 9px; align-items: flex-start; padding: 10px 12px; border: 1px solid #d9d9d2; border-radius: 8px; cursor: pointer; background: #fff">
+                <input type="radio" name="role" checked="{{ isEmployeeRole }}" onChange="{{ pickEmployee }}" style="margin: 3px 0 0; accent-color: #4f46e5" />
+                <span><span style="display: block; font-weight: 600; font-size: 14px">Employee</span><span style="display: block; font-size: 12.5px; color: #6b6b76">Priya Nair · Design</span></span>
+              </label>
+              <label style="display: flex; gap: 9px; align-items: flex-start; padding: 10px 12px; border: 1px solid #d9d9d2; border-radius: 8px; cursor: pointer; background: #fff">
+                <input type="radio" name="role" checked="{{ isAdminRole }}" onChange="{{ pickAdmin }}" style="margin: 3px 0 0; accent-color: #4f46e5" />
+                <span><span style="display: block; font-weight: 600; font-size: 14px">Admin / HR</span><span style="display: block; font-size: 12.5px; color: #6b6b76">Full org controls</span></span>
+              </label>
+            </div>
+          </fieldset>
+          <button type="submit" style="height: 44px; border: 0; border-radius: 8px; background: #16161a; color: #fff; font-weight: 600; cursor: pointer" style-hover="background: #000">Continue</button>
+          <p style="margin: 0; font-size: 12.5px; color: #8a8a94">Prototype — any password works. Data resets on reload.</p>
+        </form>
+      </div>
+      <p style="margin: 0; font-size: 12.5px; color: #8a8a94">Policy year 2026 · Asia/Kolkata</p>
+    </div>
+    <aside style="padding: 56px 64px; display: flex; flex-direction: column; justify-content: center; gap: 18px; background: #f4f4f1">
+      <p style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #6b6b76; text-transform: uppercase">This cycle</p>
+      <div style="display: grid; gap: 12px">
+        <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px">
+          <p style="margin: 0 0 6px; font-size: 13px; color: #6b6b76">Awaiting action</p>
+          <p style="margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -0.02em">{{ pendingCount }} requests</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px">
+          <p style="margin: 0 0 6px; font-size: 13px; color: #6b6b76">Headcount · departments</p>
+          <p style="margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -0.02em">50 · 5</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px">
+          <p style="margin: 0 0 6px; font-size: 13px; color: #6b6b76">Published holidays 2026</p>
+          <p style="margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -0.02em">{{ holidayCount }} days</p>
+        </div>
+      </div>
+    </aside>
+  </main>
+</sc-if>
+
+<sc-if value="{{ isApp }}" hint-placeholder-val="{{ false }}">
+  <div style="min-height: 100vh; display: grid; grid-template-columns: 248px 1fr; font-size: 15px">
+    <a href="#main" style="position: absolute; left: -9999px; top: 8px; background: #16161a; color: #fff; padding: 8px 12px; border-radius: 6px; z-index: 90" style-focus="left: 8px">Skip to main content</a>
+
+    <nav aria-label="Primary" style="border-right: 1px solid #e8e8e4; background: #ffffff; padding: 18px 14px; display: flex; flex-direction: column; gap: 18px; position: sticky; top: 0; height: 100vh; overflow-y: auto">
+      <div style="display: flex; align-items: center; gap: 9px; padding: 0 6px">
+        <div style="width: 24px; height: 24px; border-radius: 6px; background: #16161a; color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700">S</div>
+        <span style="font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em">Simon &amp; Sons</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <p style="margin: 0 0 4px; padding: 0 8px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8a8a94">{{ roleLabel }}</p>
+        <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="6">
+          <button type="button" onClick="{{ item.go }}" aria-current="{{ item.current }}" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; border: 0; border-radius: 7px; padding: 8px 10px; cursor: pointer; font-size: 14px; background: {{ item.bg }}; color: {{ item.fg }}; font-weight: {{ item.weight }}" style-hover="background: #f1f1ed">
+            <span>{{ item.label }}</span>
+            <span aria-hidden="true" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a8a94">{{ item.badge }}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid #efefeb; padding-top: 14px">
+        <div style="display: flex; align-items: center; gap: 9px; padding: 0 6px">
+          <div style="width: 28px; height: 28px; border-radius: 50%; background: #e6e6ff; color: #3730a3; display: grid; place-items: center; font-size: 12px; font-weight: 600">{{ userInitials }}</div>
+          <div style="min-width: 0">
+            <p style="margin: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ userName }}</p>
+            <p style="margin: 0; font-size: 12px; color: #8a8a94">{{ userMeta }}</p>
+          </div>
+        </div>
+        <button type="button" onClick="{{ logout }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 7px; padding: 7px 10px; font-size: 13.5px; cursor: pointer" style-hover="background: #f6f6f3">Sign out</button>
+      </div>
+    </nav>
+
+    <div style="display: flex; flex-direction: column; min-width: 0">
+      <header style="position: sticky; top: 0; z-index: 40; background: rgba(251,251,250,0.88); backdrop-filter: blur(8px); border-bottom: 1px solid #e8e8e4; padding: 12px 28px; display: flex; align-items: center; gap: 14px">
+        <div style="min-width: 0; flex: 1">
+          <h1 style="margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.015em">{{ pageTitle }}</h1>
+          <p style="margin: 2px 0 0; font-size: 13px; color: #6b6b76">{{ pageSub }}</p>
+        </div>
+        <sc-if value="{{ showApplyCta }}" hint-placeholder-val="{{ false }}">
+          <button type="button" onClick="{{ goApply }}" style="border: 0; background: #16161a; color: #fff; border-radius: 7px; padding: 9px 14px; font-size: 13.5px; font-weight: 600; cursor: pointer" style-hover="background: #000">Apply for leave</button>
+        </sc-if>
+        <div style="position: relative">
+          <button type="button" onClick="{{ toggleNotifs }}" aria-expanded="{{ notifsOpen }}" aria-label="{{ notifAria }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 7px; width: 36px; height: 36px; cursor: pointer; position: relative; display: grid; place-items: center" style-hover="background: #f6f6f3">
+            <span aria-hidden="true" style="font-size: 15px">&#9788;</span>
+            <span aria-hidden="true" style="position: absolute; top: -5px; right: -5px; min-width: 17px; height: 17px; border-radius: 9px; background: #d92d20; color: #fff; font-size: 10.5px; font-weight: 700; display: {{ unreadDisplay }}; place-items: center; padding: 0 4px">{{ unreadCount }}</span>
+          </button>
+          <sc-if value="{{ notifsOpen }}" hint-placeholder-val="{{ false }}">
+            <div role="region" aria-label="Notifications" style="position: absolute; right: 0; top: 44px; width: 372px; background: #fff; border: 1px solid #e0e0da; border-radius: 12px; box-shadow: 0 18px 40px rgba(0,0,0,0.12); overflow: hidden">
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid #efefeb">
+                <span style="font-size: 13.5px; font-weight: 600">Notifications</span>
+                <button type="button" onClick="{{ markAllRead }}" style="border: 0; background: none; color: #4f46e5; font-size: 13px; cursor: pointer; padding: 2px 4px">Mark all read</button>
+              </div>
+              <ul style="list-style: none; margin: 0; padding: 6px; max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px">
+                <sc-for list="{{ notifs }}" as="n" hint-placeholder-count="3">
+                  <li>
+                    <button type="button" onClick="{{ n.open }}" style="width: 100%; text-align: left; border: 0; background: {{ n.bg }}; border-radius: 8px; padding: 10px 11px; cursor: pointer; display: flex; gap: 10px" style-hover="background: #f4f4f1">
+                      <span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: 0 0 auto; background: {{ n.dot }}"></span>
+                      <span style="min-width: 0">
+                        <span style="display: block; font-size: 13.5px; font-weight: 600">{{ n.title }}</span>
+                        <span style="display: block; font-size: 13px; color: #5c5c66; line-height: 1.45">{{ n.body }}</span>
+                        <span style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a8a94; margin-top: 3px">{{ n.when }}</span>
+                      </span>
+                    </button>
+                  </li>
+                </sc-for>
+              </ul>
+              <div style="border-top: 1px solid #efefeb; padding: 10px 14px">
+                <button type="button" onClick="{{ openEmail }}" style="border: 0; background: none; color: #4f46e5; font-size: 13px; cursor: pointer; padding: 0">View the email these send &rarr;</button>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </header>
+
+      <main id="main" tabIndex="-1" style="padding: 26px 28px 64px; display: flex; flex-direction: column; gap: 22px">
+
+        <sc-if value="{{ isEmpHome }}" hint-placeholder-val="{{ false }}">
+          <section aria-label="Leave balances" style="display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px">
+            <sc-for list="{{ balances }}" as="b" hint-placeholder-count="4">
+              <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 16px 18px">
+                <p style="margin: 0 0 8px; font-size: 13px; color: #5c5c66; font-weight: 600">{{ b.name }}</p>
+                <p style="margin: 0; font-size: 27px; font-weight: 600; letter-spacing: -0.02em">{{ b.left }}<span style="font-size: 14px; color: #8a8a94; font-weight: 500"> / {{ b.total }}</span></p>
+                <div role="img" aria-label="{{ b.aria }}" style="margin-top: 12px; height: 6px; border-radius: 3px; background: #efefeb; overflow: hidden">
+                  <div style="height: 6px; border-radius: 3px; background: {{ b.color }}; width: {{ b.pct }}"></div>
+                </div>
+                <p style="margin: 9px 0 0; font-size: 12.5px; color: #6b6b76">{{ b.note }}</p>
+              </div>
+            </sc-for>
+          </section>
+
+          <section aria-label="Probation status" style="background: #fffaf0; border: 1px solid #f0dfbc; border-radius: 12px; padding: 16px 18px; display: flex; gap: 14px; align-items: flex-start">
+            <span aria-hidden="true" style="font-size: 16px">&#9873;</span>
+            <div>
+              <p style="margin: 0 0 4px; font-size: 14px; font-weight: 600">{{ probationTitle }}</p>
+              <p style="margin: 0; font-size: 13.5px; color: #5c5c66; line-height: 1.5; max-width: 76ch">{{ probationBody }}</p>
+            </div>
+          </section>
+
+          <section aria-label="My requests" style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; overflow: hidden">
+            <div style="padding: 14px 18px; border-bottom: 1px solid #efefeb; display: flex; align-items: center; justify-content: space-between">
+              <h2 style="margin: 0; font-size: 14.5px; font-weight: 600">My requests</h2>
+              <button type="button" onClick="{{ goMine }}" style="border: 0; background: none; color: #4f46e5; font-size: 13px; cursor: pointer">See all</button>
+            </div>
+            <table style="width: 100%; font-size: 13.5px">
+              <caption class="sr">Leave requests you have submitted, with type, dates and current status</caption>
+              <thead>
+                <tr style="text-align: left; color: #6b6b76">
+                  <th scope="col" style="padding: 10px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Type</th>
+                  <th scope="col" style="padding: 10px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Dates</th>
+                  <th scope="col" style="padding: 10px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Days</th>
+                  <th scope="col" style="padding: 10px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Stage</th>
+                  <th scope="col" style="padding: 10px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ myRequests }}" as="r" hint-placeholder-count="4">
+                  <tr>
+                    <td style="padding: 11px 18px; border-bottom: 1px solid #f5f5f1; font-weight: 600">{{ r.type }}</td>
+                    <td style="padding: 11px 18px; border-bottom: 1px solid #f5f5f1; color: #5c5c66">{{ r.range }}</td>
+                    <td style="padding: 11px 18px; border-bottom: 1px solid #f5f5f1; font-family: 'JetBrains Mono', monospace">{{ r.days }}</td>
+                    <td style="padding: 11px 18px; border-bottom: 1px solid #f5f5f1; color: #5c5c66">{{ r.stage }}</td>
+                    <td style="padding: 11px 18px; border-bottom: 1px solid #f5f5f1">
+                      <span style="display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: {{ r.pillBg }}; color: {{ r.pillFg }}">{{ r.status }}</span>
+                    </td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </section>
+        </sc-if>
+
+        <sc-if value="{{ isApply }}" hint-placeholder-val="{{ false }}">
+          <section style="display: grid; grid-template-columns: minmax(0,1.5fr) minmax(0,1fr); gap: 20px; align-items: start">
+            <form onSubmit="{{ submitLeave }}" style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px">
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-type" style="font-size: 13px; font-weight: 600">Leave type</label>
+                <select id="f-type" value="{{ form.type }}" onChange="{{ setType }}" style="height: 40px; border: 1px solid #d9d9d2; border-radius: 8px; padding: 0 10px; background: #fff">
+                  <sc-for list="{{ leaveTypes }}" as="t" hint-placeholder-count="4">
+                    <option value="{{ t.id }}">{{ t.label }}</option>
+                  </sc-for>
+                </select>
+                <p style="margin: 0; font-size: 12.5px; color: #6b6b76">{{ typeHint }}</p>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
+                <div style="display: flex; flex-direction: column; gap: 6px">
+                  <label for="f-from" style="font-size: 13px; font-weight: 600">From</label>
+                  <input id="f-from" type="date" value="{{ form.from }}" onChange="{{ setFrom }}" style="height: 40px; border: 1px solid #d9d9d2; border-radius: 8px; padding: 0 10px; background: #fff" />
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px">
+                  <label for="f-to" style="font-size: 13px; font-weight: 600">To</label>
+                  <input id="f-to" type="date" value="{{ form.to }}" onChange="{{ setTo }}" style="height: 40px; border: 1px solid #d9d9d2; border-radius: 8px; padding: 0 10px; background: #fff" />
+                </div>
+              </div>
+              <fieldset style="border: 1px solid #e8e8e4; border-radius: 10px; padding: 10px 14px 14px; margin: 0">
+                <legend style="padding: 0 6px; font-size: 12px; font-weight: 600; color: #5c5c66; text-transform: uppercase; letter-spacing: 0.06em">Duration</legend>
+                <div style="display: flex; gap: 18px; flex-wrap: wrap">
+                  <label style="display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer"><input type="radio" name="dur" checked="{{ isFullDay }}" onChange="{{ setFullDay }}" style="accent-color: #4f46e5" />Full day</label>
+                  <label style="display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer"><input type="radio" name="dur" checked="{{ isHalfAM }}" onChange="{{ setHalfAM }}" style="accent-color: #4f46e5" />Half day &mdash; morning</label>
+                  <label style="display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer"><input type="radio" name="dur" checked="{{ isHalfPM }}" onChange="{{ setHalfPM }}" style="accent-color: #4f46e5" />Half day &mdash; afternoon</label>
+                </div>
+              </fieldset>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-reason" style="font-size: 13px; font-weight: 600">Reason</label>
+                <textarea id="f-reason" rows="3" value="{{ form.reason }}" onChange="{{ setReason }}" placeholder="Short context for your manager" style="border: 1px solid #d9d9d2; border-radius: 8px; padding: 10px; background: #fff; resize: vertical"></textarea>
+              </div>
+              <sc-if value="{{ needsDoc }}" hint-placeholder-val="{{ false }}">
+                <div style="display: flex; flex-direction: column; gap: 6px; background: #f7f7f4; border: 1px dashed #d9d9d2; border-radius: 10px; padding: 14px">
+                  <label for="f-file" style="font-size: 13px; font-weight: 600">Medical certificate</label>
+                  <p style="margin: 0; font-size: 12.5px; color: #6b6b76">Required for sick leave of 3 days or more. PDF, JPG or PNG.</p>
+                  <input id="f-file" type="file" onChange="{{ setFile }}" style="font-size: 13px" />
+                  <p style="margin: 0; font-size: 12.5px; color: #16161a; font-weight: 600">{{ fileName }}</p>
+                </div>
+              </sc-if>
+              <div aria-live="polite" style="font-size: 13.5px; color: {{ validColor }}">{{ validMsg }}</div>
+              <div style="display: flex; gap: 10px; align-items: center">
+                <button type="submit" disabled="{{ submitDisabled }}" style="border: 0; background: {{ submitBg }}; color: #fff; border-radius: 8px; padding: 11px 16px; font-weight: 600; cursor: {{ submitCursor }}">Submit request</button>
+                <button type="button" onClick="{{ goHome }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 8px; padding: 11px 16px; cursor: pointer" style-hover="background: #f6f6f3">Cancel</button>
+              </div>
+            </form>
+            <aside style="display: flex; flex-direction: column; gap: 12px">
+              <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px">
+                <p style="margin: 0 0 12px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8a8a94">Request summary</p>
+                <dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13.5px">
+                  <dt style="color: #6b6b76">Working days</dt><dd style="margin: 0; font-weight: 600">{{ calcDays }}</dd>
+                  <dt style="color: #6b6b76">Holidays skipped</dt><dd style="margin: 0; font-weight: 600">{{ calcSkipped }}</dd>
+                  <dt style="color: #6b6b76">Balance after</dt><dd style="margin: 0; font-weight: 600">{{ calcAfter }}</dd>
+                  <dt style="color: #6b6b76">Approver</dt><dd style="margin: 0; font-weight: 600">{{ approverName }}</dd>
+                  <dt style="color: #6b6b76">Then</dt><dd style="margin: 0; font-weight: 600">Admin / HR sign-off</dd>
+                </dl>
+              </div>
+              <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px">
+                <p style="margin: 0 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8a8a94">Who else is out</p>
+                <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; font-size: 13.5px">
+                  <sc-for list="{{ overlaps }}" as="o" hint-placeholder-count="2">
+                    <li style="display: flex; justify-content: space-between; gap: 10px"><span style="font-weight: 600">{{ o.name }}</span><span style="color: #6b6b76">{{ o.when }}</span></li>
+                  </sc-for>
+                </ul>
+              </div>
+            </aside>
+          </section>
+        </sc-if>
+
+        <sc-if value="{{ isQueue }}" hint-placeholder-val="{{ false }}">
+          <section aria-label="Filters" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+            <label for="q-search" class="sr">Search requests</label>
+            <input id="q-search" type="search" value="{{ search }}" onChange="{{ setSearch }}" placeholder="Search person, type or reason" style="height: 36px; min-width: 280px; border: 1px solid #d9d9d2; border-radius: 8px; padding: 0 12px; background: #fff" />
+            <sc-for list="{{ statusFilters }}" as="f" hint-placeholder-count="4">
+              <button type="button" onClick="{{ f.pick }}" aria-pressed="{{ f.active }}" style="height: 36px; padding: 0 13px; border: 1px solid {{ f.border }}; border-radius: 8px; background: {{ f.bg }}; color: {{ f.fg }}; font-size: 13.5px; cursor: pointer">{{ f.label }}</button>
+            </sc-for>
+            <div style="margin-left: auto; display: flex; gap: 8px">
+              <button type="button" onClick="{{ exportCsv }}" style="height: 36px; padding: 0 13px; border: 1px solid #d9d9d2; border-radius: 8px; background: #fff; font-size: 13.5px; cursor: pointer" style-hover="background: #f6f6f3">Export CSV</button>
+              <button type="button" onClick="{{ openEmail }}" style="height: 36px; padding: 0 13px; border: 1px solid #d9d9d2; border-radius: 8px; background: #fff; font-size: 13.5px; cursor: pointer" style-hover="background: #f6f6f3">Preview email</button>
+            </div>
+          </section>
+          <section style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; overflow: hidden">
+            <table style="width: 100%; font-size: 13.5px">
+              <caption class="sr">All leave requests. Use the row buttons to approve, reject or open the full request.</caption>
+              <thead>
+                <tr style="text-align: left; color: #6b6b76">
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Employee</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Type</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Dates</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Days</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Stage</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Status</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb; text-align: right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ queueRows }}" as="r" hint-placeholder-count="6">
+                  <tr>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1">
+                      <button type="button" onClick="{{ r.open }}" style="border: 0; background: none; padding: 0; cursor: pointer; text-align: left; font-weight: 600; color: #16161a" style-hover="color: #4f46e5">{{ r.name }}</button>
+                      <span style="display: block; font-size: 12.5px; color: #8a8a94">{{ r.dept }}</span>
+                    </td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1">{{ r.type }}</td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1; color: #5c5c66">{{ r.range }}</td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1; font-family: 'JetBrains Mono', monospace">{{ r.days }}</td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1; color: #5c5c66">{{ r.stage }}</td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1"><span style="display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: {{ r.pillBg }}; color: {{ r.pillFg }}">{{ r.status }}</span></td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1; text-align: right">
+                      <span style="display: inline-flex; gap: 6px; justify-content: flex-end">
+                        <button type="button" onClick="{{ r.approve }}" disabled="{{ r.actionsOff }}" aria-label="{{ r.approveAria }}" style="border: 1px solid #cfe7d4; background: {{ r.approveBg }}; color: #17683a; border-radius: 7px; padding: 6px 10px; font-size: 13px; cursor: {{ r.cursor }}; font-weight: 600">Approve</button>
+                        <button type="button" onClick="{{ r.reject }}" disabled="{{ r.actionsOff }}" aria-label="{{ r.rejectAria }}" style="border: 1px solid #f0d2ce; background: {{ r.rejectBg }}; color: #a3271b; border-radius: 7px; padding: 6px 10px; font-size: 13px; cursor: {{ r.cursor }}; font-weight: 600">Reject</button>
+                      </span>
+                    </td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+            <p style="margin: 0; padding: 12px 18px; font-size: 13px; color: #6b6b76">{{ queueSummary }}</p>
+          </section>
+        </sc-if>
+
+        <sc-if value="{{ isAdminHome }}" hint-placeholder-val="{{ false }}">
+          <section aria-label="Key numbers" style="display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px">
+            <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+              <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 16px 18px">
+                <p style="margin: 0 0 8px; font-size: 13px; color: #5c5c66; font-weight: 600">{{ k.label }}</p>
+                <p style="margin: 0; font-size: 27px; font-weight: 600; letter-spacing: -0.02em">{{ k.value }}</p>
+                <p style="margin: 8px 0 0; font-size: 12.5px; color: {{ k.deltaColor }}">{{ k.delta }}</p>
+              </div>
+            </sc-for>
+          </section>
+          <section style="display: grid; grid-template-columns: minmax(0,1.35fr) minmax(0,1fr); gap: 16px; align-items: start">
+            <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; overflow: hidden">
+              <div style="padding: 14px 18px; border-bottom: 1px solid #efefeb; display: flex; align-items: center; justify-content: space-between">
+                <h2 style="margin: 0; font-size: 14.5px; font-weight: 600">Needs your decision</h2>
+                <button type="button" onClick="{{ goQueue }}" style="border: 0; background: none; color: #4f46e5; font-size: 13px; cursor: pointer">Open queue</button>
+              </div>
+              <ul style="list-style: none; margin: 0; padding: 6px">
+                <sc-for list="{{ pendingRows }}" as="r" hint-placeholder-count="3">
+                  <li style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 9px" style-hover="background: #f9f9f6">
+                    <div style="width: 30px; height: 30px; border-radius: 50%; background: #e6e6ff; color: #3730a3; display: grid; place-items: center; font-size: 11.5px; font-weight: 600">{{ r.initials }}</div>
+                    <div style="min-width: 0; flex: 1">
+                      <p style="margin: 0; font-size: 13.5px; font-weight: 600">{{ r.name }} &middot; {{ r.type }}</p>
+                      <p style="margin: 1px 0 0; font-size: 12.5px; color: #6b6b76">{{ r.range }} &middot; {{ r.days }} days &middot; {{ r.stage }}</p>
+                    </div>
+                    <button type="button" onClick="{{ r.approve }}" style="border: 1px solid #cfe7d4; background: #eef8f0; color: #17683a; border-radius: 7px; padding: 6px 10px; font-size: 13px; font-weight: 600; cursor: pointer">Approve</button>
+                    <button type="button" onClick="{{ r.open }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 7px; padding: 6px 10px; font-size: 13px; cursor: pointer">Review</button>
+                  </li>
+                </sc-for>
+              </ul>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 16px">
+              <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px">
+                <h2 style="margin: 0 0 14px; font-size: 14.5px; font-weight: 600">Leave by department</h2>
+                <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px">
+                  <sc-for list="{{ deptStats }}" as="d" hint-placeholder-count="5">
+                    <li>
+                      <div style="display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 5px"><span style="font-weight: 600">{{ d.name }}</span><span style="color: #6b6b76; font-family: 'JetBrains Mono', monospace">{{ d.days }}d</span></div>
+                      <div role="img" aria-label="{{ d.aria }}" style="height: 6px; border-radius: 3px; background: #efefeb"><div style="height: 6px; border-radius: 3px; background: #4f46e5; width: {{ d.pct }}"></div></div>
+                    </li>
+                  </sc-for>
+                </ul>
+              </div>
+              <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px">
+                <h2 style="margin: 0 0 12px; font-size: 14.5px; font-weight: 600">Out today</h2>
+                <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px">
+                  <sc-for list="{{ outToday }}" as="o" hint-placeholder-count="3">
+                    <li style="display: flex; justify-content: space-between; gap: 10px"><span style="font-weight: 600">{{ o.name }}</span><span style="color: #6b6b76">{{ o.type }}</span></li>
+                  </sc-for>
+                </ul>
+              </div>
+            </div>
+          </section>
+        </sc-if>
+
+        <sc-if value="{{ isCalendar }}" hint-placeholder-val="{{ false }}">
+          <section style="display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 18px; align-items: start">
+            <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px">
+                <h2 style="margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.015em">{{ monthLabel }}</h2>
+                <div style="margin-left: auto; display: flex; gap: 6px">
+                  <button type="button" onClick="{{ prevMonth }}" aria-label="Previous month" style="width: 32px; height: 32px; border: 1px solid #d9d9d2; background: #fff; border-radius: 7px; cursor: pointer">&#8592;</button>
+                  <button type="button" onClick="{{ nextMonth }}" aria-label="Next month" style="width: 32px; height: 32px; border: 1px solid #d9d9d2; background: #fff; border-radius: 7px; cursor: pointer">&#8594;</button>
+                </div>
+              </div>
+              <div role="grid" aria-label="{{ calAria }}">
+                <div role="row" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px">
+                  <sc-for list="{{ dowLabels }}" as="d" hint-placeholder-count="7">
+                    <div role="columnheader" style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8a8a94; text-align: center; padding: 4px 0">{{ d }}</div>
+                  </sc-for>
+                </div>
+                <sc-for list="{{ weeks }}" as="w" hint-placeholder-count="5">
+                  <div role="row" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px">
+                    <sc-for list="{{ w.days }}" as="d" hint-placeholder-count="7">
+                      <button role="gridcell" type="button" onClick="{{ d.pick }}" aria-label="{{ d.aria }}" aria-selected="{{ d.selected }}" style="min-height: 76px; text-align: left; padding: 7px 8px; border: 1px solid {{ d.border }}; border-radius: 9px; background: {{ d.bg }}; cursor: pointer; display: flex; flex-direction: column; gap: 4px" style-hover="border-color: #4f46e5">
+                        <span style="font-size: 13px; font-weight: 600; color: {{ d.numColor }}">{{ d.num }}</span>
+                        <span style="font-size: 11.5px; line-height: 1.3; color: {{ d.tagColor }}; font-weight: 600">{{ d.tag }}</span>
+                        <span style="font-size: 11px; color: #8a8a94; margin-top: auto">{{ d.onLeave }}</span>
+                      </button>
+                    </sc-for>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 12.5px; color: #5c5c66">
+                <span style="display: flex; gap: 7px; align-items: center"><span aria-hidden="true" style="width: 11px; height: 11px; border-radius: 3px; background: #fdeaea; border: 1px solid #f3c9c4"></span>Public holiday</span>
+                <span style="display: flex; gap: 7px; align-items: center"><span aria-hidden="true" style="width: 11px; height: 11px; border-radius: 3px; background: #eef4ff; border: 1px solid #cfdcf7"></span>Optional / restricted</span>
+                <span style="display: flex; gap: 7px; align-items: center"><span aria-hidden="true" style="width: 11px; height: 11px; border-radius: 3px; background: #f4f4f1; border: 1px solid #e4e4de"></span>Weekend</span>
+                <span style="display: flex; gap: 7px; align-items: center"><span aria-hidden="true" style="width: 11px; height: 11px; border-radius: 3px; background: #fff8e6; border: 1px solid #f0dfbc"></span>Declared working day</span>
+              </div>
+            </div>
+            <aside style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+              <div>
+                <p style="margin: 0 0 4px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8a8a94">Selected day</p>
+                <p style="margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.015em">{{ selectedLabel }}</p>
+                <p style="margin: 4px 0 0; font-size: 13.5px; color: #5c5c66">{{ selectedState }}</p>
+              </div>
+              <sc-if value="{{ canEditCalendar }}" hint-placeholder-val="{{ false }}">
+                <div style="display: flex; flex-direction: column; gap: 10px; border-top: 1px solid #efefeb; padding-top: 14px">
+                  <div style="display: flex; flex-direction: column; gap: 6px">
+                    <label for="h-name" style="font-size: 13px; font-weight: 600">Holiday name</label>
+                    <input id="h-name" type="text" value="{{ dayName }}" onChange="{{ setDayName }}" placeholder="e.g. Founders Day" style="height: 38px; border: 1px solid #d9d9d2; border-radius: 8px; padding: 0 10px; background: #fff" />
+                  </div>
+                  <div style="display: grid; gap: 8px">
+                    <button type="button" onClick="{{ markPublic }}" style="border: 0; background: #16161a; color: #fff; border-radius: 8px; padding: 10px; font-weight: 600; cursor: pointer" style-hover="background: #000">Mark as public holiday</button>
+                    <button type="button" onClick="{{ markOptional }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 8px; padding: 10px; cursor: pointer" style-hover="background: #f6f6f3">Mark as optional / restricted</button>
+                    <button type="button" onClick="{{ markWorking }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 8px; padding: 10px; cursor: pointer" style-hover="background: #f6f6f3">Declare a working day</button>
+                    <button type="button" onClick="{{ clearDay }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 8px; padding: 10px; cursor: pointer; color: #a3271b" style-hover="background: #fdf3f2">Reset to default</button>
+                  </div>
+                  <p style="margin: 0; font-size: 12.5px; color: #6b6b76; line-height: 1.5">HR can propose a change instead of publishing it. Proposals appear in the admin queue for sign-off.</p>
+                  <button type="button" onClick="{{ proposeChange }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 8px; padding: 9px 10px; font-size: 13.5px; cursor: pointer" style-hover="background: #f6f6f3">Propose as HR</button>
+                </div>
+              </sc-if>
+              <sc-if value="{{ isEmployee }}" hint-placeholder-val="{{ false }}">
+                <p style="margin: 0; font-size: 13px; color: #6b6b76; line-height: 1.55; border-top: 1px solid #efefeb; padding-top: 14px">The published calendar is read-only for employees. Ask HR for a correction if a date looks wrong.</p>
+              </sc-if>
+              <div style="border-top: 1px solid #efefeb; padding-top: 14px">
+                <p style="margin: 0 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8a8a94">Holidays this month</p>
+                <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; font-size: 13.5px">
+                  <sc-for list="{{ monthHolidays }}" as="h" hint-placeholder-count="2">
+                    <li style="display: flex; justify-content: space-between; gap: 10px"><span style="font-weight: 600">{{ h.name }}</span><span style="color: #6b6b76; font-family: 'JetBrains Mono', monospace">{{ h.day }}</span></li>
+                  </sc-for>
+                </ul>
+                <p style="margin: 10px 0 0; font-size: 12.5px; color: #8a8a94">{{ monthHolidayEmpty }}</p>
+              </div>
+            </aside>
+          </section>
+        </sc-if>
+
+        <sc-if value="{{ isTeam }}" hint-placeholder-val="{{ false }}">
+          <section style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 18px 20px; overflow-x: auto">
+            <h2 style="margin: 0 0 14px; font-size: 14.5px; font-weight: 600">Next 14 days &middot; who is available</h2>
+            <table style="width: 100%; font-size: 13px; min-width: 720px">
+              <caption class="sr">Availability grid. Each column is a date; filled cells mean the person is on leave or the day is a holiday.</caption>
+              <thead>
+                <tr>
+                  <th scope="col" style="text-align: left; padding: 6px 10px 10px 0; font-weight: 600; color: #6b6b76">Person</th>
+                  <sc-for list="{{ gridDates }}" as="g" hint-placeholder-count="14">
+                    <th scope="col" style="padding: 6px 0 10px; font-weight: 600; color: {{ g.color }}; font-family: 'JetBrains Mono', monospace; font-size: 11px; text-align: center">{{ g.label }}</th>
+                  </sc-for>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ gridRows }}" as="row" hint-placeholder-count="6">
+                  <tr>
+                    <th scope="row" style="text-align: left; padding: 5px 10px 5px 0; font-weight: 600; white-space: nowrap">{{ row.name }}<span style="display: block; font-size: 11.5px; color: #8a8a94; font-weight: 500">{{ row.dept }}</span></th>
+                    <sc-for list="{{ row.cells }}" as="c" hint-placeholder-count="14">
+                      <td style="padding: 3px 2px">
+                        <span title="{{ c.title }}" aria-label="{{ c.title }}" style="display: block; height: 26px; border-radius: 5px; background: {{ c.bg }}; border: 1px solid {{ c.border }}"></span>
+                      </td>
+                    </sc-for>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: #5c5c66">
+              <span style="display: flex; gap: 7px; align-items: center"><span aria-hidden="true" style="width: 11px; height: 11px; border-radius: 3px; background: #e6e6ff; border: 1px solid #c9c9f5"></span>Approved leave</span>
+              <span style="display: flex; gap: 7px; align-items: center"><span aria-hidden="true" style="width: 11px; height: 11px; border-radius: 3px; background: #fff6d9; border: 1px solid #f0dfbc"></span>Pending</span>
+              <span style="display: flex; gap: 7px; align-items: center"><span aria-hidden="true" style="width: 11px; height: 11px; border-radius: 3px; background: #fdeaea; border: 1px solid #f3c9c4"></span>Holiday</span>
+            </div>
+          </section>
+        </sc-if>
+
+        <sc-if value="{{ isPeople }}" hint-placeholder-val="{{ false }}">
+          <section aria-label="Directory filters" style="display: flex; gap: 8px; flex-wrap: wrap">
+            <label for="p-search" class="sr">Search people</label>
+            <input id="p-search" type="search" value="{{ search }}" onChange="{{ setSearch }}" placeholder="Search name, department or manager" style="height: 36px; min-width: 300px; border: 1px solid #d9d9d2; border-radius: 8px; padding: 0 12px; background: #fff" />
+          </section>
+          <section style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; overflow: hidden">
+            <table style="width: 100%; font-size: 13.5px">
+              <caption class="sr">Employee directory with department, manager, probation state and leave balances</caption>
+              <thead>
+                <tr style="text-align: left; color: #6b6b76">
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Name</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Department</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Manager</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Joined</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">Employment</th>
+                  <th scope="col" style="padding: 11px 18px; font-weight: 600; border-bottom: 1px solid #efefeb">CL / SL left</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ peopleRows }}" as="p" hint-placeholder-count="8">
+                  <tr>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1; font-weight: 600">{{ p.name }}</td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1; color: #5c5c66">{{ p.dept }}</td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1; color: #5c5c66">{{ p.manager }}</td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1; font-family: 'JetBrains Mono', monospace; color: #5c5c66">{{ p.joined }}</td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1"><span style="display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: {{ p.pillBg }}; color: {{ p.pillFg }}">{{ p.employment }}</span></td>
+                    <td style="padding: 12px 18px; border-bottom: 1px solid #f5f5f1; font-family: 'JetBrains Mono', monospace">{{ p.balance }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </section>
+        </sc-if>
+
+        <sc-if value="{{ isReports }}" hint-placeholder-val="{{ false }}">
+          <section style="display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px">
+            <sc-for list="{{ reportCards }}" as="c" hint-placeholder-count="3">
+              <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 16px 18px">
+                <p style="margin: 0 0 8px; font-size: 13px; color: #5c5c66; font-weight: 600">{{ c.label }}</p>
+                <p style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em">{{ c.value }}</p>
+                <p style="margin: 8px 0 0; font-size: 12.5px; color: #6b6b76">{{ c.note }}</p>
+              </div>
+            </sc-for>
+          </section>
+          <section style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 20px 22px">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px">
+              <h2 style="margin: 0; font-size: 14.5px; font-weight: 600">Leave days taken by month</h2>
+              <button type="button" onClick="{{ exportCsv }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 8px; padding: 8px 12px; font-size: 13.5px; cursor: pointer" style-hover="background: #f6f6f3">Export CSV</button>
+            </div>
+            <div role="img" aria-label="{{ chartAria }}" style="display: flex; align-items: flex-end; gap: 10px; height: 210px">
+              <sc-for list="{{ chartBars }}" as="b" hint-placeholder-count="8">
+                <div style="flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; height: 100%">
+                  <div style="border-radius: 6px 6px 0 0; background: #4f46e5; height: {{ b.h }}"></div>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8a8a94; text-align: center">{{ b.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+        </sc-if>
+
+        <sc-if value="{{ isAudit }}" hint-placeholder-val="{{ false }}">
+          <section style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; overflow: hidden">
+            <ul style="list-style: none; margin: 0; padding: 0">
+              <sc-for list="{{ auditRows }}" as="a" hint-placeholder-count="6">
+                <li style="display: flex; gap: 14px; padding: 13px 18px; border-bottom: 1px solid #f5f5f1">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8a8a94; white-space: nowrap; padding-top: 2px">{{ a.when }}</span>
+                  <span style="min-width: 0">
+                    <span style="display: block; font-size: 13.5px; font-weight: 600">{{ a.action }}</span>
+                    <span style="display: block; font-size: 13px; color: #5c5c66">{{ a.detail }}</span>
+                  </span>
+                  <span style="margin-left: auto; font-size: 12.5px; color: #6b6b76; white-space: nowrap">{{ a.actor }}</span>
+                </li>
+              </sc-for>
+            </ul>
+          </section>
+        </sc-if>
+
+        <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+          <section style="display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; align-items: start">
+            <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px">
+              <h2 style="margin: 0; font-size: 14.5px; font-weight: 600">Annual entitlement</h2>
+              <sc-for list="{{ policyRows }}" as="p" hint-placeholder-count="4">
+                <div style="display: flex; align-items: center; gap: 12px">
+                  <label for="{{ p.id }}" style="flex: 1; font-size: 14px">{{ p.label }}<span style="display: block; font-size: 12.5px; color: #8a8a94">{{ p.note }}</span></label>
+                  <input id="{{ p.id }}" type="number" min="0" max="60" value="{{ p.value }}" onChange="{{ p.onChange }}" style="width: 78px; height: 38px; border: 1px solid #d9d9d2; border-radius: 8px; padding: 0 10px; background: #fff; font-family: 'JetBrains Mono', monospace; text-align: right" />
+                  <span style="font-size: 13px; color: #6b6b76; width: 34px">days</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="background: #fff; border: 1px solid #e8e8e4; border-radius: 12px; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px">
+              <h2 style="margin: 0; font-size: 14.5px; font-weight: 600">Probation &amp; accrual</h2>
+              <div style="display: flex; align-items: center; gap: 12px">
+                <label for="s-prob" style="flex: 1; font-size: 14px">Probation length<span style="display: block; font-size: 12.5px; color: #8a8a94">Applies from joining date</span></label>
+                <input id="s-prob" type="number" min="0" max="12" value="{{ probMonths }}" onChange="{{ setProbMonths }}" style="width: 78px; height: 38px; border: 1px solid #d9d9d2; border-radius: 8px; padding: 0 10px; background: #fff; font-family: 'JetBrains Mono', monospace; text-align: right" />
+                <span style="font-size: 13px; color: #6b6b76; width: 34px">mo</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px">
+                <label for="s-prob-cl" style="flex: 1; font-size: 14px">Casual leave during probation<span style="display: block; font-size: 12.5px; color: #8a8a94">Accrues monthly, capped</span></label>
+                <input id="s-prob-cl" type="number" min="0" max="12" value="{{ probCl }}" onChange="{{ setProbCl }}" style="width: 78px; height: 38px; border: 1px solid #d9d9d2; border-radius: 8px; padding: 0 10px; background: #fff; font-family: 'JetBrains Mono', monospace; text-align: right" />
+                <span style="font-size: 13px; color: #6b6b76; width: 34px">days</span>
+              </div>
+              <sc-for list="{{ toggles }}" as="t" hint-placeholder-count="4">
+                <label style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; cursor: pointer">
+                  <input type="checkbox" checked="{{ t.on }}" onChange="{{ t.toggle }}" style="margin-top: 3px; accent-color: #4f46e5; width: 16px; height: 16px" />
+                  <span>{{ t.label }}<span style="display: block; font-size: 12.5px; color: #8a8a94">{{ t.note }}</span></span>
+                </label>
+              </sc-for>
+              <p aria-live="polite" style="margin: 0; font-size: 13px; color: #17683a; font-weight: 600">{{ settingsSaved }}</p>
+            </div>
+          </section>
+        </sc-if>
+
+      </main>
+    </div>
+
+    <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position: fixed; inset: 0; z-index: 70; display: flex; justify-content: flex-end">
+        <button type="button" onClick="{{ closeDrawer }}" aria-label="Close request details" style="position: absolute; inset: 0; border: 0; background: rgba(22,22,26,0.32); cursor: pointer"></button>
+        <div role="dialog" aria-modal="true" aria-label="Leave request details" style="position: relative; width: 460px; max-width: 92vw; background: #fff; border-left: 1px solid #e0e0da; height: 100%; overflow-y: auto; padding: 22px 24px; display: flex; flex-direction: column; gap: 18px">
+          <div style="display: flex; align-items: flex-start; gap: 12px">
+            <div style="min-width: 0; flex: 1">
+              <p style="margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.015em">{{ drawer.name }}</p>
+              <p style="margin: 3px 0 0; font-size: 13.5px; color: #6b6b76">{{ drawer.dept }} &middot; reports to {{ drawer.manager }}</p>
+            </div>
+            <button type="button" onClick="{{ closeDrawer }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 7px; width: 32px; height: 32px; cursor: pointer">&times;</button>
+          </div>
+          <dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; font-size: 13.5px">
+            <dt style="color: #6b6b76">Type</dt><dd style="margin: 0; font-weight: 600">{{ drawer.type }}</dd>
+            <dt style="color: #6b6b76">Dates</dt><dd style="margin: 0; font-weight: 600">{{ drawer.range }}</dd>
+            <dt style="color: #6b6b76">Working days</dt><dd style="margin: 0; font-weight: 600">{{ drawer.days }}</dd>
+            <dt style="color: #6b6b76">Balance after</dt><dd style="margin: 0; font-weight: 600">{{ drawer.after }}</dd>
+            <dt style="color: #6b6b76">Employment</dt><dd style="margin: 0; font-weight: 600">{{ drawer.employment }}</dd>
+            <dt style="color: #6b6b76">Attachment</dt><dd style="margin: 0; font-weight: 600">{{ drawer.doc }}</dd>
+          </dl>
+          <div style="background: #f7f7f4; border-radius: 10px; padding: 14px">
+            <p style="margin: 0 0 4px; font-size: 12.5px; color: #6b6b76; font-weight: 600">Reason</p>
+            <p style="margin: 0; font-size: 13.5px; line-height: 1.55">{{ drawer.reason }}</p>
+          </div>
+          <div>
+            <p style="margin: 0 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8a8a94">Approval trail</p>
+            <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+              <sc-for list="{{ drawer.trail }}" as="t" hint-placeholder-count="2">
+                <li style="display: flex; gap: 10px; font-size: 13.5px">
+                  <span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: 0 0 auto; background: {{ t.dot }}"></span>
+                  <span><span style="display: block; font-weight: 600">{{ t.label }}</span><span style="display: block; color: #6b6b76; font-size: 13px">{{ t.detail }}</span></span>
+                </li>
+              </sc-for>
+            </ol>
+          </div>
+          <sc-if value="{{ drawer.canAct }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top: auto; display: flex flex-direction: column; gap: 10px">
+              <div style="display: flex; flex-direction: column; gap: 10px; width: 100%">
+                <label for="d-note" style="font-size: 13px; font-weight: 600">Note to employee</label>
+                <textarea id="d-note" rows="2" value="{{ decisionNote }}" onChange="{{ setDecisionNote }}" placeholder="Optional" style="border: 1px solid #d9d9d2; border-radius: 8px; padding: 10px; background: #fff; resize: vertical"></textarea>
+                <div style="display: flex; gap: 10px">
+                  <button type="button" onClick="{{ drawer.approve }}" style="flex: 1; border: 0; background: #17683a; color: #fff; border-radius: 8px; padding: 11px; font-weight: 600; cursor: pointer">{{ drawer.approveLabel }}</button>
+                  <button type="button" onClick="{{ drawer.reject }}" style="flex: 1; border: 1px solid #f0d2ce; background: #fff; color: #a3271b; border-radius: 8px; padding: 11px; font-weight: 600; cursor: pointer">Reject</button>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ emailOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px">
+        <button type="button" onClick="{{ closeEmail }}" aria-label="Close email preview" style="position: absolute; inset: 0; border: 0; background: rgba(22,22,26,0.4); cursor: pointer"></button>
+        <div role="dialog" aria-modal="true" aria-label="Email notification preview" style="position: relative; width: 640px; max-width: 100%; background: #fff; border-radius: 14px; border: 1px solid #e0e0da; box-shadow: 0 24px 60px rgba(0,0,0,0.2); overflow: hidden">
+          <div style="padding: 14px 20px; border-bottom: 1px solid #efefeb; display: flex; align-items: center; justify-content: space-between">
+            <span style="font-size: 13.5px; font-weight: 600">Email preview &mdash; sent to approvers</span>
+            <button type="button" onClick="{{ closeEmail }}" style="border: 1px solid #d9d9d2; background: #fff; border-radius: 7px; width: 30px; height: 30px; cursor: pointer">&times;</button>
+          </div>
+          <div style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
+            <dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; color: #5c5c66">
+              <dt style="font-weight: 600">To</dt><dd style="margin: 0">{{ email.to }}</dd>
+              <dt style="font-weight: 600">Subject</dt><dd style="margin: 0; color: #16161a; font-weight: 600">{{ email.subject }}</dd>
+            </dl>
+            <div style="border: 1px solid #e8e8e4; border-radius: 12px; padding: 22px; background: #fbfbfa">
+              <p style="margin: 0 0 14px; font-size: 15px; font-weight: 600">{{ email.heading }}</p>
+              <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: #3c3c44">{{ email.body }}</p>
+              <table style="width: 100%; font-size: 13.5px; margin-bottom: 18px">
+                <tbody>
+                  <sc-for list="{{ email.rows }}" as="r" hint-placeholder-count="4">
+                    <tr>
+                      <td style="padding: 6px 0; color: #6b6b76; width: 130px">{{ r.k }}</td>
+                      <td style="padding: 6px 0; font-weight: 600">{{ r.v }}</td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+              <div style="display: flex; gap: 10px">
+                <span style="background: #16161a; color: #fff; border-radius: 7px; padding: 10px 16px; font-size: 13.5px; font-weight: 600">Approve in Leave OS</span>
+                <span style="border: 1px solid #d9d9d2; border-radius: 7px; padding: 10px 16px; font-size: 13.5px; background: #fff">View request</span>
+              </div>
+            </div>
+            <p style="margin: 0; font-size: 12.5px; color: #8a8a94">Simon &amp; Sons Leave OS &middot; you receive this because you approve for {{ email.dept }}.</p>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+      <div role="status" aria-live="polite" style="position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 95; background: #16161a; color: #fff; border-radius: 10px; padding: 12px 18px; font-size: 13.5px; box-shadow: 0 12px 30px rgba(0,0,0,0.22)">{{ toast }}</div>
+    </sc-if>
+  </div>
+</sc-if>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:960},&quot;orgName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Simon &amp; Sons&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultRole&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;employee&quot;,&quot;admin&quot;],&quot;default&quot;:&quot;employee&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#4f46e5&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DEPTS = ["Design", "Engineering", "Operations", "Finance", "Sales"];
+const TODAY = "2026-08-24";
+
+function iso(y, m, d) { return y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0"); }
+function parse(s) { const p = s.split("-").map(Number); return new Date(p[0], p[1] - 1, p[2]); }
+function fmt(s) { const d = parse(s); return d.getDate() + " " + MONTHS[d.getMonth()].slice(0, 3) + " " + d.getFullYear(); }
+function short(s) { const d = parse(s); return d.getDate() + " " + MONTHS[d.getMonth()].slice(0, 3); }
+function addDays(s, n) { const d = parse(s); d.setDate(d.getDate() + n); return iso(d.getFullYear(), d.getMonth(), d.getDate()); }
+function initials(n) { return n.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(); }
+function monthsBetween(a, b) { const x = parse(a), y = parse(b); return (y.getFullYear() - x.getFullYear()) * 12 + (y.getMonth() - x.getMonth()); }
+
+const EMPLOYEES = [
+  { id: "e1", name: "Priya Nair", dept: "Design", manager: "Rahul Menon", joined: "2023-04-10", cl: 8.5, sl: 6, email: "priya@simonandsons.in" },
+  { id: "e2", name: "Arjun Iyer", dept: "Engineering", manager: "Rahul Menon", joined: "2026-06-01", cl: 1.5, sl: 2, email: "arjun@simonandsons.in" },
+  { id: "e3", name: "Meera Krishnan", dept: "Operations", manager: "Sunita Rao", joined: "2021-11-22", cl: 4, sl: 9, email: "meera@simonandsons.in" },
+  { id: "e4", name: "Vikram Shetty", dept: "Engineering", manager: "Rahul Menon", joined: "2024-09-16", cl: 11, sl: 12, email: "vikram@simonandsons.in" },
+  { id: "e5", name: "Fatima Sheikh", dept: "Finance", manager: "Sunita Rao", joined: "2022-02-07", cl: 6.5, sl: 4, email: "fatima@simonandsons.in" },
+  { id: "e6", name: "Daniel Rozario", dept: "Sales", manager: "Anita George", joined: "2026-07-13", cl: 0.5, sl: 2, email: "daniel@simonandsons.in" },
+  { id: "e7", name: "Kavya Reddy", dept: "Design", manager: "Rahul Menon", joined: "2025-01-06", cl: 9, sl: 10, email: "kavya@simonandsons.in" },
+  { id: "e8", name: "Imran Qureshi", dept: "Sales", manager: "Anita George", joined: "2023-08-28", cl: 3, sl: 7, email: "imran@simonandsons.in" }
+];
+
+const REQUESTS = [
+  { id: "r1", emp: "e3", type: "Casual leave", from: "2026-08-27", to: "2026-08-28", half: null, days: 2, reason: "Family function in Coimbatore.", status: "Pending", stage: "Manager", doc: null, filed: "2026-08-20" },
+  { id: "r2", emp: "e4", type: "Sick leave", from: "2026-08-25", to: "2026-08-27", half: null, days: 3, reason: "Viral fever, doctor advised rest.", status: "Pending", stage: "Manager", doc: "certificate-vikram.pdf", filed: "2026-08-24" },
+  { id: "r3", emp: "e6", type: "Casual leave", from: "2026-09-02", to: "2026-09-02", half: "AM", days: 0.5, reason: "Bank appointment.", status: "Pending", stage: "Admin", doc: null, filed: "2026-08-22" },
+  { id: "r4", emp: "e1", type: "Sick leave", from: "2026-08-11", to: "2026-08-11", half: null, days: 1, reason: "Migraine.", status: "Approved", stage: "Closed", doc: null, filed: "2026-08-11" },
+  { id: "r5", emp: "e1", type: "Casual leave", from: "2026-09-14", to: "2026-09-16", half: null, days: 3, reason: "Short trip with family.", status: "Pending", stage: "Manager", doc: null, filed: "2026-08-23" },
+  { id: "r6", emp: "e5", type: "Loss of pay", from: "2026-07-06", to: "2026-07-10", half: null, days: 5, reason: "Extended personal leave beyond balance.", status: "Approved", stage: "Closed", doc: null, filed: "2026-06-28" },
+  { id: "r7", emp: "e8", type: "Unpaid leave", from: "2026-08-18", to: "2026-08-19", half: null, days: 2, reason: "Relocation paperwork.", status: "Rejected", stage: "Closed", doc: null, filed: "2026-08-12" },
+  { id: "r8", emp: "e7", type: "Casual leave", from: "2026-08-24", to: "2026-08-24", half: null, days: 1, reason: "House shifting.", status: "Approved", stage: "Closed", doc: null, filed: "2026-08-18" },
+  { id: "r9", emp: "e2", type: "Sick leave", from: "2026-08-31", to: "2026-08-31", half: "PM", days: 0.5, reason: "Dental procedure.", status: "Pending", stage: "Manager", doc: null, filed: "2026-08-23" }
+];
+
+const HOLIDAYS = {
+  "2026-01-26": { name: "Republic Day", kind: "public" },
+  "2026-03-03": { name: "Holi", kind: "public" },
+  "2026-03-21": { name: "Id-ul-Fitr", kind: "optional" },
+  "2026-04-14": { name: "Dr. Ambedkar Jayanti", kind: "optional" },
+  "2026-05-01": { name: "May Day", kind: "public" },
+  "2026-08-15": { name: "Independence Day", kind: "public" },
+  "2026-08-28": { name: "Onam", kind: "optional" },
+  "2026-10-02": { name: "Gandhi Jayanti", kind: "public" },
+  "2026-11-08": { name: "Diwali", kind: "public" },
+  "2026-12-25": { name: "Christmas", kind: "public" }
+};
+
+const AUDIT = [
+  { when: "24 Aug 09:42", action: "Request submitted", detail: "Vikram Shetty · Sick leave · 25–27 Aug", actor: "Vikram Shetty" },
+  { when: "23 Aug 18:05", action: "Request submitted", detail: "Priya Nair · Casual leave · 14–16 Sep", actor: "Priya Nair" },
+  { when: "21 Aug 11:20", action: "Holiday published", detail: "Onam marked optional / restricted", actor: "Sunita Rao (HR)" },
+  { when: "19 Aug 16:31", action: "Request rejected", detail: "Imran Qureshi · Unpaid leave · insufficient notice", actor: "Anita George" },
+  { when: "18 Aug 10:04", action: "Policy updated", detail: "Probation casual leave capped at 3 days", actor: "Admin" },
+  { when: "12 Aug 09:15", action: "Working day declared", detail: "Saturday 12 Sep set as working day for stock count", actor: "Admin" }
+];
+
+const NAV = {
+  employee: [
+    { view: "emp-home", label: "Overview" },
+    { view: "apply", label: "Apply for leave" },
+    { view: "mine", label: "My requests" },
+    { view: "calendar", label: "Holiday calendar" },
+    { view: "team", label: "Team availability" },
+    { view: "people", label: "Directory" }
+  ],
+  admin: [
+    { view: "admin-home", label: "Dashboard" },
+    { view: "queue", label: "Approvals" },
+    { view: "calendar", label: "Holiday calendar" },
+    { view: "team", label: "Team availability" },
+    { view: "people", label: "Employees" },
+    { view: "reports", label: "Reports" },
+    { view: "audit", label: "Audit log" },
+    { view: "settings", label: "Policy settings" }
+  ]
+};
+
+const TITLES = {
+  "emp-home": ["Overview", "Your balances, probation status and open requests"],
+  "apply": ["Apply for leave", "Balance, holidays and overlaps are checked as you type"],
+  "mine": ["My requests", "Everything you have filed this policy year"],
+  "calendar": ["Holiday calendar 2026", "Published holidays, optional days and declared working days"],
+  "team": ["Team availability", "Approved and pending leave across the next fortnight"],
+  "people": ["People", "Departments, managers, probation state and balances"],
+  "admin-home": ["Dashboard", "Simon & Sons · 50 employees · 5 departments"],
+  "queue": ["Approvals", "Manager sign-off, then admin sign-off"],
+  "reports": ["Reports", "Utilisation and trends for the 2026 policy year"],
+  "audit": ["Audit log", "Every decision, policy edit and calendar change"],
+  "settings": ["Policy settings", "Entitlements, probation rules and approval behaviour"]
+};
+
+class Component extends DCLogic {
+  state = {
+    role: null, pickedRole: "employee", loginEmail: "priya@simonandsons.in",
+    view: "emp-home", requests: REQUESTS.map(r => Object.assign({}, r)), holidays: Object.assign({}, HOLIDAYS),
+    notifs: [
+      { id: "n1", title: "Sick leave · Vikram Shetty", body: "3 days from 25 Aug, medical certificate attached.", when: "12 min ago", read: false, req: "r2" },
+      { id: "n2", title: "Casual leave · Priya Nair", body: "3 days from 14 Sep, awaiting manager sign-off.", when: "Yesterday", read: false, req: "r5" },
+      { id: "n3", title: "Casual leave · Meera Krishnan", body: "2 days from 27 Aug, overlaps with Onam.", when: "4 days ago", read: true, req: "r1" }
+    ],
+    notifsOpen: false, drawerId: null, emailOpen: false, toast: "", decisionNote: "",
+    search: "", statusFilter: "All", month: 7, selected: "2026-08-28", dayName: "",
+    form: { type: "Casual leave", from: "2026-09-21", to: "2026-09-22", half: null, reason: "", file: "" },
+    policy: { "Casual leave": 12, "Sick leave": 12, "Unpaid leave": 30, "Loss of pay": 0 },
+    probMonths: 6, probCl: 3,
+    toggles: [
+      { key: "t1", label: "Email approvers on every submission", note: "Plus an in-app notification", on: true },
+      { key: "t2", label: "Require certificate for sick leave of 3+ days", note: "Blocks submission until attached", on: true },
+      { key: "t3", label: "Allow half-day leave", note: "Morning or afternoon", on: true },
+      { key: "t4", label: "Auto-convert excess leave to loss of pay", note: "When balance is exhausted", on: false }
+    ],
+    settingsSaved: ""
+  };
+
+  me() { return EMPLOYEES[0]; }
+  emp(id) { return EMPLOYEES.find(e => e.id === id) || EMPLOYEES[0]; }
+  isAdmin() { return this.state.role === "admin"; }
+
+  employmentOf(e) {
+    const m = monthsBetween(e.joined, TODAY);
+    return m < this.state.probMonths ? { label: "Probation", bg: "#fff8e6", fg: "#8a6116", probation: true, monthsIn: m } : { label: "Confirmed", bg: "#eef8f0", fg: "#17683a", probation: false, monthsIn: m };
+  }
+
+  dayInfo(d) {
+    const h = this.state.holidays[d];
+    const dow = parse(d).getDay();
+    if (h && h.kind === "working") return { kind: "working", name: h.name || "Working day", off: false };
+    if (h) return { kind: h.kind, name: h.name, off: h.kind === "public" };
+    if (dow === 0 || dow === 6) return { kind: "weekend", name: dow === 0 ? "Sunday" : "Saturday", off: true };
+    return { kind: "normal", name: "Working day", off: false };
+  }
+
+  workingDays(from, to, half) {
+    if (!from || !to || parse(to) < parse(from)) return { days: 0, skipped: 0 };
+    let days = 0, skipped = 0, cur = from;
+    for (let i = 0; i < 400; i++) {
+      const info = this.dayInfo(cur);
+      if (info.off) skipped++; else days++;
+      if (cur === to) break;
+      cur = addDays(cur, 1);
+    }
+    if (half && days === 1) days = 0.5;
+    return { days, skipped };
+  }
+
+  pillFor(s) {
+    if (s === "Approved") return { bg: "#eef8f0", fg: "#17683a" };
+    if (s === "Rejected") return { bg: "#fdeaea", fg: "#a3271b" };
+    return { bg: "#fff8e6", fg: "#8a6116" };
+  }
+
+  say(msg) { this.setState({ toast: msg }); clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: "" }), 3200); }
+
+  decide(id, approve) {
+    this.setState(s => ({
+      requests: s.requests.map(r => {
+        if (r.id !== id) return r;
+        if (!approve) return Object.assign({}, r, { status: "Rejected", stage: "Closed" });
+        if (r.stage === "Manager") return Object.assign({}, r, { stage: "Admin" });
+        return Object.assign({}, r, { status: "Approved", stage: "Closed" });
+      }),
+      drawerId: null, decisionNote: ""
+    }));
+    const r = this.state.requests.find(x => x.id === id);
+    const who = this.emp(r.emp).name;
+    this.say(approve ? (r.stage === "Manager" ? "Manager sign-off recorded — sent to admin. " + who + " notified." : "Approved. " + who + " notified by email.") : "Rejected. " + who + " notified with your note.");
+  }
+
+  setHoliday(kind) {
+    const d = this.state.selected;
+    const name = this.state.dayName || (kind === "working" ? "Declared working day" : "Company holiday");
+    this.setState(s => ({ holidays: Object.assign({}, s.holidays, { [d]: { name, kind } }), dayName: "" }));
+    this.say(fmt(d) + " set as " + (kind === "working" ? "a working day" : kind === "public" ? "a public holiday" : "an optional holiday") + " — calendar published.");
+  }
+
+  renderVals() {
+    const s = this.state;
+    const admin = this.isAdmin();
+    const view = s.view;
+    const me = this.me();
+    const title = TITLES[view] || ["", ""];
+    const pending = s.requests.filter(r => r.status === "Pending");
+    const unread = s.notifs.filter(n => !n.read).length;
+
+    const rowFor = (r) => {
+      const e = this.emp(r.emp);
+      const p = this.pillFor(r.status);
+      const live = r.status === "Pending";
+      return {
+        id: r.id, name: e.name, dept: e.dept, initials: initials(e.name), type: r.type,
+        range: r.from === r.to ? fmt(r.from) + (r.half ? " · half day" : "") : short(r.from) + " – " + fmt(r.to),
+        days: r.days, stage: r.stage, status: r.status, pillBg: p.bg, pillFg: p.fg,
+        actionsOff: !live || !admin, cursor: live && admin ? "pointer" : "not-allowed",
+        approveBg: live && admin ? "#eef8f0" : "#f6f6f3", rejectBg: live && admin ? "#fdf3f2" : "#f6f6f3",
+        approveAria: "Approve " + r.type + " for " + e.name, rejectAria: "Reject " + r.type + " for " + e.name,
+        approve: () => this.decide(r.id, true), reject: () => this.decide(r.id, false),
+        open: () => this.setState({ drawerId: r.id, notifsOpen: false })
+      };
+    };
+
+    // calendar month grid
+    const y = 2026, m = s.month;
+    const first = new Date(y, m, 1);
+    const lead = (first.getDay() + 6) % 7;
+    const total = new Date(y, m + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < lead; i++) cells.push(null);
+    for (let d = 1; d <= total; d++) cells.push(iso(y, m, d));
+    while (cells.length % 7 !== 0) cells.push(null);
+    const approvedOn = (d) => s.requests.filter(r => r.status !== "Rejected" && parse(r.from) <= parse(d) && parse(d) <= parse(r.to));
+    const cellStyle = { public: ["#fdeaea", "#f3c9c4", "#a3271b"], optional: ["#eef4ff", "#cfdcf7", "#2f4d99"], weekend: ["#f4f4f1", "#e4e4de", "#6b6b76"], working: ["#fff8e6", "#f0dfbc", "#8a6116"], normal: ["#ffffff", "#e8e8e4", "#16161a"] };
+    const weeks = [];
+    for (let i = 0; i < cells.length; i += 7) {
+      weeks.push({ days: cells.slice(i, i + 7).map(d => {
+        if (!d) return { num: "", tag: "", aria: "Empty", bg: "#fbfbfa", border: "#f2f2ee", numColor: "#c8c8c8", tagColor: "#c8c8c8", onLeave: "", pick: () => {}, selected: false };
+        const info = this.dayInfo(d);
+        const st = cellStyle[info.kind] || cellStyle.normal;
+        const on = approvedOn(d).length;
+        const sel = d === s.selected;
+        return {
+          num: parse(d).getDate(), tag: info.kind === "normal" ? "" : info.name,
+          aria: fmt(d) + ", " + info.name + ", " + on + " on leave",
+          bg: sel ? "#eae9ff" : st[0], border: sel ? "#4f46e5" : st[1], numColor: st[2], tagColor: st[2],
+          onLeave: on ? on + " on leave" : "", selected: sel,
+          pick: () => this.setState({ selected: d, dayName: (s.holidays[d] && s.holidays[d].name) || "" })
+        };
+      }) });
+    }
+    const selInfo = this.dayInfo(s.selected);
+    const monthHolidays = Object.keys(s.holidays).filter(k => parse(k).getMonth() === m).sort().map(k => ({ name: s.holidays[k].name + (s.holidays[k].kind === "working" ? " (working)" : s.holidays[k].kind === "optional" ? " (optional)" : ""), day: short(k) }));
+
+    // availability grid
+    const gridDates = [];
+    for (let i = 0; i < 14; i++) gridDates.push(addDays(TODAY, i));
+    const gridRows = EMPLOYEES.map(e => ({
+      name: e.name, dept: e.dept,
+      cells: gridDates.map(d => {
+        const info = this.dayInfo(d);
+        const r = s.requests.find(x => x.emp === e.id && x.status !== "Rejected" && parse(x.from) <= parse(d) && parse(d) <= parse(x.to));
+        if (r && r.status === "Approved") return { bg: "#e6e6ff", border: "#c9c9f5", title: e.name + " on approved " + r.type + ", " + fmt(d) };
+        if (r) return { bg: "#fff6d9", border: "#f0dfbc", title: e.name + " pending " + r.type + ", " + fmt(d) };
+        if (info.off) return { bg: "#fdeaea", border: "#f3c9c4", title: info.name + ", " + fmt(d) };
+        return { bg: "#f8f8f5", border: "#eeeeea", title: e.name + " available, " + fmt(d) };
+      })
+    }));
+
+    // apply form
+    const calc = this.workingDays(s.form.from, s.form.to, s.form.half);
+    const emp = this.employmentOf(me);
+    const balKey = s.form.type === "Sick leave" ? "sl" : "cl";
+    const balNow = s.form.type === "Sick leave" ? me.sl : me.cl;
+    const cap = emp.probation && s.form.type === "Casual leave" ? s.probCl : null;
+    const paid = s.form.type === "Casual leave" || s.form.type === "Sick leave";
+    const needsDoc = s.form.type === "Sick leave" && calc.days >= 3 && s.toggles[1].on;
+    let msg = "", color = "#17683a", block = false;
+    if (calc.days === 0) { msg = "Pick a valid date range — the whole span falls on holidays or weekends."; color = "#a3271b"; block = true; }
+    else if (paid && calc.days > balNow) { msg = "Exceeds balance by " + (calc.days - balNow) + " day(s). " + (s.toggles[3].on ? "Excess will be recorded as loss of pay." : "Reduce the range or file as unpaid leave."); color = s.toggles[3].on ? "#8a6116" : "#a3271b"; block = !s.toggles[3].on; }
+    else if (cap !== null && calc.days > cap) { msg = "During probation casual leave is capped at " + cap + " days per request."; color = "#a3271b"; block = true; }
+    else if (needsDoc && !s.form.file) { msg = "Attach a medical certificate to continue."; color = "#8a6116"; block = true; }
+    else { msg = calc.days + " working day(s) will be deducted. Goes to " + me.manager + " first, then admin."; }
+
+    const overlaps = s.requests.filter(r => r.emp !== me.id && r.status !== "Rejected" && !(parse(r.to) < parse(s.form.from) || parse(r.from) > parse(s.form.to))).map(r => ({ name: this.emp(r.emp).name, when: short(r.from) + " – " + short(r.to) }));
+
+    const deptDays = DEPTS.map(d => {
+      const days = s.requests.filter(r => r.status !== "Rejected" && this.emp(r.emp).dept === d).reduce((a, r) => a + r.days, 0);
+      return { name: d, days };
+    });
+    const maxDept = Math.max(1, ...deptDays.map(d => d.days));
+
+    const monthsBars = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug"];
+    const barVals = [14, 9, 22, 17, 11, 26, 19, 23];
+    const maxBar = Math.max(...barVals);
+
+    const drawerReq = s.drawerId ? s.requests.find(r => r.id === s.drawerId) : null;
+    let drawer = null;
+    if (drawerReq) {
+      const e = this.emp(drawerReq.emp);
+      const em = this.employmentOf(e);
+      const bal = drawerReq.type === "Sick leave" ? e.sl : e.cl;
+      drawer = {
+        name: e.name, dept: e.dept, manager: e.manager, type: drawerReq.type,
+        range: drawerReq.from === drawerReq.to ? fmt(drawerReq.from) + (drawerReq.half ? " · half day (" + drawerReq.half + ")" : "") : fmt(drawerReq.from) + " – " + fmt(drawerReq.to),
+        days: drawerReq.days, after: (bal - drawerReq.days) + " of " + s.policy[drawerReq.type] + " left",
+        employment: em.label + " · " + em.monthsIn + " months in", doc: drawerReq.doc || "None",
+        reason: drawerReq.reason, canAct: admin && drawerReq.status === "Pending",
+        approveLabel: drawerReq.stage === "Manager" ? "Approve as manager" : "Approve as admin",
+        approve: () => this.decide(drawerReq.id, true), reject: () => this.decide(drawerReq.id, false),
+        trail: [
+          { label: "Filed by " + e.name, detail: fmt(drawerReq.filed), dot: "#4f46e5" },
+          { label: "Manager review · " + e.manager, detail: drawerReq.stage === "Manager" ? "Waiting" : "Cleared", dot: drawerReq.stage === "Manager" ? "#e0b94a" : "#17683a" },
+          { label: "Admin sign-off", detail: drawerReq.status === "Approved" ? "Approved" : drawerReq.status === "Rejected" ? "Rejected" : drawerReq.stage === "Admin" ? "Waiting" : "Not started", dot: drawerReq.status === "Approved" ? "#17683a" : drawerReq.status === "Rejected" ? "#a3271b" : "#d9d9d2" }
+        ]
+      };
+    }
+
+    const emailSrc = pending[0] || s.requests[0];
+    const emailEmp = this.emp(emailSrc.emp);
+
+    let listed = s.requests.filter(r => s.statusFilter === "All" || r.status === s.statusFilter);
+    if (s.search) {
+      const q = s.search.toLowerCase();
+      listed = listed.filter(r => (this.emp(r.emp).name + r.type + r.reason).toLowerCase().includes(q));
+    }
+
+    let people = EMPLOYEES;
+    if (s.search) { const q = s.search.toLowerCase(); people = people.filter(p => (p.name + p.dept + p.manager).toLowerCase().includes(q)); }
+
+    return {
+      isLogin: !s.role, isApp: !!s.role, isEmployee: s.role === "employee",
+      isEmployeeRole: s.pickedRole === "employee", isAdminRole: s.pickedRole === "admin",
+      loginEmail: s.loginEmail, pendingCount: pending.length, holidayCount: Object.keys(s.holidays).filter(k => s.holidays[k].kind !== "working").length,
+      noop: () => {},
+      onLoginEmail: (e) => this.setState({ loginEmail: e.target.value }),
+      pickEmployee: () => this.setState({ pickedRole: "employee", loginEmail: "priya@simonandsons.in" }),
+      pickAdmin: () => this.setState({ pickedRole: "admin", loginEmail: "hr@simonandsons.in" }),
+      onLoginSubmit: (e) => { e.preventDefault(); this.setState({ role: s.pickedRole, view: s.pickedRole === "admin" ? "admin-home" : "emp-home" }); },
+      logout: () => this.setState({ role: null, notifsOpen: false, drawerId: null, search: "" }),
+
+      roleLabel: admin ? "Admin workspace" : "My workspace",
+      navItems: NAV[admin ? "admin" : "employee"].map(n => ({
+        label: n.label, current: view === n.view ? "page" : undefined,
+        bg: view === n.view ? "#f1f1ed" : "transparent", fg: view === n.view ? "#16161a" : "#4b4b55",
+        weight: view === n.view ? "600" : "500",
+        badge: n.view === "queue" ? String(pending.length) : n.view === "mine" ? String(s.requests.filter(r => r.emp === me.id).length) : "",
+        go: () => this.setState({ view: n.view, notifsOpen: false })
+      })),
+      userName: admin ? "Sunita Rao" : me.name, userMeta: admin ? "Admin · HR" : me.dept + " · reports to " + me.manager,
+      userInitials: admin ? "SR" : initials(me.name),
+      pageTitle: title[0], pageSub: title[1],
+      showApplyCta: !admin && view !== "apply",
+      goApply: () => this.setState({ view: "apply" }), goHome: () => this.setState({ view: admin ? "admin-home" : "emp-home" }),
+      goMine: () => this.setState({ view: "mine" }), goQueue: () => this.setState({ view: "queue" }),
+
+      notifsOpen: s.notifsOpen, unreadCount: unread, unreadDisplay: unread ? "grid" : "none",
+      notifAria: "Notifications, " + unread + " unread",
+      toggleNotifs: () => this.setState({ notifsOpen: !s.notifsOpen }),
+      markAllRead: () => this.setState({ notifs: s.notifs.map(n => Object.assign({}, n, { read: true })) }),
+      notifs: s.notifs.map(n => ({ title: n.title, body: n.body, when: n.when, bg: n.read ? "transparent" : "#f6f6ff", dot: n.read ? "#d9d9d2" : "#4f46e5", open: () => this.setState({ drawerId: n.req, notifsOpen: false, notifs: s.notifs.map(x => x.id === n.id ? Object.assign({}, x, { read: true }) : x) }) })),
+      openEmail: () => this.setState({ emailOpen: true, notifsOpen: false }),
+      closeEmail: () => this.setState({ emailOpen: false }), emailOpen: s.emailOpen,
+      email: {
+        to: emailEmp.manager.split(" ")[0].toLowerCase() + "@simonandsons.in, hr@simonandsons.in",
+        subject: "Leave request · " + emailEmp.name + " · " + emailSrc.type,
+        heading: emailEmp.name + " requested " + emailSrc.days + " day(s) of " + emailSrc.type.toLowerCase(),
+        body: "This request is waiting on " + (emailSrc.stage === "Manager" ? "manager" : "admin") + " sign-off. Approving here records the decision and notifies " + emailEmp.name.split(" ")[0] + " immediately.",
+        dept: emailEmp.dept,
+        rows: [
+          { k: "Dates", v: emailSrc.from === emailSrc.to ? fmt(emailSrc.from) : fmt(emailSrc.from) + " – " + fmt(emailSrc.to) },
+          { k: "Working days", v: String(emailSrc.days) },
+          { k: "Reason", v: emailSrc.reason },
+          { k: "Balance after", v: (emailSrc.type === "Sick leave" ? emailEmp.sl : emailEmp.cl) - emailSrc.days + " days" },
+          { k: "Attachment", v: emailSrc.doc || "None" }
+        ]
+      },
+      toast: s.toast,
+
+      isEmpHome: view === "emp-home",
+      balances: [
+        { name: "Casual leave", left: me.cl, total: s.policy["Casual leave"], pct: Math.round(me.cl / s.policy["Casual leave"] * 100) + "%", color: "#4f46e5", note: "Accrues 1 day a month", aria: me.cl + " of " + s.policy["Casual leave"] + " casual leave days left" },
+        { name: "Sick leave", left: me.sl, total: s.policy["Sick leave"], pct: Math.round(me.sl / s.policy["Sick leave"] * 100) + "%", color: "#17683a", note: "Certificate needed past 2 days", aria: me.sl + " of " + s.policy["Sick leave"] + " sick leave days left" },
+        { name: "Unpaid leave", left: s.policy["Unpaid leave"], total: s.policy["Unpaid leave"], pct: "100%", color: "#8a8a94", note: "Needs admin sign-off", aria: "Unpaid leave available" },
+        { name: "Loss of pay", left: 0, total: 0, pct: "0%", color: "#a3271b", note: "None recorded this year", aria: "No loss of pay days recorded" }
+      ],
+      probationTitle: emp.probation ? "You are on probation until " + fmt(addDays(me.joined, s.probMonths * 30)) : "Confirmed employee · full entitlement active",
+      probationBody: emp.probation ? "Casual leave is capped at " + s.probCl + " days per request and accrues monthly. Sick leave is available in full. Unpaid leave needs admin approval." : "You joined " + fmt(me.joined) + " and cleared probation, so the full " + s.policy["Casual leave"] + "-day casual and " + s.policy["Sick leave"] + "-day sick entitlement applies. Balances carry forward up to 6 days.",
+      myRequests: s.requests.filter(r => r.emp === me.id).map(rowFor),
+
+      isApply: view === "apply",
+      leaveTypes: Object.keys(s.policy).map(t => ({ id: t, label: t })),
+      form: s.form,
+      typeHint: s.form.type === "Sick leave" ? "Certificate required for 3 days or more." : s.form.type === "Casual leave" ? (emp.probation ? "Capped at " + s.probCl + " days per request during probation." : "Deducted from your casual leave balance.") : "Not paid. Needs admin sign-off in addition to your manager.",
+      setType: (e) => this.setState({ form: Object.assign({}, s.form, { type: e.target.value }) }),
+      setFrom: (e) => this.setState({ form: Object.assign({}, s.form, { from: e.target.value }) }),
+      setTo: (e) => this.setState({ form: Object.assign({}, s.form, { to: e.target.value }) }),
+      setReason: (e) => this.setState({ form: Object.assign({}, s.form, { reason: e.target.value }) }),
+      setFile: (e) => this.setState({ form: Object.assign({}, s.form, { file: (e.target.files && e.target.files[0] && e.target.files[0].name) || "certificate.pdf" }) }),
+      fileName: s.form.file ? "Attached: " + s.form.file : "No file attached yet",
+      isFullDay: !s.form.half, isHalfAM: s.form.half === "AM", isHalfPM: s.form.half === "PM",
+      setFullDay: () => this.setState({ form: Object.assign({}, s.form, { half: null }) }),
+      setHalfAM: () => this.setState({ form: Object.assign({}, s.form, { half: "AM", to: s.form.from }) }),
+      setHalfPM: () => this.setState({ form: Object.assign({}, s.form, { half: "PM", to: s.form.from }) }),
+      needsDoc, validMsg: msg, validColor: color, submitDisabled: block,
+      submitBg: block ? "#b9b9c2" : "#16161a", submitCursor: block ? "not-allowed" : "pointer",
+      calcDays: calc.days, calcSkipped: calc.skipped + " day(s) fell on holidays or weekends",
+      calcAfter: paid ? Math.max(0, balNow - calc.days) + " of " + s.policy[s.form.type] + " days" : "No paid balance used",
+      approverName: me.manager, overlaps: overlaps.length ? overlaps : [{ name: "Nobody else is out", when: "" }],
+      submitLeave: (e) => {
+        e.preventDefault();
+        if (block) return;
+        const nr = { id: "r" + (s.requests.length + 1), emp: me.id, type: s.form.type, from: s.form.from, to: s.form.to, half: s.form.half, days: calc.days, reason: s.form.reason || "—", status: "Pending", stage: "Manager", doc: s.form.file || null, filed: TODAY };
+        this.setState({
+          requests: s.requests.concat([nr]), view: "mine",
+          notifs: [{ id: "n" + (s.notifs.length + 1), title: s.form.type + " · " + me.name, body: calc.days + " day(s) from " + fmt(s.form.from) + ", awaiting manager sign-off.", when: "Just now", read: false, req: nr.id }].concat(s.notifs)
+        });
+        this.say("Request submitted. " + me.manager + " and HR notified by email and in-app.");
+      },
+
+      isQueue: view === "queue" || view === "mine",
+      search: s.search, setSearch: (e) => this.setState({ search: e.target.value }),
+      statusFilters: ["All", "Pending", "Approved", "Rejected"].map(f => ({
+        label: f, active: s.statusFilter === f, bg: s.statusFilter === f ? "#16161a" : "#fff",
+        fg: s.statusFilter === f ? "#fff" : "#16161a", border: s.statusFilter === f ? "#16161a" : "#d9d9d2",
+        pick: () => this.setState({ statusFilter: f })
+      })),
+      queueRows: (view === "mine" ? listed.filter(r => r.emp === me.id) : listed).map(rowFor),
+      queueSummary: (view === "mine" ? listed.filter(r => r.emp === me.id) : listed).length + " request(s) shown · " + pending.length + " pending across the org",
+      exportCsv: () => this.say("CSV exported — 2026 leave register, " + s.requests.length + " rows."),
+
+      isAdminHome: view === "admin-home",
+      kpis: [
+        { label: "Pending approvals", value: pending.length, delta: pending.length ? "Oldest waiting 4 days" : "Queue clear", deltaColor: pending.length ? "#8a6116" : "#17683a" },
+        { label: "On leave today", value: s.requests.filter(r => r.status === "Approved" && parse(r.from) <= parse(TODAY) && parse(TODAY) <= parse(r.to)).length, delta: "2% of headcount", deltaColor: "#6b6b76" },
+        { label: "Days taken YTD", value: s.requests.filter(r => r.status === "Approved").reduce((a, r) => a + r.days, 0), delta: "Sick leave up 12% vs Q2", deltaColor: "#6b6b76" },
+        { label: "On probation", value: EMPLOYEES.filter(e => this.employmentOf(e).probation).length, delta: "Capped at " + s.probCl + " casual days", deltaColor: "#6b6b76" }
+      ],
+      pendingRows: pending.map(rowFor),
+      deptStats: deptDays.map(d => ({ name: d.name, days: d.days, pct: Math.round(d.days / maxDept * 100) + "%", aria: d.name + ": " + d.days + " leave days" })),
+      outToday: (() => {
+        const out = s.requests.filter(r => r.status === "Approved" && parse(r.from) <= parse(TODAY) && parse(TODAY) <= parse(r.to)).map(r => ({ name: this.emp(r.emp).name, type: r.type }));
+        return out.length ? out : [{ name: "Full attendance", type: "—" }];
+      })(),
+
+      isCalendar: view === "calendar",
+      monthLabel: MONTHS[m] + " 2026", dowLabels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+      calAria: MONTHS[m] + " 2026 holiday calendar. Select a day to see or change its status.",
+      weeks, prevMonth: () => this.setState({ month: (m + 11) % 12 }), nextMonth: () => this.setState({ month: (m + 1) % 12 }),
+      selectedLabel: fmt(s.selected), selectedState: selInfo.name + (selInfo.off ? " · non-working" : " · working") + " · " + approvedOn(s.selected).length + " on leave",
+      canEditCalendar: admin, dayName: s.dayName, setDayName: (e) => this.setState({ dayName: e.target.value }),
+      markPublic: () => this.setHoliday("public"), markOptional: () => this.setHoliday("optional"),
+      markWorking: () => this.setHoliday("working"),
+      clearDay: () => { const h = Object.assign({}, s.holidays); delete h[s.selected]; this.setState({ holidays: h }); this.say(fmt(s.selected) + " reset to its default state."); },
+      proposeChange: () => this.say("Proposal sent to admin for sign-off — nothing published yet."),
+      monthHolidays, monthHolidayEmpty: monthHolidays.length ? "" : "No holidays marked in this month.",
+
+      isTeam: view === "team",
+      gridDates: gridDates.map(d => ({ label: short(d).replace(" ", "\u2009"), color: this.dayInfo(d).off ? "#a3271b" : "#6b6b76" })),
+      gridRows,
+
+      isPeople: view === "people",
+      peopleRows: people.map(p => {
+        const em = this.employmentOf(p);
+        return { name: p.name, dept: p.dept, manager: p.manager, joined: short(p.joined) + " " + parse(p.joined).getFullYear(), employment: em.label, pillBg: em.bg, pillFg: em.fg, balance: p.cl + " / " + p.sl };
+      }),
+
+      isReports: view === "reports",
+      reportCards: [
+        { label: "Average days per employee", value: "6.4", note: "Against 12-day casual entitlement" },
+        { label: "Approval turnaround", value: "1.8 days", note: "Manager plus admin, median" },
+        { label: "Loss of pay days", value: "5", note: "One employee, July" }
+      ],
+      chartAria: "Bar chart of leave days taken per month, January to August 2026, peaking at 26 days in June.",
+      chartBars: monthsBars.map((label, i) => ({ label, h: Math.round(barVals[i] / maxBar * 100) + "%" })),
+
+      isAudit: view === "audit", auditRows: AUDIT,
+
+      isSettings: view === "settings",
+      policyRows: Object.keys(s.policy).map(k => ({
+        id: "pol-" + k.replace(/\s/g, "-"), label: k, value: s.policy[k],
+        note: k === "Casual leave" ? "Accrues monthly, 6 days carry forward" : k === "Sick leave" ? "Certificate past 2 days" : k === "Unpaid leave" ? "Admin sign-off required" : "Recorded automatically",
+        onChange: (e) => this.setState({ policy: Object.assign({}, s.policy, { [k]: Number(e.target.value) }), settingsSaved: "Saved · " + k + " set to " + e.target.value + " days" })
+      })),
+      probMonths: s.probMonths, probCl: s.probCl,
+      setProbMonths: (e) => this.setState({ probMonths: Number(e.target.value), settingsSaved: "Saved · probation set to " + e.target.value + " months" }),
+      setProbCl: (e) => this.setState({ probCl: Number(e.target.value), settingsSaved: "Saved · probation casual leave capped at " + e.target.value + " days" }),
+      toggles: s.toggles.map((t, i) => ({ label: t.label, note: t.note, on: t.on, toggle: () => this.setState({ toggles: s.toggles.map((x, j) => j === i ? Object.assign({}, x, { on: !x.on }) : x), settingsSaved: "Saved · " + t.label }) })),
+      settingsSaved: s.settingsSaved,
+
+      drawerOpen: !!drawer, drawer: drawer || { trail: [] },
+      closeDrawer: () => this.setState({ drawerId: null }),
+      decisionNote: s.decisionNote, setDecisionNote: (e) => this.setState({ decisionNote: e.target.value })
+    };
+  }
+}
+
+</script>
+</body>
+</html>

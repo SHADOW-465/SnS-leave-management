@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "pnpm install",
+  "buildCommand": "node scripts/vercel-bundle.mjs",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "api/node_modules/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/healthz", "destination": "/api" },
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/v1/internal/cron",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

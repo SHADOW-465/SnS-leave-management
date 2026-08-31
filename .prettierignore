@@ -1,0 +1,15 @@
+node_modules
+dist
+build
+out
+coverage
+data
+demo
+pnpm-lock.yaml
+*.db
+graphify-out
+.graphify
+playwright-report
+test-results
+CHANGELOG.md
+.impeccable/

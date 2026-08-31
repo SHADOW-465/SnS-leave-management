@@ -1,0 +1,69 @@
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly requestId?: string;
+  constructor(status: number, code: string, message: string, requestId?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.requestId = requestId;
+  }
+}
+
+function csrf(): string {
+  const m = document.cookie.match(/(?:^|; )leaveos\.csrf=([^;]*)/);
+  return m ? decodeURIComponent(m[1] ?? '') : '';
+}
+
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !(init.body instanceof FormData)) {
+    headers.set('content-type', 'application/json');
+  }
+  const method = (init.method ?? 'GET').toUpperCase();
+  if (!['GET', 'HEAD'].includes(method)) {
+    headers.set('x-csrf-token', csrf());
+  }
+  let res: Response;
+  try {
+    res = await fetch(path, { ...init, headers, credentials: 'include' });
+  } catch {
+    throw new ApiError(
+      0,
+      'NETWORK',
+      'Cannot reach the Leave OS server. The office computer may be off.',
+    );
+  }
+  const text = await res.text();
+  const json = text
+    ? (JSON.parse(text) as {
+        data?: T;
+        error?: { code: string; message: string; requestId?: string };
+      })
+    : {};
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      json.error?.code ?? 'ERROR',
+      json.error?.message ?? 'Request failed',
+      json.error?.requestId,
+    );
+  }
+  return json.data as T;
+}
+
+export type Me = {
+  id: string;
+  email: string;
+  displayName: string;
+  roles: string[];
+  permissions: string[];
+  employeeId: string | null;
+  mustChangePassword: boolean;
+  companyName: string;
+  timezone: string;
+};
+
+export function can(me: Me | null, prefix: string): boolean {
+  return Boolean(me?.permissions.some((p) => p.startsWith(prefix)));
+}

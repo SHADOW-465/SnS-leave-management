@@ -1,0 +1,288 @@
+# Changelog
+
+## 0.1.10 — 2026-08-28
+
+### Added — Temporary Vercel + Supabase hosted preview
+
+- Fastify entry at the repository root so the same API can run as a Vercel Function for
+  company click-through testing. Office go-live remains SQLite on one Windows machine.
+- `DATABASE_URL` / `SUPABASE_DB_URL` already switched the API to Postgres; hosted preview
+  now also turns on secure cookies, `trustProxy`, demo-account sign-in, and first-run seed
+  when the database is empty.
+- Daily cron tick (`GET /api/v1/internal/cron` with `CRON_SECRET`) replaces in-process
+  `setInterval` jobs, which do not survive serverless freeze.
+- File backup stays SQLite-only. Attachments on the preview host are ephemeral.
+
+This is not a cloud product. Tear the preview down when verification is done (DW-41).
+
+## 0.1.9 — 2026-08-27
+
+### Added — Department Management, Team Management, Team Rosters & Full Employee Lifecycle
+
+- **Department Management**:
+  - **Create, List & Edit Departments**: HR Officers and Admins can create departments with unique uppercase codes (e.g., `ENG`, `HR`, `FIN`) and assign Department Heads.
+  - **Department Deactivation / Archival Guard**: Safe archival with active employee protection (prevents deactivation if active staff are still assigned to the department).
+  - **Department Cards**: Visual cards showing department code badge, assigned department head, active staff headcount, and active team counts.
+- **Team Management & Membership Rosters**:
+  - **Create, List & Edit Teams**: Create teams scoped to departments and assign Team Leads.
+  - **Interactive Team Membership Management**: Interactive modal allowing HR/Admin to add employees to a team or remove members with single-click actions and instant reactive updates.
+  - **Team Archival**: Safely deactivates teams and automatically unlinks existing members (`team_id = NULL`) while keeping them in their respective departments.
+  - **Team Cards & Filtering**: Filter teams by department and keyword search; cards display department tags, assigned leads, and total member count.
+- **Complete Employee Lifecycle & Management**:
+  - **Add Employee**: Full employee creation form with dynamic team selection (filtered by selected department) and optional account provisioning.
+  - **Edit Employee**: Full editing of personal details, department, team, job title, employment type, location, manager hierarchy, and employment status with optimistic locking.
+  - **Deactivate Employee**: Secure exit recording with exit date and deactivation reason, disabling user account logins while immutably preserving historical records.
+  - **Reactivate Exited Employee**: One-click reactivation restoring employee status to `active`, clearing exit dates, and re-enabling login account access.
+  - **Temporary Password Reset**: Generate one-time temporary passwords for employees with click-to-copy modal.
+- **Multi-Tab People View (`/people`)**:
+  - Dedicated accessible tabs for `Employees`, `Departments`, and `Teams`.
+  - Top KPI metrics: Total Staff, Active Staff, On Probation, Exited Staff.
+  - Live search and multi-dimensional filters (Department, Team, Status).
+- **Backend API & Contracts**:
+  - Endpoints: `POST /api/v1/departments`, `PATCH /api/v1/departments/:id`, `POST /api/v1/departments/:id/archive`, `POST /api/v1/teams`, `PATCH /api/v1/teams/:id`, `POST /api/v1/teams/:id/archive`, `POST /api/v1/teams/:id/members`, `POST /api/v1/employees/:id/reactivate`.
+  - Zod schemas in `@sns/contracts`: `createDepartmentBodySchema`, `updateDepartmentBodySchema`, `createTeamBodySchema`, `updateTeamBodySchema`, `teamMembersBodySchema`, `reactivateEmployeeBodySchema`.
+  - All operations append strictly to `audit_event`.
+- **Automated Integration Tests**:
+  - Added test suites in `apps/server/src/people.test.ts` verifying department CRUD & duplicate code rejection, team CRUD & member rosters, and employee deactivation/reactivation lifecycle.
+- **Seamless Demo Login & Testing Access**:
+  - Removed forced password change gate (`PasswordPage`) from login and routing flows, allowing all demo accounts (`admin`, `amina`, `ravi`, `helen`, `paul`, `nora`) to log in immediately with their standard demo credentials without interruption.
+  - Reset `must_change_password` flag to `0` across all seeded and provisioned demo accounts.
+  - Added password reveal toggle and 1-Click Instant Login buttons on the sign-in screen.
+
+## 0.1.8 — 2026-08-27
+
+### Fixed & Enhanced — Directory Visibility Scoped to Admins/HR & Calendar Recalculation
+
+- **Removed Directory Access for Standard Employees**:
+  - Removed "Directory" link from employee navigation (`EMPLOYEE_NAV` in `Shell.tsx`).
+  - Protected `/people` route in `App.tsx` to require `employee.read:company` or `employee.read:reports_recursive` permissions, automatically redirecting unauthorized employees to `/`.
+  - Updated action button guards in `People.tsx` to require explicit company-level scopes (`employee.create:company`, `employee.update:company`, `employee.archive:company`).
+  - Added frontend permission unit tests in `apps/web/src/App.test.ts`.
+
+- **Robust Calendar Recalculation Across Locations & Employees**:
+  - `recalculateLeaveRequestsForDate` and `holidaysForEmployee` now reliably match all employees and active leave requests (pending, approved, draft) spanning a modified calendar date, including employees with unassigned or fallback locations.
+  - Recalculates both `leave_request.total_half_days` and granular `leave_request_day` records (`is_counted`, `skip_reason`).
+  - Automatically updates `balance_ledger` holds (`HOLD_RELEASE` + `PENDING_HOLD` for pending requests, `ADJUSTMENT` for approved requests).
+- **Instant Employee Overview & Balance Synchronization**:
+  - Employee Overview (`/`), My Requests (`/requests`), and Request Details (`/requests/:id`) immediately reflect the recalculated leave day counts and updated remaining balances (`left`, `taken`, `total`).
+  - Added comprehensive query invalidations across `home`, `reqs`, `req`, `dash`, and `availability` upon calendar edits.
+- **Automated Verification**:
+  - Enhanced integration tests in `apps/server/src/calendar.test.ts` to verify that converting a holiday to a declared working day or deleting a holiday instantly recalculates existing leave requests and updates the employee's overview balance and requests list.
+
+### Added — Notification Click Redirection & Interactive Popover Overhaul
+
+- **Interactive Notification Click Redirection**:
+  - Clicking any notification in the topbar dropdown automatically marks that notification as read, closes the popover, and instantly navigates to the relevant entity / page:
+    - **Leave Requests / Decisions**: Navigates directly to the curved floating detail window for that request (`/requests/:id`) or the approvals queue (`/requests`).
+    - **Attendance & Presence Signals**: Navigates to `/attendance`.
+    - **Holiday Calendar**: Navigates to `/calendar`.
+    - **People & Directory**: Navigates to `/people`.
+- **Interactive Notification Popover Redesign**:
+  - Distinct color-coded icons and badge borders for each notification type (e.g., green for approved, red for rejected, blue for pending requests, indigo for attendance, purple for calendar).
+  - High-contrast typography with bold unread indicators, relative timestamps (e.g., `Just now`, `5m ago`, `2h ago`), hover animations, and subtle chevron indicators.
+  - One-click **Mark all read** action with instant cache invalidation.
+  - Full keyboard accessibility and auto-dismiss on outside click or Escape key.
+- **Backend API & Tests**:
+  - Enhanced `POST /api/v1/notifications/read` and `markNotificationsRead` to support marking individual notifications as read by ID or marking all as read.
+  - Added automated test in `apps/server/src/leave.test.ts` verifying notification creation upon submission, payload metadata (`entity_type: 'leave_request'`, `entity_id`), and individual read status updates.
+
+## 0.1.6 — 2026-08-27
+
+### Added — Attendance & Presence Signals Page Redesign, Manual Corrections & Batch CSV Import
+
+- **Modernized Attendance & Presence Signals (`/attendance`)**:
+  - **4 Top KPI Cards**: Live telemetry cards showing Total Signals (with week-over-week trends), Today Login Signals, Earliest Presence time, and Latest Active presence across the organization.
+  - **ADR 0011 Philosophy Banner**: Transparent educational banner clarifying login-derived presence evidence (positive presence signals vs unverified absences).
+  - **Multi-Filter & Search Toolbar**: Live keyword search across employee names, codes, and departments; quick date preset buttons (`Today`, `Yesterday`, `Last 7 Days`, `All Dates`) plus custom date picker; signal source filters (`All`, `Web Login`, `Hardware/CSV Import`); and department selectors with active filter tag chips and clear-all action.
+  - **High-Contrast Presence Ledger**: High-legibility table featuring employee avatar chips, work date badges, source badges (`Login` vs `Import`), formatted first/last login times, computed presence duration windows, and manual correction badges.
+  - **Curved Floating Modals**:
+    - **Inspect Signal Window**: Curved floating window (`border-radius: 20px`) with raw device JSON inspector, employee work context, first/last login signals, and immutable correction timeline.
+    - **Manual Correction Window**: Audit-compliant manual correction dialog with field selector (`first_login_at`, `last_login_at`, `work_date`, `notes`), new value input, and mandatory audit reason prompt (preserving raw signals per ADR 0011).
+    - **CSV Import Modal**: Hardware/biometric bulk import modal with file upload, drag-and-drop, raw CSV text input, live column/row preview table, and sample template download (`/api/v1/attendance/template.csv`).
+  - **Client-side Filtered CSV Export**: Quick download of the currently filtered attendance view for payroll and audit review.
+- **Backend API & Contracts**:
+  - `GET /api/v1/attendance`: Filtered presence queries with RBAC scoping (`attendance.read`), date/source/department/keyword filters, computed KPI metrics, and correction histories.
+  - `POST /api/v1/attendance/corrections`: Append-only manual corrections inserting into `attendance_correction` with before/after audit event `attendance.corrected`.
+  - `POST /api/v1/attendance/import`: Batch import of external hardware signals with employee code validation, upsert handling, and audit event `attendance.imported`.
+  - `GET /api/v1/attendance/template.csv`: Standard downloadable CSV template for hardware clocking integrations.
+- **Integration Tests**:
+  - Added comprehensive test suite in `apps/server/src/attendance.test.ts` verifying automatic login presence recording, filtered listings, manual corrections, and CSV batch importing.
+
+## 0.1.5 — 2026-08-27
+
+### Added — Employee Directory CRUD Operations & High-Contrast Visual Redesign
+
+- **Full Employee Directory CRUD Operations (`/people`)**:
+  - **Add Employee**: Complete creation modal with first/last name, employee code, work email, joined date, probation date, and organization selectors (Department, Job Title, Office Location, Employment Type, and Reporting Manager) with user account provisioning.
+  - **Edit Employee**: Curved floating modal for updating employee profile details (names, contact, department, role, location, manager, probation end date, and status) with optimistic concurrency validation (`version`).
+  - **Cycle Prevention**: Live graph cycle prevention prohibiting circular management reporting hierarchies.
+  - **Deactivate / Exit Employee**: Modal for marking employees as exited with departure reason and exit date; securely disables login accounts and revokes active sessions while preserving historical ledger data.
+  - **Admin Password Reset**: Allows HR/Admin to reset an employee's password and view/copy a one-time temporary password sheet.
+  - **Directory Filtering & KPIs**: Live search across all employee fields, department dropdown filter, status filter (`Active`, `Probation`, `Notice`, `Exited`, `Suspended`), and top-level KPI summary cards.
+- **High-Contrast Grid & Table Styling**:
+  - Rebuilt team availability grid (`/team`) with crisp borders (`1.5px solid #94a3b8` on working days), 2-tier column headers (weekday + day of month), today highlight, and distinct status color cells (amber pending, indigo approved, red holiday, slate weekend).
+  - Enhanced global border tokens across all tables and calendar views.
+- **Backend API & Tests**:
+  - Added `PATCH /api/v1/employees/:id` (`updateEmployee`) and `GET /api/v1/employees/:id` (`getEmployee`).
+  - Added full test suite in `apps/server/src/people.test.ts` validating employee creation, updates, concurrency conflicts, and deactivation.
+
+## 0.1.4 — 2026-08-27
+
+### Added — Curved Floating Preview Window with Employee Leave History
+
+- **Curved Floating Preview Window**:
+  - Replaced side drawer with an elevated, centered curved floating window (`border-radius: 20px`) with frosted glass backdrop blur and smooth scale-in animation.
+  - Interactive rows across Approvals queue, Admin dashboard, and Employee overview.
+- **Employee Leave History & Approver Decision Context**:
+  - Displays total days taken this year across all leave types.
+  - Displays taken vs granted days and remaining balance for the requested leave type.
+  - Computes and highlights projected remaining balance if approved.
+  - Shows interactive chips for all leave type balances (Paid, Sick, Casual, etc.).
+  - Lists prior leave history records (date ranges, type, days count, and status) so approvers have instant context for decisions.
+- **Full Preview Components**:
+  - Employee header with initials avatar, department, reports-to manager, and live status pill.
+  - Day-by-day calendar schedule breakdown and step-by-step approval audit trail.
+  - Supporting document card with download link and file size formatting.
+  - In-window Approve, Reject (with reason dialog), and Withdraw action toolbar.
+- **Dynamic Request Recalculation on Calendar Changes**:
+  - When an admin/HR changes a calendar day from a holiday/weekend to a working day (`declared_working` or deleting/modifying a public holiday), existing pending, approved, and draft leave requests spanning that date are automatically recalculated.
+  - Days previously marked as skipped (`is_counted = 0`) update to counted leave days (`is_counted = 1`, `skip_reason = null`).
+  - Total working days (`total_half_days`) and balance ledger entries (`PENDING_HOLD` / `ADJUSTMENT`) update automatically with an immutable audit trail (`leave.request.recalculated`).
+- **Backend API**:
+  - Enhanced `requestDetail` in `queries.ts` to compute append-only ledger balances, total leave taken YTD, and prior requests for the employee.
+  - Added `recalculateLeaveRequestsForDate` in `usecases/leave.ts` invoked upon any holiday calendar change or removal.
+
+## 0.1.3 — 2026-08-27
+
+
+Production-readiness pass. Details in `docs/IMPLEMENTATION-LOG.md`; register entries
+DW-52 … DW-63.
+
+### Fixed — production deployment
+
+- **The production server served no interface.** The static-file path resolved to
+  `<repo>/web/dist`, which never exists, so every page returned 404 while the API worked.
+- **A strict CSP would have shipped an unstyled, unfontned UI.** `style-src 'self'` blocks
+  React's element style attributes and `font-src 'self'` blocks the bundler's inlined
+  `data:` font subsets. Both relaxed to exactly what the bundle needs; `script-src` is
+  untouched.
+
+### Fixed — access control
+
+- **`/api/v1/dashboard` had no permission check.** Any signed-in employee could read
+  company headcount, department leave statistics, and the pending approval queue by
+  calling it directly.
+
+### Fixed — holiday calendar
+
+- **A date could hold a public, an optional, *and* a declared-working entry at once.** The
+  unique constraint included `kind`, so re-marking a day added a row instead of replacing
+  one and the calendar showed whichever was read first. Migration
+  `0002_holiday_one_kind_per_date` enforces one entry per date; the route now upserts.
+- **Deleting a holiday deleted that date from every calendar** in the company. Now scoped.
+- Marking a day validates its name, reports success and failure, pre-fills the existing
+  name, and offers "Clear this day". Arrow keys move through the grid, every cell announces
+  its date and status, and there is a legend and an empty state.
+- Every calendar change writes an audit event.
+
+### Added — complete leave rules editor
+
+- Settings → Leave Rules now edits all thirteen policy fields the domain enforces —
+  entitlement, accrual method and cadence, mid-year pro-rating, carry-forward cap and
+  expiry, probation restriction and limit, half-days, minimum notice, maximum consecutive
+  days, negative balance, and the attachment threshold — each with a plain-English hint and
+  an effective date. Previously only entitlement days could be changed.
+- Publishing records an audit event with the before and after rules, in one transaction.
+- Read-only for anyone without policy permission, rather than hidden.
+
+### Changed — production posture
+
+- Removed all development scaffolding from the interface: the placeholder warning banner,
+  the "Placeholder rules" dashboard tile, and the "Placeholder entitlement" note on every
+  balance card. `isPlaceholder` is gone from the domain type, contracts, seed, and API.
+- Dashboard metrics are now four figures an approver can act on: awaiting decision (with
+  how long the oldest has waited), out today (named), starting leave within seven days, and
+  active employees.
+- Balance cards no longer render a "0 / 0" tile for a type with no entitlement and no
+  history. "Taken" is summed from the ledger rather than inferred as entitlement minus
+  remaining, which was wrong once any adjustment or carry-forward existed.
+- The holiday calendar starts empty instead of seeded with invented public holidays.
+
+### Tests
+
+- 16 new tests covering holiday upsert and replacement, calendar-scoped deletion, audit
+  events, permission denial, the three holiday kinds driving working-day counts, published
+  rules taking effect immediately, and dashboard scope. 69 tests total.
+
+## 0.1.2 — 2026-08-26
+
+Remediation pass after a full codebase inspection. Details in
+`docs/IMPLEMENTATION-LOG.md`; register entries DW-42 … DW-51.
+
+### Security
+
+- **Fixed an authentication bypass: any password was accepted.** `login()` called an async
+  failure helper without `await`, so the rejection never propagated and control continued
+  into session creation. A wrong password returned 200 with valid session cookies.
+- **Fixed a remote denial of service from the same defect.** The un-awaited rejection was
+  unhandled and terminated the server process, so one failed sign-in took the site down.
+- Enabled type-aware linting with `no-floating-promises` / `no-misused-promises`, the rules
+  that make this class of defect visible.
+- Added `GET /api/v1/attachments/:id`. Uploads previously had no retrieval path.
+  Permission-checked, medical classification enforced, path-guarded, and 403 is identical
+  for missing and forbidden records.
+
+### Data integrity
+
+- Withdrawing a request now awaits its ledger hold release; it could previously fail to
+  return the balance.
+- Three `audit()` writes and the notification-read write are awaited, so they can no longer
+  land outside their transaction.
+- Fixed a first-run seeding race that left the administrator with an opening balance for
+  only one leave type instead of all entitled types.
+
+### Fixed
+
+- Sign-out now returns to the sign-in screen. It previously revoked the session correctly
+  on the server but left the user looking at the application.
+- Sample accounts sign in directly and are listed on the sign-in screen in development, so
+  every role is testable. Previously only the administrator could sign in.
+- `.env` is now read; development defaults its data directory to `./data` rather than
+  `%PROGRAMDATA%`, which needs elevation.
+- The bundled Instrument Sans now actually applies — the token named `'Instrument Sans'`
+  but the package registers `'Instrument Sans Variable'`, so the interface had been
+  rendering in the system sans-serif.
+
+### Accessibility
+
+- Accessible names added to the sample-account buttons, the duration radios (previously
+  announced as "on"), and the mobile menu button.
+
+### Tests
+
+- 9 new regression tests: wrong password, unknown email, no session on failure, no password
+  in logs, lockout, logout revocation, cookie clearing, and both seeding races.
+  53 tests total.
+
+## 0.1.1 — 2026-08-26
+
+- Optional preview database: set `DATABASE_URL` (or `SUPABASE_DB_URL`) to a Postgres URI for hosted company verification. Unset it for the office SQLite product.
+- This is not a cloud go-live. Core operation remains local-first.
+
+## 0.1.0 — 2026-08-26
+
+First implementable v1 for local testing.
+
+- Monorepo (pnpm): `domain`, `database`, `auth`, `contracts`, `config`, `ui`, `server`, `web`, `desktop`
+- First-run wizard, Argon2id passwords, server-side sessions, CSRF
+- Leave apply / approve / reject / withdraw / cancel with immutable balance ledger
+- HR-centred approval routing; managers cannot approve (D-08)
+- Settings → Leave Rules (versioned) and Leave Year
+- Holiday calendar including optional holidays and declared working days
+- Directory, bulk-ready account provisioning, employee deactivation (no deletes)
+- In-app notifications and best-effort email outbox (authority-free links)
+- Login attendance **signals** only; no absence inference (ADR 0011)
+- Reports with CSV export, audit log, backup endpoint, health
+- Desktop control panel that supervises the server process (window close does not stop it)
+
+Not verified: clean-machine install, LAN HTTPS, signed installer, NVDA pass, disk-full (F-10).

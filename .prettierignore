@@ -13,3 +13,8 @@ playwright-report
 test-results
 CHANGELOG.md
 .impeccable/
+
+# Generated deployment bundle
+api/
+public/
+.tmp-pgtest/

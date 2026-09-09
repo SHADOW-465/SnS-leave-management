@@ -762,6 +762,8 @@ export async function archiveDepartment(ctx: RequestContext, departmentId: strin
 export async function listTeams(ctx: RequestContext, departmentId?: string) {
   requirePrincipal(ctx);
   await authorizeAction(ctx, 'org.structure.read', null);
+  // The CAST is required. Postgres cannot infer the type of a bare parameter compared
+  // with IS NULL and rejects the whole query; SQLite accepts the cast unchanged.
   const rows = (await ctx.sqlite
     .prepare(
       `SELECT t.*,
@@ -772,7 +774,7 @@ export async function listTeams(ctx: RequestContext, departmentId?: string) {
        FROM team t
        JOIN department d ON d.id = t.department_id
        LEFT JOIN employee l ON l.id = t.lead_employee_id
-       WHERE (? IS NULL OR t.department_id = ?)
+       WHERE (CAST(? AS TEXT) IS NULL OR t.department_id = CAST(? AS TEXT))
        ORDER BY d.name, t.name`,
     )
     .all(departmentId ?? null, departmentId ?? null)) as Record<string, unknown>[];

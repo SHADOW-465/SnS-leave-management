@@ -219,7 +219,8 @@ describe('setup seeding (regression: un-awaited seeds raced the balance grant)',
     const count = async (table: string) =>
       ((await sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()) as { n: number }).n;
     expect(await count('leave_type')).toBe(4);
-    expect(await count('approval_workflow')).toBe(2);
+    // One workflow per rung of the hierarchy: member, team lead, department head, HR/admin.
+    expect(await count('approval_workflow')).toBe(4);
     // The calendar starts empty on purpose: HR enters the company's real holidays.
     expect(await count('holiday')).toBe(0);
     await app.close();

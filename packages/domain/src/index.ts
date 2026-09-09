@@ -60,14 +60,27 @@ export {
   shouldAccrue,
 } from './leave/accrual.js';
 export {
-  defaultWorkflowSteps,
-  requesterKindFromRoles,
-  resolveEscalation,
-  shouldSelfApprove,
+  NoApproverError,
+  approvalLadder,
+  describeApprover,
+  describeEscalation,
+  requesterKindFrom,
+  resolveApproverChain,
+  roleRungsFor,
+  type ApproverCandidate,
+  type ApproverKind,
   type EscalationReason,
   type RequesterKind,
+  type ResolvedApprover,
   type WorkflowStepDef,
 } from './leave/routing.js';
+export {
+  addMonths,
+  periodNeedsOpening,
+  planRollover,
+  prorateRemainingYear,
+  type RolloverPlan,
+} from './leave/rollover.js';
 export {
   PERMISSIONS,
   ROLE_CODES,

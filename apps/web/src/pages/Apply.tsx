@@ -185,8 +185,8 @@ export function ApplyPage({ me }: { me: Me }) {
             <dd>{preview.data?.skipped ?? '—'}</dd>
             <dt>Balance after</dt>
             <dd>{preview.data?.after ?? '—'}</dd>
-            <dt>Approver</dt>
-            <dd>{preview.data?.approver ?? 'HR Officer'}</dd>
+            <dt>Goes to</dt>
+            <dd>{preview.data?.approver ?? 'Working it out…'}</dd>
           </dl>
         </div>
         <div className="card">

@@ -1,7 +1,11 @@
 # ADR 0009 — HR-centred approval routing, with Admin fallback and Admin self-approval
 
-**Status:** Accepted · **Date:** 2026-08-26 · **Supersedes:** the manager-based routing
-assumed in the original D-08/D-09 defaults
+**Status:** SUPERSEDED by [ADR 0012](0012-hierarchical-approval.md) on 2026-09-08 · **Date:** 2026-08-26
+
+> The company reversed this decision: leave now follows the organisation chart (team lead →
+> department head → HR → administrator) so routine approvals no longer land on HR. The
+> escalation machinery and the admin self-approval rule described below survive in ADR 0012;
+> the HR-centred routing does not.
 
 ## Context
 

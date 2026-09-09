@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { loadConfig, loadDotEnv, pathsFor, type AppConfig } from '@sns/config';
-import { isBootstrapped, openDatabaseFromEnv, type Db } from '@sns/database';
+import { openDatabaseFromEnv, type Db } from '@sns/database';
 import { buildApp } from './app.js';
 import { startJobs } from './jobs.js';
 import { nowIso, todayInTimeZone } from './time.js';
-import { completeSetup, setupStatus } from './usecases/setup.js';
+import { completeSetup, ensureDemoHierarchy, setupStatus } from './usecases/setup.js';
 import type { RequestContext } from './ctx.js';
 
 export type AppRuntime = {
@@ -58,7 +58,7 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
     sqlitePath: dirs.db,
     databaseUrl: config.databaseUrl,
   });
-  if (config.seedOnEmpty && !(await isBootstrapped(db))) {
+  if (config.seedOnEmpty) {
     const ctx = seedCtx(config, db);
     if ((await setupStatus(ctx)).needsSetup) {
       await completeSetup(ctx, {
@@ -71,6 +71,10 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
         adminPassword: 'ChangeMe_admin_1',
         loadSampleData: true,
       });
+    } else {
+      // Already bootstrapped (the live preview). Fill in Sofia and the Engineering
+      // org if this database was seeded before hierarchical approval existed.
+      await ensureDemoHierarchy(ctx);
     }
   }
   const app = await buildApp(config, db);

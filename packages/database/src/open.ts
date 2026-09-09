@@ -56,7 +56,11 @@ export async function migrate(db: Db): Promise<void> {
       (r) => r.id,
     ),
   );
-  const files = [{ id: '0001_init' }, { id: '0002_holiday_one_kind_per_date' }];
+  const files = [
+    { id: '0001_init' },
+    { id: '0002_holiday_one_kind_per_date' },
+    { id: '0003_team_lead_approver' },
+  ];
   for (const m of files) {
     if (applied.has(m.id)) continue;
     let sql = fs.readFileSync(new URL(`./sql/${m.id}.sql`, import.meta.url), 'utf8');

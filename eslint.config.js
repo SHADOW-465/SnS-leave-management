@@ -27,6 +27,10 @@ export default tseslint.config(
       'playwright-report/**',
       'test-results/**',
       'apps/desktop/out/**',
+      // Generated deployment bundles, not source.
+      'api/**',
+      'public/**',
+      '.tmp-pgtest/**',
     ],
   },
   js.configs.recommended,

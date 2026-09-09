@@ -35,6 +35,9 @@ const sql0001 = JSON.stringify(fs.readFileSync(path.join(sqlDir, '0001_init.sql'
 const sql0002 = JSON.stringify(
   fs.readFileSync(path.join(sqlDir, '0002_holiday_one_kind_per_date.sql'), 'utf8'),
 );
+const sql0003 = JSON.stringify(
+  fs.readFileSync(path.join(sqlDir, '0003_team_lead_approver.sql'), 'utf8'),
+);
 
 fs.mkdirSync('api', { recursive: true });
 
@@ -66,7 +69,7 @@ await esbuild.build({
           let src = await fs.promises.readFile(args.path, 'utf8');
           src = src.replace(
             /let sql = fs\.readFileSync\(new URL\(`\.\/sql\/\$\{m\.id\}\.sql`, import\.meta\.url\), 'utf8'\);/,
-            `let sql = m.id === '0001_init' ? ${sql0001} : ${sql0002};`,
+            `let sql = m.id === '0001_init' ? ${sql0001} : m.id === '0002_holiday_one_kind_per_date' ? ${sql0002} : ${sql0003};`,
           );
           return { contents: src, loader: 'ts' };
         });

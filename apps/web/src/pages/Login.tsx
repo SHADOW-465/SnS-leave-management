@@ -35,6 +35,12 @@ const DEFAULT_DEMO_ACCOUNTS: DemoAccountItem[] = [
     password: 'ChangeMe_demo_1',
   },
   {
+    name: 'Sofia Example',
+    email: 'sofia@example.invalid',
+    roles: 'manager',
+    password: 'ChangeMe_demo_1',
+  },
+  {
     name: 'Amina Example',
     email: 'amina@example.invalid',
     roles: 'employee',

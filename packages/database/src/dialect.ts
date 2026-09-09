@@ -1,7 +1,24 @@
 const INSERT_OR_IGNORE = /INSERT\s+OR\s+IGNORE\s+INTO/gi;
 
+/**
+ * Postgres folds unquoted identifiers to lower case; SQLite preserves them. A query
+ * written as `SELECT quantity_half_days AS quantityHalfDays` therefore returns
+ * `quantityhalfdays` on Postgres, and every reader of `row.quantityHalfDays` silently
+ * gets `undefined`. Quoting the alias preserves the case in both engines.
+ *
+ * Only matches an alias that starts lower case and contains an upper-case letter, so
+ * type names (`CAST(x AS TEXT)`) and `RETURNS trigger AS $$` are left alone.
+ */
+function quoteCamelCaseAliases(sql: string): string {
+  return sql.replace(
+    /\bAS\s+([a-z_][A-Za-z0-9_]*[A-Z][A-Za-z0-9_]*)\b/g,
+    (_m, alias: string) => `AS "${alias}"`,
+  );
+}
+
 export function toPostgresSql(sql: string): string {
-  let s = sql.replace(/\bdatetime\s*\(\s*'now'\s*\)/gi, `(now() AT TIME ZONE 'utc')::text`);
+  let s = quoteCamelCaseAliases(sql);
+  s = s.replace(/\bdatetime\s*\(\s*'now'\s*\)/gi, `(now() AT TIME ZONE 'utc')::text`);
   s = s.replace(/\bdate\s*\(\s*'now'\s*\)/gi, `CURRENT_DATE::text`);
   s = s.replace(
     /GROUP_CONCAT\s*\(\s*([^,()]+)\s*,\s*'([^']*)'\s*\)/gi,

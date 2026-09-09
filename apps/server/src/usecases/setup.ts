@@ -50,6 +50,125 @@ export async function demoAccounts(ctx: RequestContext): Promise<{
     accounts,
   };
 }
+
+/**
+ * Hosted preview only. The first Vercel deploy seeded the older sample people (no Sofia,
+ * no Engineering org). `seedOnEmpty` will not run again on a bootstrapped database, so
+ * this backfills the missing department-head rung and seats the existing sample people
+ * into it. Safe to call on every cold start: existing rows are left alone.
+ */
+export async function ensureDemoHierarchy(ctx: RequestContext): Promise<void> {
+  if (!(await isBootstrapped(ctx.sqlite))) return;
+
+  const actor = (await ctx.sqlite
+    .prepare(
+      `SELECT ua.id AS id FROM user_account ua
+         JOIN user_role ur ON ur.user_account_id = ua.id
+         JOIN role r ON r.id = ur.role_id
+        WHERE r.code = 'admin' AND ua.is_disabled = 0
+        ORDER BY ua.created_at
+        LIMIT 1`,
+    )
+    .get()) as { id: string } | undefined;
+  const location = (await ctx.sqlite.prepare(`SELECT id FROM location LIMIT 1`).get()) as
+    { id: string } | undefined;
+  const job = (await ctx.sqlite.prepare(`SELECT id FROM job_title LIMIT 1`).get()) as
+    { id: string } | undefined;
+  const type = (await ctx.sqlite
+    .prepare(`SELECT id FROM employment_type WHERE code = 'PERM'`)
+    .get()) as { id: string } | undefined;
+  if (!actor || !location || !job || !type) return;
+
+  const periodId = await currentPeriodId(ctx);
+  const demoPassword = await hashPassword(DEMO_PASSWORD);
+
+  await withTx(ctx.sqlite, async () => {
+    const engineeringId = await ensureNamedDepartment(ctx, actor.id, 'ENG', 'Engineering');
+    const platformTeamId = await ensureNamedTeam(ctx, actor.id, engineeringId, 'Platform');
+    const supportTeamId = await ensureNamedTeam(ctx, actor.id, engineeringId, 'Customer Support');
+
+    await ensureDemoPerson(ctx, {
+      code: 'E-1006',
+      first: 'Sofia',
+      last: 'Example',
+      email: 'sofia@example.invalid',
+      role: 'manager',
+      departmentId: engineeringId,
+      teamId: null,
+      locationId: location.id,
+      jobId: job.id,
+      typeId: type.id,
+      periodId,
+      actorId: actor.id,
+      passwordHash: demoPassword,
+    });
+
+    await placeDemoEmployee(ctx, 'amina@example.invalid', engineeringId, platformTeamId);
+    await placeDemoEmployee(ctx, 'ravi@example.invalid', engineeringId, platformTeamId);
+    await placeDemoEmployee(ctx, 'paul@example.invalid', engineeringId, supportTeamId);
+
+    const raviId = await employeeIdForEmail(ctx, 'ravi@example.invalid');
+    const sofiaId = await employeeIdForEmail(ctx, 'sofia@example.invalid');
+    if (raviId) {
+      const lead = (await ctx.sqlite
+        .prepare(`SELECT lead_employee_id AS id FROM team WHERE id = ?`)
+        .get(platformTeamId)) as { id: string | null };
+      if (!lead.id) {
+        await ctx.sqlite
+          .prepare(`UPDATE team SET lead_employee_id = ?, updated_at = ? WHERE id = ?`)
+          .run(raviId, ctx.now, platformTeamId);
+      }
+    }
+    if (sofiaId) {
+      const head = (await ctx.sqlite
+        .prepare(`SELECT head_employee_id AS id FROM department WHERE id = ?`)
+        .get(engineeringId)) as { id: string | null };
+      if (!head.id) {
+        await ctx.sqlite
+          .prepare(`UPDATE department SET head_employee_id = ?, updated_at = ? WHERE id = ?`)
+          .run(sofiaId, ctx.now, engineeringId);
+      }
+    }
+
+    const teamLeadStep = (await ctx.sqlite
+      .prepare(`SELECT id FROM approval_workflow_step WHERE approver_kind = 'team_lead' LIMIT 1`)
+      .get()) as { id: string } | undefined;
+    if (!teamLeadStep) {
+      await ctx.sqlite
+        .prepare(`UPDATE approval_workflow SET is_active = 0, updated_at = ? WHERE is_active = 1`)
+        .run(ctx.now);
+      await seedWorkflows(ctx, actor.id);
+    }
+
+    const emails = (
+      (await ctx.sqlite
+        .prepare(
+          `SELECT email FROM user_account
+            WHERE email LIKE '%${DEMO_EMAIL_SUFFIX}' AND is_disabled = 0
+            ORDER BY created_at`,
+        )
+        .all()) as { email: string }[]
+    ).map((r) => r.email);
+    const setting = (await ctx.sqlite
+      .prepare(`SELECT key FROM app_setting WHERE key = 'demo.accounts'`)
+      .get()) as { key: string } | undefined;
+    const payload = JSON.stringify(emails);
+    if (setting) {
+      await ctx.sqlite
+        .prepare(
+          `UPDATE app_setting SET value_json = ?, updated_by = ?, updated_at = ? WHERE key = 'demo.accounts'`,
+        )
+        .run(payload, actor.id, ctx.now);
+    } else {
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO app_setting (key, value_json, updated_by, updated_at) VALUES ('demo.accounts', ?, ?, ?)`,
+        )
+        .run(payload, actor.id, ctx.now);
+    }
+  });
+}
+
 export async function completeSetup(
   ctx: RequestContext,
   input: {
@@ -255,46 +374,69 @@ async function seedLeaveTypes(ctx: RequestContext, actor: string) {
   }
 }
 async function seedWorkflows(ctx: RequestContext, actor: string) {
-  const emp = newId();
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO approval_workflow (id, name, is_active, match_json, priority, created_at, created_by, updated_at, updated_by)
-       VALUES (?, 'Employee and manager requests → HR', 1, ?, 10, ?, ?, ?, ?)`,
-    )
-    .run(
-      emp,
-      JSON.stringify({ requesterRoles: ['employee', 'manager'] }),
-      ctx.now,
-      actor,
-      ctx.now,
-      actor,
-    );
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO approval_workflow_step (id, workflow_id, step_no, approver_kind, approver_ref, is_optional, sla_hours)
-       VALUES (?, ?, 1, 'role', 'hr_officer', 0, 48)`,
-    )
-    .run(newId(), emp);
-  const hr = newId();
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO approval_workflow (id, name, is_active, match_json, priority, created_at, created_by, updated_at, updated_by)
-       VALUES (?, 'HR and Admin requests → Admin', 1, ?, 20, ?, ?, ?, ?)`,
-    )
-    .run(
-      hr,
-      JSON.stringify({ requesterRoles: ['hr_officer', 'admin'] }),
-      ctx.now,
-      actor,
-      ctx.now,
-      actor,
-    );
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO approval_workflow_step (id, workflow_id, step_no, approver_kind, approver_ref, is_optional, sla_hours)
-       VALUES (?, ?, 1, 'role', 'admin', 0, 48)`,
-    )
-    .run(newId(), hr);
+  // One workflow per rung of the hierarchy. The engine walks the ladder in
+  // packages/domain/src/leave/routing.ts; these rows describe it for the UI and make
+  // the chain visible and editable rather than hidden in code.
+  const chains: { name: string; kinds: string[]; steps: [string, string | null][] }[] = [
+    {
+      name: 'Team member → team lead',
+      kinds: ['employee'],
+      steps: [
+        ['team_lead', null],
+        ['department_head', null],
+        ['role', 'hr_officer'],
+      ],
+    },
+    {
+      name: 'Team lead → department head',
+      kinds: ['team_lead'],
+      steps: [
+        ['department_head', null],
+        ['role', 'hr_officer'],
+      ],
+    },
+    {
+      name: 'Department head → HR',
+      kinds: ['department_head'],
+      steps: [['role', 'hr_officer']],
+    },
+    {
+      name: 'HR and administrator requests → administrator',
+      kinds: ['hr_officer', 'admin'],
+      steps: [['role', 'admin']],
+    },
+  ];
+
+  let priority = 10;
+  for (const chain of chains) {
+    const id = newId();
+    await ctx.sqlite
+      .prepare(
+        `INSERT INTO approval_workflow (id, name, is_active, match_json, priority, created_at, created_by, updated_at, updated_by)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        chain.name,
+        JSON.stringify({ requesterRoles: chain.kinds }),
+        priority,
+        ctx.now,
+        actor,
+        ctx.now,
+        actor,
+      );
+    let stepNo = 1;
+    for (const [kind, ref] of chain.steps) {
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO approval_workflow_step (id, workflow_id, step_no, approver_kind, approver_ref, is_optional, sla_hours)
+           VALUES (?, ?, ?, ?, ?, 0, 48)`,
+        )
+        .run(newId(), id, stepNo, kind, ref);
+      stepNo += 1;
+    }
+    priority += 10;
+  }
 }
 async function seedDemoPeople(
   ctx: RequestContext,
@@ -307,64 +449,121 @@ async function seedDemoPeople(
   },
 ) {
   const { hashPassword } = await import('@sns/auth');
-  // Synthetic sign-in accounts, one per role, so every permission path is testable
-  // immediately. They sign in without a forced password change on purpose — the forced
-  // change flow belongs to real provisioning (bulkProvision) and to admin reset, and both
-  // still set it. Every address is @example.invalid, which is a reserved, undeliverable TLD.
+  // Synthetic sign-in accounts covering every rung of the approval hierarchy, so the
+  // chain is visible the moment someone opens the app rather than something you have to
+  // construct by hand. They sign in without a forced password change on purpose: the
+  // forced change belongs to real provisioning and to admin reset, and both still set it.
+  // Every address is @example.invalid, a reserved, undeliverable TLD.
   const demoPassword = await hashPassword(DEMO_PASSWORD);
-  const people = [
-    {
-      code: 'E-1001',
-      first: 'Amina',
-      last: 'Example',
-      email: 'amina@example.invalid',
-      role: 'employee' as const,
-    },
-    {
-      code: 'E-1002',
-      first: 'Ravi',
-      last: 'Example',
-      email: 'ravi@example.invalid',
-      role: 'manager' as const,
-    },
-    {
-      code: 'E-1003',
-      first: 'Helen',
-      last: 'Example',
-      email: 'helen@example.invalid',
-      role: 'hr_officer' as const,
-    },
-    {
-      code: 'E-1004',
-      first: 'Paul',
-      last: 'Example',
-      email: 'paul@example.invalid',
-      role: 'payroll_officer' as const,
-    },
-    {
-      code: 'E-1005',
-      first: 'Nora',
-      last: 'Example',
-      email: 'nora@example.invalid',
-      role: 'auditor' as const,
-    },
-  ];
+
   await withTx(ctx.sqlite, async () => {
     const job = (await ctx.sqlite.prepare(`SELECT id FROM job_title LIMIT 1`).get()) as {
       id: string;
     };
     const type = (await ctx.sqlite
       .prepare(`SELECT id FROM employment_type WHERE code = 'PERM'`)
-      .get()) as {
-      id: string;
+      .get()) as { id: string };
+
+    // A small but complete organisation: one department with two teams, each with a
+    // lead, and a department head above them.
+    const engineeringId = newId();
+    await ctx.sqlite
+      .prepare(
+        `INSERT INTO department (id, name, code, created_at, created_by, updated_at, updated_by)
+         VALUES (?, 'Engineering', 'ENG', ?, ?, ?, ?)`,
+      )
+      .run(engineeringId, ctx.now, ids.actorId, ctx.now, ids.actorId);
+
+    const platformTeamId = newId();
+    const supportTeamId = newId();
+    const teams: [string, string][] = [
+      [platformTeamId, 'Platform'],
+      [supportTeamId, 'Customer Support'],
+    ];
+    for (const [id, name] of teams) {
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO team (id, department_id, name, created_at, created_by, updated_at, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, engineeringId, name, ctx.now, ids.actorId, ctx.now, ids.actorId);
+    }
+
+    type Person = {
+      code: string;
+      first: string;
+      last: string;
+      email: string;
+      role: 'employee' | 'manager' | 'hr_officer' | 'payroll_officer' | 'auditor';
+      teamId: string | null;
+      leadsTeamId?: string;
+      headsDepartment?: boolean;
     };
-    let managerId: string | null = null;
+
+    const people: Person[] = [
+      {
+        code: 'E-1001',
+        first: 'Amina',
+        last: 'Example',
+        email: 'amina@example.invalid',
+        role: 'employee',
+        teamId: platformTeamId,
+      },
+      {
+        code: 'E-1002',
+        first: 'Ravi',
+        last: 'Example',
+        email: 'ravi@example.invalid',
+        role: 'manager',
+        teamId: platformTeamId,
+        leadsTeamId: platformTeamId,
+      },
+      {
+        code: 'E-1006',
+        first: 'Sofia',
+        last: 'Example',
+        email: 'sofia@example.invalid',
+        role: 'manager',
+        teamId: null,
+        headsDepartment: true,
+      },
+      {
+        code: 'E-1003',
+        first: 'Helen',
+        last: 'Example',
+        email: 'helen@example.invalid',
+        role: 'hr_officer',
+        teamId: null,
+      },
+      {
+        code: 'E-1004',
+        first: 'Paul',
+        last: 'Example',
+        email: 'paul@example.invalid',
+        role: 'payroll_officer',
+        teamId: supportTeamId,
+      },
+      {
+        code: 'E-1005',
+        first: 'Nora',
+        last: 'Example',
+        email: 'nora@example.invalid',
+        role: 'auditor',
+        teamId: null,
+      },
+    ];
+
+    const employeeIdByEmail = new Map<string, string>();
     for (const p of people) {
       const empId = newId();
       const userId = newId();
+      employeeIdByEmail.set(p.email, empId);
+      // People in a team sit in Engineering; HR, payroll and audit stay in the default
+      // department so their chain escalates upward rather than looping back to itself.
+      const departmentId = p.teamId || p.headsDepartment ? engineeringId : ids.deptId;
       await ctx.sqlite
         .prepare(
-          `INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, location_id, department_id, manager_employee_id, job_title_id, employment_type_id, retention_class, created_at, created_by, updated_at, updated_by)
+          `INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, created_at, created_by, updated_at, updated_by)
            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, 'standard', ?, ?, ?, ?)`,
         )
         .run(
@@ -375,8 +574,8 @@ async function seedDemoPeople(
           p.email,
           '2024-01-15',
           ids.locationId,
-          ids.deptId,
-          p.role === 'employee' ? managerId : null,
+          departmentId,
+          p.teamId,
           job.id,
           type.id,
           ctx.now,
@@ -384,7 +583,6 @@ async function seedDemoPeople(
           ctx.now,
           ids.actorId,
         );
-      if (p.role === 'manager') managerId = empId;
       await ctx.sqlite
         .prepare(
           `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
@@ -401,6 +599,23 @@ async function seedDemoPeople(
         .run(userId, role.id, ids.actorId, ctx.now);
       await grantOpeningBalances(ctx, empId, ids.periodId, ids.actorId);
     }
+
+    // Appoint the leadership now that everyone exists.
+    for (const p of people) {
+      const empId = employeeIdByEmail.get(p.email);
+      if (!empId) continue;
+      if (p.leadsTeamId) {
+        await ctx.sqlite
+          .prepare(`UPDATE team SET lead_employee_id = ?, updated_at = ? WHERE id = ?`)
+          .run(empId, ctx.now, p.leadsTeamId);
+      }
+      if (p.headsDepartment) {
+        await ctx.sqlite
+          .prepare(`UPDATE department SET head_employee_id = ?, updated_at = ? WHERE id = ?`)
+          .run(empId, ctx.now, engineeringId);
+      }
+    }
+
     // Recorded so the sign-in screen can list exactly these accounts in development,
     // rather than guessing from the address.
     await ctx.sqlite
@@ -411,6 +626,149 @@ async function seedDemoPeople(
       .run(JSON.stringify(people.map((p) => p.email)), ids.actorId, ctx.now);
   });
 }
+
+async function ensureNamedDepartment(
+  ctx: RequestContext,
+  actorId: string,
+  code: string,
+  name: string,
+): Promise<string> {
+  const existing = (await ctx.sqlite
+    .prepare(`SELECT id FROM department WHERE code = ? AND archived_at IS NULL`)
+    .get(code)) as { id: string } | undefined;
+  if (existing) return existing.id;
+  const id = newId();
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO department (id, name, code, created_at, created_by, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(id, name, code, ctx.now, actorId, ctx.now, actorId);
+  return id;
+}
+
+async function ensureNamedTeam(
+  ctx: RequestContext,
+  actorId: string,
+  departmentId: string,
+  name: string,
+): Promise<string> {
+  const existing = (await ctx.sqlite
+    .prepare(`SELECT id FROM team WHERE department_id = ? AND name = ? AND archived_at IS NULL`)
+    .get(departmentId, name)) as { id: string } | undefined;
+  if (existing) return existing.id;
+  const id = newId();
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO team (id, department_id, name, created_at, created_by, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(id, departmentId, name, ctx.now, actorId, ctx.now, actorId);
+  return id;
+}
+
+async function employeeIdForEmail(ctx: RequestContext, email: string): Promise<string | null> {
+  const row = (await ctx.sqlite
+    .prepare(`SELECT employee_id AS id FROM user_account WHERE email = ?`)
+    .get(email)) as { id: string | null } | undefined;
+  return row?.id ?? null;
+}
+
+async function placeDemoEmployee(
+  ctx: RequestContext,
+  email: string,
+  departmentId: string,
+  teamId: string,
+): Promise<void> {
+  const emp = (await ctx.sqlite
+    .prepare(
+      `SELECT e.id AS id, e.team_id AS teamId, t.name AS teamName
+         FROM employee e
+         JOIN user_account ua ON ua.employee_id = e.id
+         LEFT JOIN team t ON t.id = e.team_id
+        WHERE ua.email = ?`,
+    )
+    .get(email)) as { id: string; teamId: string | null; teamName: string | null } | undefined;
+  if (!emp) return;
+  if (emp.teamId && emp.teamName !== 'Default') return;
+  await ctx.sqlite
+    .prepare(`UPDATE employee SET department_id = ?, team_id = ?, updated_at = ? WHERE id = ?`)
+    .run(departmentId, teamId, ctx.now, emp.id);
+}
+
+async function ensureDemoPerson(
+  ctx: RequestContext,
+  input: {
+    code: string;
+    first: string;
+    last: string;
+    email: string;
+    role: string;
+    departmentId: string;
+    teamId: string | null;
+    locationId: string;
+    jobId: string;
+    typeId: string;
+    periodId: string;
+    actorId: string;
+    passwordHash: string;
+  },
+): Promise<void> {
+  if (await employeeIdForEmail(ctx, input.email)) return;
+  const taken = (await ctx.sqlite
+    .prepare(`SELECT id FROM employee WHERE employee_code = ?`)
+    .get(input.code)) as { id: string } | undefined;
+  const code = taken ? `E-${newId().slice(-4)}` : input.code;
+  const empId = newId();
+  const userId = newId();
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, created_at, created_by, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, 'standard', ?, ?, ?, ?)`,
+    )
+    .run(
+      empId,
+      code,
+      input.first,
+      input.last,
+      input.email,
+      '2024-01-15',
+      input.locationId,
+      input.departmentId,
+      input.teamId,
+      input.jobId,
+      input.typeId,
+      ctx.now,
+      input.actorId,
+      ctx.now,
+      input.actorId,
+    );
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, 'argon2id', 0, 0, ?, ?, ?, ?)`,
+    )
+    .run(
+      userId,
+      empId,
+      input.email,
+      input.passwordHash,
+      ctx.now,
+      input.actorId,
+      ctx.now,
+      input.actorId,
+    );
+  const role = (await ctx.sqlite.prepare(`SELECT id FROM role WHERE code = ?`).get(input.role)) as {
+    id: string;
+  };
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)`,
+    )
+    .run(userId, role.id, input.actorId, ctx.now);
+  await grantOpeningBalances(ctx, empId, input.periodId, input.actorId);
+}
+
 export async function grantOpeningBalances(
   ctx: RequestContext,
   employeeId: string,

@@ -25,3 +25,8 @@ graphify-out
 /public
 /api/index.js
 /api/node_modules
+
+# Generated deployment bundle
+api/
+public/
+.tmp-pgtest/

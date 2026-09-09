@@ -9,16 +9,22 @@ import {
   holdQuantity,
   newId,
   releaseQuantity,
-  requesterKindFromRoles,
-  resolveEscalation,
-  shouldSelfApprove,
+  NoApproverError,
+  describeApprover,
+  describeEscalation,
+  requesterKindFrom,
+  resolveApproverChain,
+  roleRungsFor,
   skippedSummary,
   sumHalfDays,
   totalCountedHalfDays,
   validatePolicyAgainstRequest,
   type DayPortion,
+  type ApproverCandidate,
   type Holiday,
   type LeavePolicyRules,
+  type RequesterKind,
+  type ResolvedApprover,
   type RoleCode,
 } from '@sns/domain';
 import { authorizeAction, requirePrincipal, type RequestContext } from '../ctx.js';
@@ -162,9 +168,65 @@ export async function previewLeave(
       name: o.name,
       when: `${formatDisplayDate(o.start_date)} – ${formatDisplayDate(o.end_date)}`,
     })),
-    approver: 'HR Officer',
+    approver: await describeRouteFor(ctx, employeeId, p.userId),
   };
 }
+/**
+ * Plain-English description of who will decide a request, shown before it is submitted so
+ * nobody has to guess where their leave went.
+ */
+async function describeRouteFor(
+  ctx: RequestContext,
+  employeeId: string,
+  requesterUserId: string,
+): Promise<string> {
+  try {
+    const kind = await requesterKindOf(ctx, employeeId);
+    const routing = await resolveApprover(ctx, employeeId, requesterUserId, kind);
+    const who = routing.approverEmployeeId
+      ? ((await ctx.sqlite
+          .prepare(`SELECT first_name || ' ' || last_name AS name FROM employee WHERE id = ?`)
+          .get(routing.approverEmployeeId)) as { name: string } | undefined)
+      : undefined;
+    const role = describeApprover(routing.approverKind, routing.approverRole);
+    const label = who?.name ? `${who.name} (${role.toLowerCase()})` : role;
+    if (routing.selfApproved) {
+      return `You (${role.toLowerCase()}) — recorded as a self-approval, because nobody is above you`;
+    }
+    if (routing.escalation) {
+      return `${label} — escalated because ${describeEscalation(routing.escalation)}`;
+    }
+    return label;
+  } catch {
+    // Never let the preview fail because routing cannot be resolved; submitting will
+    // report the real reason.
+    return 'No approver available yet';
+  }
+}
+
+/** Where this person sits in the chain: team lead, department head, HR, admin, or member. */
+async function requesterKindOf(ctx: RequestContext, employeeId: string): Promise<RequesterKind> {
+  const roles = (
+    (await ctx.sqlite
+      .prepare(
+        `SELECT r.code FROM user_role ur JOIN role r ON r.id = ur.role_id
+           JOIN user_account ua ON ua.id = ur.user_account_id WHERE ua.employee_id = ?`,
+      )
+      .all(employeeId)) as { code: RoleCode }[]
+  ).map((r) => r.code);
+  const lead = (await ctx.sqlite
+    .prepare(`SELECT id FROM team WHERE lead_employee_id = ? AND archived_at IS NULL LIMIT 1`)
+    .get(employeeId)) as { id: string } | undefined;
+  const head = (await ctx.sqlite
+    .prepare(`SELECT id FROM department WHERE head_employee_id = ? AND archived_at IS NULL LIMIT 1`)
+    .get(employeeId)) as { id: string } | undefined;
+  return requesterKindFrom({
+    roles: roles.length ? roles : ['employee'],
+    leadsTeamId: lead?.id ?? null,
+    headsDepartmentId: head?.id ?? null,
+  });
+}
+
 export async function submitLeave(
   ctx: RequestContext,
   input: {
@@ -240,9 +302,12 @@ export async function submitLeave(
       code: RoleCode;
     }[]
   ).map((r) => r.code);
-  const kind = requesterKindFromRoles(roles.length ? roles : ['employee']);
+  // Position in the org structure decides the chain, not only the account's role: a
+  // team lead is an ordinary employee account that happens to lead a team.
+  void roles;
+  const kind = await requesterKindOf(ctx, employeeId);
   const workflow = await pickWorkflow(ctx, kind);
-  const routing = await resolveApprover(ctx, kind, p.userId);
+  const routing = await resolveApprover(ctx, employeeId, p.userId, kind);
   const id = newId();
   await withTx(ctx.sqlite, async () => {
     await ctx.sqlite
@@ -250,8 +315,8 @@ export async function submitLeave(
         `INSERT INTO leave_request (
            id, employee_id, leave_type_id, policy_version_id, start_date, end_date, half_day_start, half_day_end,
            total_half_days, reason, status, workflow_id, current_step_no, submitted_at, was_self_approved,
-           escalation_reason, submitted_by, attachment_id, created_at, created_by, updated_at, updated_by
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           escalation_reason, approver_kind, submitted_by, attachment_id, created_at, created_by, updated_at, updated_by
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -268,6 +333,7 @@ export async function submitLeave(
         ctx.now,
         routing.selfApproved ? 1 : 0,
         routing.escalation,
+        routing.approverKind,
         p.userId,
         input.attachmentId ?? null,
         ctx.now,
@@ -348,56 +414,95 @@ async function pickWorkflow(ctx: RequestContext, kind: string) {
   if (!fallback) throw new DomainError('NO_WORKFLOW', 'No approval workflow is configured.');
   return fallback;
 }
+/**
+ * Walks the approval hierarchy for one requester and returns the first usable approver.
+ *
+ * Ordinary staff are decided by their team lead, so routine leave never reaches HR. A
+ * team lead goes to their department head, a department head to HR, and HR to an
+ * administrator. Each rung is skipped only for a real gap — nobody appointed, the
+ * approver is the person asking, or their account is disabled or they are on leave — and
+ * the reason is recorded on the request so the escalation is explainable.
+ */
 async function resolveApprover(
   ctx: RequestContext,
-  kind: ReturnType<typeof requesterKindFromRoles>,
+  requesterEmployeeId: string,
   requesterUserId: string,
-) {
-  const wantRole = kind === 'hr_officer' || kind === 'admin' ? 'admin' : 'hr_officer';
-  const candidates = (await ctx.sqlite
-    .prepare(
-      `SELECT ua.id AS userId, ua.employee_id AS employeeId, ua.is_disabled
-       FROM user_account ua
-       JOIN user_role ur ON ur.user_account_id = ua.id
-       JOIN role r ON r.id = ur.role_id
-       WHERE r.code = ?`,
-    )
-    .all(wantRole)) as {
+  requesterKind: RequesterKind,
+): Promise<ResolvedApprover> {
+  const teamLead = await candidatesFor(
+    ctx,
+    `SELECT ua.id AS "userId", ua.employee_id AS "employeeId", ua.is_disabled AS "isDisabled"
+       FROM employee me
+       JOIN team tm ON tm.id = me.team_id
+       JOIN employee lead ON lead.id = tm.lead_employee_id
+       JOIN user_account ua ON ua.employee_id = lead.id
+      WHERE me.id = ? AND lead.status != 'exited'`,
+    [requesterEmployeeId],
+  );
+  const departmentHead = await candidatesFor(
+    ctx,
+    `SELECT ua.id AS "userId", ua.employee_id AS "employeeId", ua.is_disabled AS "isDisabled"
+       FROM employee me
+       JOIN department d ON d.id = me.department_id
+       JOIN employee head ON head.id = d.head_employee_id
+       JOIN user_account ua ON ua.employee_id = head.id
+      WHERE me.id = ? AND head.status != 'exited'`,
+    [requesterEmployeeId],
+  );
+  const roles: Record<string, ApproverCandidate[]> = {};
+  for (const role of roleRungsFor(requesterKind)) {
+    roles[role] = await candidatesFor(
+      ctx,
+      `SELECT ua.id AS "userId", ua.employee_id AS "employeeId", ua.is_disabled AS "isDisabled"
+         FROM user_account ua
+         JOIN user_role ur ON ur.user_account_id = ua.id
+         JOIN role r ON r.id = ur.role_id
+        WHERE r.code = ?`,
+      [role],
+    );
+  }
+
+  try {
+    return resolveApproverChain({
+      requesterUserId,
+      requesterKind,
+      candidatesByKind: { team_lead: teamLead, department_head: departmentHead, roles },
+    });
+  } catch (err) {
+    if (err instanceof NoApproverError) {
+      throw new DomainError(
+        'NO_APPROVER',
+        `This request cannot be routed because ${describeEscalation(err.reason)}. Ask an administrator to appoint an approver.`,
+        { httpStatus: 409 },
+      );
+    }
+    throw err;
+  }
+}
+
+/** Loads one rung of the ladder and marks who is currently away. */
+async function candidatesFor(
+  ctx: RequestContext,
+  sql: string,
+  params: string[],
+): Promise<ApproverCandidate[]> {
+  const rows = (await ctx.sqlite.prepare(sql).all(...params)) as {
     userId: string;
     employeeId: string | null;
-    is_disabled: number;
+    isDisabled: number;
   }[];
-  const active = candidates.filter((c) => c.is_disabled === 0);
-  const escalation = resolveEscalation({
-    hasActiveHr: wantRole !== 'hr_officer' || active.length > 0,
-    allHrDisabled: wantRole === 'hr_officer' && candidates.length > 0 && active.length === 0,
-    assignedHrOnLeave: await assignedOnLeave(ctx, active[0]?.employeeId ?? null),
-    slaElapsed: false,
-  });
-  let pool = active;
-  if (escalation && wantRole === 'hr_officer') {
-    pool = (await ctx.sqlite
-      .prepare(
-        `SELECT ua.id AS userId, ua.employee_id AS employeeId, ua.is_disabled
-         FROM user_account ua JOIN user_role ur ON ur.user_account_id = ua.id
-         JOIN role r ON r.id = ur.role_id WHERE r.code = 'admin' AND ua.is_disabled = 0`,
-      )
-      .all()) as typeof active;
+  const out: ApproverCandidate[] = [];
+  for (const r of rows) {
+    out.push({
+      userId: r.userId,
+      employeeId: r.employeeId,
+      isDisabled: Number(r.isDisabled) === 1,
+      onLeave: await assignedOnLeave(ctx, r.employeeId),
+    });
   }
-  const decision = shouldSelfApprove({
-    requesterUserId,
-    candidateApproverUserIds: pool.map((c) => c.userId),
-    requesterIsAdmin: kind === 'admin',
-  });
-  const chosen = pool.find((c) => c.userId === decision.approverUserId) ?? pool[0];
-  if (!chosen) throw new DomainError('NO_APPROVER', 'No approver is available.');
-  return {
-    approverUserId: chosen.userId,
-    approverEmployeeId: chosen.employeeId,
-    selfApproved: decision.selfApproved,
-    escalation,
-  };
+  return out;
 }
+
 async function assignedOnLeave(ctx: RequestContext, employeeId: string | null): Promise<boolean> {
   if (!employeeId) return false;
   const row = (await ctx.sqlite
@@ -427,24 +532,37 @@ export async function decideLeave(
     .get(input.requestId)) as LeaveRow | undefined;
   if (!req) throw new ForbiddenErrorSilent();
   const isSelf = p.employeeId === req.employee_id;
+
+  // The person the request was routed to may decide it, whatever their role. This is what
+  // lets a team lead — an ordinary employee account — approve their own team's leave
+  // without being handed company-wide approval rights.
+  const assigned = (await ctx.sqlite
+    .prepare(
+      `SELECT id FROM approval_step_instance
+        WHERE leave_request_id = ? AND approver_user_id = ? AND status = 'pending'`,
+    )
+    .get(req.id, p.userId)) as { id: string } | undefined;
+  const isAssignedApprover = Boolean(assigned);
+
   if (input.decision === 'approve' && isSelf) {
     await authorizeAction(ctx, 'leave.request.self_approve', req.employee_id);
-  } else if (input.decision === 'approve') {
-    await authorizeAction(ctx, 'leave.request.approve', req.employee_id);
-  } else {
-    await authorizeAction(ctx, 'leave.request.reject', req.employee_id);
+  } else if (!isAssignedApprover) {
+    // Not the assigned approver, so this is an HR or administrator override.
+    await authorizeAction(
+      ctx,
+      input.decision === 'approve' ? 'leave.request.approve' : 'leave.request.reject',
+      req.employee_id,
+    );
   }
-  if (
-    p.roles.includes('manager') &&
-    !p.roles.includes('hr_officer') &&
-    !p.roles.includes('admin')
-  ) {
-    throw new ForbiddenErrorSilent();
-  }
-  if (isSelf && p.roles.includes('hr_officer') && !p.roles.includes('admin')) {
-    throw new DomainError('LEAVE_SELF_FORBIDDEN', 'HR requests are decided by an administrator.', {
-      httpStatus: 403,
-    });
+
+  // Nobody decides their own request. A lone administrator is the documented exception,
+  // and it is recorded as a self-approval rather than passing as an ordinary one.
+  if (isSelf && !p.roles.includes('admin')) {
+    throw new DomainError(
+      'LEAVE_SELF_FORBIDDEN',
+      'You cannot decide your own leave request. It is routed to your approver.',
+      { httpStatus: 403 },
+    );
   }
   const action = input.decision === 'reject' ? 'reject' : 'approve_final';
   const next = applyTransition(req.status as 'pending_approval', action, 'approver');

@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-08-28** (Vercel + Supabase preview host wired; office product unchanged).
+Last reviewed: **2026-09-09** (hierarchy + rollover + hosted demo-org backfill) (Vercel + Supabase preview host wired; office product unchanged).
 Next review: after the verification host is torn down and `DATABASE_URL` is confirmed unset.
 
 ---
@@ -133,6 +133,14 @@ rule that `DONE` rows are never deleted. Detail in
 | DW-61 | **Dashboard metrics included a non-metric**; balances showed a meaningless "0 / 0" card                                                                                                         | DONE 2026-08-27 | Four actionable KPIs (awaiting decision with oldest wait, out today with names, starting within 7 days, active employees). Types with no entitlement and no history no longer render a balance card                           |
 | DW-62 | **"Taken" was inferred as entitlement minus remaining**, which is wrong once an adjustment or carry-forward exists                                                                              | DONE 2026-08-27 | Taken is summed from `DEDUCTION`/`ENCASHMENT`/`EXPIRY` ledger entries directly                                                                                                                                                |
 | DW-63 | Seeded fake public holidays presented as real company data                                                                                                                                      | DONE 2026-08-27 | The calendar starts empty; HR enters the company's real holidays. Test asserts zero seeded holidays                                                                                                                           |
+
+---
+
+## 4c. Resolved in the hierarchy and hosted-preview pass — 2026-09-09
+
+| ID    | Item                                                                                                                          | Status          | Evidence                                                                      |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------- |
+| DW-65 | Hosted preview seeded before hierarchical approval, so Sofia and the Engineering org were missing after `seedOnEmpty` had run | DONE 2026-09-09 | `ensureDemoHierarchy` on hosted cold start; `demo-hierarchy-backfill.test.ts` |
 
 ---
 

@@ -1,5 +1,105 @@
 # Changelog
 
+## 0.1.5 — 2026-09-08
+
+### Fixed — leave balances no longer reset to zero at the leave year boundary
+
+Entitlement is scoped to a leave period. A new period appears on the first day of the new
+leave year and **nothing granted anything into it**, so on that date every balance in the
+company read zero and nobody could apply. There was no carry-forward job and no expiry job
+either, despite both being designed and documented.
+
+`openCurrentPeriod()` now opens the period for everyone: grants the new year's entitlement
+(pro-rated for mid-year joiners), carries unused days forward up to the policy cap, and
+records anything above the cap as an explicit `EXPIRY` entry against the closing period so
+the old year still reconciles. It is idempotent via `period_rollover_run`, so repeated runs
+— including several restarts on 1 January — cannot double-grant. It also runs once at
+startup, so a host that was switched off over the new year catches up when it comes back.
+
+### Fixed — monthly accrual ignored HR's settings and could credit twice
+
+The job called `defaultRulesForCode()`, so any accrual method or entitlement HR published
+in Settings was ignored. It now reads the published `leave_policy_version`. It also had no
+idempotency guard while running on a twelve-hour timer, so on the first of the month it
+fired twice and credited everyone twice; `accrual_run` now holds one row per employee,
+leave type and month.
+
+Carried-forward days now lapse on their expiry date, capped at what is actually unused so
+expiry can never push a balance negative.
+
+### Changed — leave follows the organisation chart
+
+Supersedes ADR 0009. A team member's request is decided by their **team lead**, a team
+lead's by their **department head**, a department head's by **HR**, and HR's by an
+**administrator**. Routine leave no longer lands on HR at all.
+
+- Position decides the rung, not the account role: a team lead is an ordinary employee
+  account that happens to lead a team.
+- A rung is skipped only for a real gap — nobody appointed, the approver is the person
+  asking, their account is disabled, or they are on leave — and the reason is stored on the
+  request so an escalation is explainable afterwards.
+- **Authority comes from being the assigned approver**, not from a company-wide permission.
+  A team lead can decide their own team's requests without being able to touch anyone
+  else's. HR and administrators keep an override.
+- Nobody decides their own request; a lone administrator remains the documented exception.
+- If the whole chain is empty the request is refused with a 409 naming the missing rung.
+
+### Added
+
+- **`pnpm service install`** registers Leave OS as a Windows Service: starts at boot before
+  anyone logs in, survives the host user logging out, restarts on failure, and cannot be
+  closed by accident. `status`, `start`, `stop`, `restart`, `uninstall` included.
+- The apply screen now names **who the request will go to** before you submit it — "Ravi
+  Example (team lead)" — including the reason when it has escalated.
+- The seeded sample organisation models a real structure: Engineering (head: Sofia)
+  containing Platform (lead: Ravi, member: Amina) and Customer Support, so the hierarchy is
+  visible immediately.
+- 40 new tests: the routing ladder in isolation, the hierarchy end to end through the API,
+  and period rollover, accrual idempotency and carry-forward expiry. 157 tests total.
+- Hosted preview: an already-seeded Vercel/Supabase database now gains Sofia (department
+  head) and the Engineering org on cold start. `seedOnEmpty` only runs once, so without
+  this backfill the hierarchy sample people never appeared on the live preview.
+
+
+## 0.1.4 — 2026-09-08
+
+### Fixed — the hosted deployment could not submit or approve leave
+
+Root cause: **Postgres folds unquoted identifiers to lower case; SQLite preserves them.**
+Queries written as `SELECT quantity_half_days AS quantityHalfDays` returned a
+`quantityhalfdays` key on Postgres, so every reader of `row.quantityHalfDays` got
+`undefined`. `availableHalfDays()` then threw `quantityHalfDays must be an integer`,
+which the error handler turned into a generic 500. Twelve aliases across four files were
+affected:
+
+- `usecases/leave.ts` balance read — broke **preview, apply, and approve** (every balance lookup)
+- `usecases/leave.ts` approver resolution — `userId`/`employeeId` came back undefined, so
+  approval steps were written without a resolvable approver
+- `ctx.ts` reporting graph — `managerEmployeeId` undefined, so `collectReports()` built an
+  empty tree and manager-scoped visibility silently returned nothing
+- `usecases/people.ts` manager-cycle checks
+
+Fixed in the translation layer (`toPostgresSql` now quotes camelCase aliases), so the whole
+class is handled and cannot recur in new queries. Type names in casts are left alone.
+
+Also fixed: `GET /api/v1/teams` returned 500 on Postgres. `WHERE (? IS NULL OR ...)` gives
+Postgres no way to infer the parameter type and it rejects the query; the parameter is now
+cast explicitly.
+
+### Added
+
+- **`pnpm start` / `Start Leave OS.cmd`** — one command starts the server bound to the LAN,
+  prints the address colleagues should open, and opens it locally.
+- **23 tests for the hosted Postgres path**, run against real Postgres via PGlite (WASM).
+  This path previously had no tests at all, which is why it shipped unable to apply for
+  leave. Covers submit, approve, reject, withdraw, ledger entries, approver resolution,
+  identifier case folding, and every read surface.
+
+### Changed
+
+- Generated deployment bundles (`api/`, `public/`) are ignored by lint, format, and git.
+  They were being linted as source and failing `pnpm check` with 1,756 errors.
+
 ## 0.1.10 — 2026-08-28
 
 ### Added — Temporary Vercel + Supabase hosted preview

@@ -34,7 +34,7 @@ if ((await setupStatus(ctx)).needsSetup) {
   });
   console.warn('Seeded first-run data.');
   console.warn('  Administrator : admin@example.invalid / ChangeMe_admin_1');
-  console.warn('  Sample people : amina | ravi | helen | paul | nora @example.invalid');
+  console.warn('  Sample people : amina | ravi | sofia | helen | paul | nora @example.invalid');
   console.warn('  Their password: ChangeMe_demo_1');
   console.warn('All of these are also listed on the sign-in screen in development.');
 } else {

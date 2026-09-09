@@ -213,10 +213,28 @@ export async function listRequests(
     )
     .all()) as Record<string, unknown>[];
   const canCompany = p.permissions.includes('leave.request.read:company');
+  // Requests routed to this person, so a team lead's approvals queue is populated by the
+  // hierarchy rather than by company-wide read rights they should not have.
+  const assignedToMe = new Set(
+    (
+      (await ctx.sqlite
+        .prepare(
+          `SELECT leave_request_id AS id FROM approval_step_instance WHERE approver_user_id = ?`,
+        )
+        .all(p.userId)) as { id: string }[]
+    ).map((r) => r.id),
+  );
   return rows.filter((r) => {
     const empId = String(r.employee_id);
     if (opts.mine) return empId === p.employeeId;
-    if (!canCompany && empId !== p.employeeId && !graph.recursiveReports.has(empId)) return false;
+    if (
+      !canCompany &&
+      empId !== p.employeeId &&
+      !graph.recursiveReports.has(empId) &&
+      !assignedToMe.has(String(r.id))
+    ) {
+      return false;
+    }
     if (opts.status && opts.status !== 'all' && r.status !== opts.status) return false;
     if (opts.search) {
       const s = opts.search.toLowerCase();
@@ -235,6 +253,21 @@ export async function queue(
 ) {
   return listRequests(ctx, opts);
 }
+/** True when this request was routed to this user and is still awaiting their decision. */
+async function isAssignedApprover(
+  ctx: RequestContext,
+  requestId: string,
+  userId: string,
+): Promise<boolean> {
+  const row = (await ctx.sqlite
+    .prepare(
+      `SELECT id FROM approval_step_instance
+        WHERE leave_request_id = ? AND approver_user_id = ?`,
+    )
+    .get(requestId, userId)) as { id: string } | undefined;
+  return Boolean(row);
+}
+
 export async function requestDetail(ctx: RequestContext, id: string) {
   const p = requirePrincipal(ctx);
   const r = (await ctx.sqlite
@@ -256,7 +289,11 @@ export async function requestDetail(ctx: RequestContext, id: string) {
     throw Object.assign(new Error('forbidden'), { httpStatus: 403 });
   }
   const empId = String(r.employee_id);
-  await authorizeAction(ctx, 'leave.request.read', empId);
+  // Whoever the request was routed to must be able to read it, or a team lead could be
+  // asked to decide something they are not allowed to open.
+  if (!(await isAssignedApprover(ctx, id, p.userId))) {
+    await authorizeAction(ctx, 'leave.request.read', empId);
+  }
   const trail = await ctx.sqlite
     .prepare(
       `SELECT s.*, ua.email, ae.first_name || ' ' || ae.last_name AS approver_name
@@ -269,10 +306,15 @@ export async function requestDetail(ctx: RequestContext, id: string) {
   const days = await ctx.sqlite
     .prepare(`SELECT * FROM leave_request_day WHERE leave_request_id = ? ORDER BY date`)
     .all(id);
+  // A team lead is an ordinary employee account, so the decision controls have to follow
+  // the routing rather than a company-wide permission. Nobody decides their own request.
+  const isOwn = p.employeeId === String(r.employee_id);
   const canAct =
     r.status === 'pending_approval' &&
-    (p.permissions.includes('leave.request.approve:company') ||
-      p.permissions.includes('leave.request.self_approve:self'));
+    (!isOwn || p.roles.includes('admin')) &&
+    ((await isAssignedApprover(ctx, id, p.userId)) ||
+      p.permissions.includes('leave.request.approve:company') ||
+      (isOwn && p.permissions.includes('leave.request.self_approve:self')));
 
   // Calculate prior leave history and balance context for the employee
   const periodId = await currentPeriodId(ctx);

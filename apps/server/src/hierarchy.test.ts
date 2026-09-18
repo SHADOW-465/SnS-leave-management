@@ -275,3 +275,253 @@ describe('HR and administrators keep their override', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('Downstream higher-up notifications and on-behalf leave', () => {
+  it('notifies Dept Head and HR when Team Lead approves leave, but notifies NO higher-up on rejection', async () => {
+    const amina = await signIn('amina@example.invalid');
+    const ravi = await signIn('ravi@example.invalid');
+
+    const sofiaUser = (await sqlite
+      .prepare(`SELECT id FROM user_account WHERE email = 'sofia@example.invalid'`)
+      .get()) as { id: string };
+    const helenUser = (await sqlite
+      .prepare(`SELECT id FROM user_account WHERE email = 'helen@example.invalid'`)
+      .get()) as { id: string };
+    const aminaUser = (await sqlite
+      .prepare(`SELECT id FROM user_account WHERE email = 'amina@example.invalid'`)
+      .get()) as { id: string };
+
+    // 1. Amina applies for leave
+    const idApprove = await apply(amina, '2026-10-05', '2026-10-07');
+
+    // Ravi (Team Lead) approves
+    const resApprove = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${idApprove}/approve`,
+      headers: auth(ravi),
+      payload: { expectedVersion: 1 },
+    });
+    expect(resApprove.statusCode).toBe(200);
+
+    // Amina receives leave.approved
+    const aminaNotesApprove = (await sqlite
+      .prepare(`SELECT kind FROM notification WHERE recipient_user_id = ? AND entity_id = ?`)
+      .all(aminaUser.id, idApprove)) as { kind: string }[];
+    expect(aminaNotesApprove.map((n) => n.kind)).toContain('leave.approved');
+
+    // Sofia (Department Head) receives informational notification
+    const sofiaNotes = (await sqlite
+      .prepare(`SELECT kind FROM notification WHERE recipient_user_id = ? AND entity_id = ?`)
+      .all(sofiaUser.id, idApprove)) as { kind: string }[];
+    expect(sofiaNotes.map((n) => n.kind)).toContain('leave.approved.informational');
+
+    // Helen (HR Officer) receives informational notification
+    const helenNotes = (await sqlite
+      .prepare(`SELECT kind FROM notification WHERE recipient_user_id = ? AND entity_id = ?`)
+      .all(helenUser.id, idApprove)) as { kind: string }[];
+    expect(helenNotes.map((n) => n.kind)).toContain('leave.approved.informational');
+
+    // 2. Amina applies for another period, which Ravi rejects
+    const idReject = await apply(amina, '2026-10-12', '2026-10-14');
+    const resReject = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${idReject}/reject`,
+      headers: auth(ravi),
+      payload: { expectedVersion: 1, reason: 'Staffing conflict during deployment.' },
+    });
+    expect(resReject.statusCode).toBe(200);
+
+    // Amina receives leave.rejected
+    const aminaNotesReject = (await sqlite
+      .prepare(`SELECT kind FROM notification WHERE recipient_user_id = ? AND entity_id = ?`)
+      .all(aminaUser.id, idReject)) as { kind: string }[];
+    expect(aminaNotesReject.map((n) => n.kind)).toContain('leave.rejected');
+
+    // Higher-ups (Sofia and Helen) receive ZERO notifications for rejected request
+    const sofiaRejectNotes = (await sqlite
+      .prepare(`SELECT kind FROM notification WHERE recipient_user_id = ? AND entity_id = ?`)
+      .all(sofiaUser.id, idReject)) as { kind: string }[];
+    expect(sofiaRejectNotes).toHaveLength(0);
+
+    const helenRejectNotes = (await sqlite
+      .prepare(`SELECT kind FROM notification WHERE recipient_user_id = ? AND entity_id = ?`)
+      .all(helenUser.id, idReject)) as { kind: string }[];
+    expect(helenRejectNotes).toHaveLength(0);
+  });
+
+  it('allows Team Lead to submit sudden leave on behalf of absent team member with audit and notification', async () => {
+    const ravi = await signIn('ravi@example.invalid');
+    const aminaEmp = (await sqlite
+      .prepare(`SELECT id FROM employee WHERE first_name = 'Amina'`)
+      .get()) as { id: string };
+    const aminaUser = (await sqlite
+      .prepare(`SELECT id FROM user_account WHERE email = 'amina@example.invalid'`)
+      .get()) as { id: string };
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/leave-requests',
+      headers: auth(ravi),
+      payload: {
+        leaveTypeId: clTypeId,
+        startDate: '2026-10-19',
+        endDate: '2026-10-20',
+        reason: 'Amina called at 8:15 AM — emergency transit breakdown.',
+        employeeId: aminaEmp.id,
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const reqId = (res.json() as { data: { id: string } }).data.id;
+
+    // Leave request belongs to Amina, submitted by Ravi
+    const reqRow = (await sqlite
+      .prepare(`SELECT employee_id, submitted_by FROM leave_request WHERE id = ?`)
+      .get(reqId)) as { employee_id: string; submitted_by: string };
+    expect(reqRow.employee_id).toBe(aminaEmp.id);
+
+    // Amina was notified of on-behalf submission
+    const aminaNotes = (await sqlite
+      .prepare(`SELECT kind, body FROM notification WHERE recipient_user_id = ? AND entity_id = ?`)
+      .all(aminaUser.id, reqId)) as { kind: string; body: string }[];
+    expect(aminaNotes.map((n) => n.kind)).toContain('leave.submitted_on_behalf');
+
+    // Audit event recorded
+    const auditRow = (await sqlite
+      .prepare(
+        `SELECT action FROM audit_event WHERE entity_id = ? AND action = 'leave.request.submitted_on_behalf'`,
+      )
+      .get(reqId)) as { action: string } | undefined;
+    expect(auditRow).toBeDefined();
+
+    // Ravi (Team Lead) can approve it
+    const resApprove = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${reqId}/approve`,
+      headers: auth(ravi),
+      payload: { expectedVersion: 1 },
+    });
+    expect(resApprove.statusCode).toBe(200);
+  });
+});
+
+describe('Office Security: Workstation Binding & Network Perimeter', () => {
+  it('enforces 1:1 workstation device pairing and rejects cross-account logins in production', async () => {
+    const prodApp = await buildApp(
+      loadConfig({
+        LEAVEOS_DATA_DIR: opened[0]!.dir,
+        LEAVEOS_ENV: 'production',
+        LEAVEOS_ENFORCE_WORKSTATION: 'true',
+      }),
+      sqlite,
+    );
+    await prodApp.ready();
+
+    // 1. Amina logs in from Workstation-101 -> pairs device
+    const res1 = await prodApp.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'amina@example.invalid',
+        password: 'ChangeMe_demo_1',
+        workstationId: 'ws-terminal-101',
+      },
+    });
+    expect(res1.statusCode).toBe(200);
+
+    // Binding exists in workstation_device
+    const device = (await sqlite
+      .prepare(`SELECT * FROM workstation_device WHERE device_fingerprint = 'ws-terminal-101'`)
+      .get()) as { employee_id: string; is_active: number } | undefined;
+    expect(device).toBeDefined();
+    expect(device?.is_active).toBe(1);
+
+    // 2. Paul attempts to log in on Workstation-101 in production -> 403 WORKSTATION_MISMATCH
+    const resPaul = await prodApp.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'paul@example.invalid',
+        password: 'ChangeMe_demo_1',
+        workstationId: 'ws-terminal-101',
+      },
+    });
+    expect(resPaul.statusCode).toBe(403);
+    const bodyPaul = resPaul.json() as { error: { code: string; message: string } };
+    expect(bodyPaul.error.code).toBe('WORKSTATION_MISMATCH');
+
+    // Violation logged to audit_event
+    const auditViolation = (await sqlite
+      .prepare(`SELECT * FROM audit_event WHERE action = 'auth.workstation_violation'`)
+      .get()) as { action: string } | undefined;
+    expect(auditViolation).toBeDefined();
+
+    // 3. Amina logs in again on her assigned workstation -> succeeds
+    const resAminaAgain = await prodApp.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'amina@example.invalid',
+        password: 'ChangeMe_demo_1',
+        workstationId: 'ws-terminal-101',
+      },
+    });
+    expect(resAminaAgain.statusCode).toBe(200);
+    await prodApp.close();
+  });
+
+  it('allows cross-account login on the same machine in development mode for easy testing', async () => {
+    // 1. Amina logs in from Workstation-dev
+    const resAmina = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'amina@example.invalid',
+        password: 'ChangeMe_demo_1',
+        workstationId: 'ws-terminal-dev',
+      },
+    });
+    expect(resAmina.statusCode).toBe(200);
+
+    // 2. Paul logs in from the same Workstation-dev in dev mode -> succeeds without 403
+    const resPaul = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        email: 'paul@example.invalid',
+        password: 'ChangeMe_demo_1',
+        workstationId: 'ws-terminal-dev',
+      },
+    });
+    expect(resPaul.statusCode).toBe(200);
+  });
+
+  it('suppresses attendance signals for offsite remote IPs', async () => {
+    const aminaEmp = (await sqlite
+      .prepare(`SELECT id FROM employee WHERE first_name = 'Amina'`)
+      .get()) as { id: string };
+
+    // Offsite IP login (e.g. 203.0.113.88)
+    const resOffsite = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      remoteAddress: '203.0.113.88',
+      payload: {
+        email: 'amina@example.invalid',
+        password: 'ChangeMe_demo_1',
+      },
+    });
+    expect(resOffsite.statusCode).toBe(200);
+
+    // No attendance signal created in attendance_raw
+    const attRow = (await sqlite
+      .prepare(`SELECT * FROM attendance_raw WHERE employee_id = ? AND source = 'login'`)
+      .get(aminaEmp.id)) as { id: string } | undefined;
+    expect(attRow).toBeUndefined();
+
+    // Audit logs offsite attendance suppressed
+    const auditSuppressed = (await sqlite
+      .prepare(`SELECT * FROM audit_event WHERE action = 'auth.offsite_attendance_suppressed'`)
+      .get()) as { action: string } | undefined;
+    expect(auditSuppressed).toBeDefined();
+  });
+});

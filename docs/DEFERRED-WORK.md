@@ -10,8 +10,8 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-09-09** (hierarchy + rollover + hosted demo-org backfill) (Vercel + Supabase preview host wired; office product unchanged).
-Next review: after the verification host is torn down and `DATABASE_URL` is confirmed unset.
+Last reviewed: **2026-09-12** (office security + 1:1 workstation device binding + on-behalf leave + hierarchy notifications).
+Next review: at the next scheduled release milestone.
 
 ---
 
@@ -141,6 +141,17 @@ rule that `DONE` rows are never deleted. Detail in
 | ID    | Item                                                                                                                          | Status          | Evidence                                                                      |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------- |
 | DW-65 | Hosted preview seeded before hierarchical approval, so Sofia and the Engineering org were missing after `seedOnEmpty` had run | DONE 2026-09-09 | `ensureDemoHierarchy` on hosted cold start; `demo-hierarchy-backfill.test.ts` |
+
+---
+
+## 4d. Resolved in the office security and hierarchy notification pass — 2026-09-12
+
+| ID    | Item                                                                                                                              | Status          | Evidence                                                                                                                                     |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| DW-66 | **Office Network Perimeter Enforcement** — remote/offsite IP logins could falsely record office attendance                        | DONE 2026-09-12 | `isOfficeNetwork(ctx.ip)` check in `auth.ts`, suppressing attendance signals and logging `auth.offsite_attendance_suppressed`; test verified |
+| DW-67 | **Workstation-to-Employee 1:1 Device Binding** — shared terminals allowed cross-account logins ("buddy punching")                 | DONE 2026-09-12 | Migration `0004_workstation_device_binding.sql`, `X-Workstation-Id` header enforcement, 403 `WORKSTATION_MISMATCH` with audit logging        |
+| DW-68 | **Team Lead On-Behalf Sudden Leave** — absent employees unable to log in could not have leave recorded by their leads             | DONE 2026-09-12 | `leave.request.create:team` permissions, `Apply.tsx` On-Behalf applicant selector, target member notification & audit attribution            |
+| DW-69 | **Downstream Higher-Up Notifications** — approved leave was not visible to higher-ups, or spammed managers with rejected requests | DONE 2026-09-12 | `decideLeave` dispatches `leave.approved.informational` to Dept Head / HR / Admin on approve, and suppresses higher-up alerts on reject      |
 
 ---
 

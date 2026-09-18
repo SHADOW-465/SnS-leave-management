@@ -8,6 +8,7 @@
  * perfectly good client — their browser.
  */
 import { spawn } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
@@ -50,17 +51,49 @@ function lanAddress() {
   return preferred[0] ?? other[0] ?? null;
 }
 
-const port = Number(process.env.LEAVEOS_PORT ?? 3000);
+function loadDotEnv(file = path.join(repoRoot, '.env')) {
+  if (!existsSync(file)) return {};
+  const res = {};
+  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    res[key] = trimmed
+      .slice(eq + 1)
+      .trim()
+      .replace(/^(['"])(.*)\1$/, '$2');
+  }
+  return res;
+}
+
+const dotEnv = loadDotEnv();
+const envName =
+  process.env.LEAVEOS_ENV ??
+  dotEnv.LEAVEOS_ENV ??
+  (process.env.NODE_ENV === 'production' ? 'production' : 'development');
+const isProduction = envName === 'production';
+
+const port = Number(process.env.LEAVEOS_PORT ?? dotEnv.LEAVEOS_PORT ?? 3000);
 const ip = lanAddress();
 
 const env = {
+  ...dotEnv,
   ...process.env,
-  LEAVEOS_ENV: process.env.LEAVEOS_ENV ?? 'production',
+  LEAVEOS_ENV: envName,
   LEAVEOS_PORT: String(port),
+  LEAVEOS_DEMO_ACCOUNTS: isProduction
+    ? 'false'
+    : (process.env.LEAVEOS_DEMO_ACCOUNTS ?? dotEnv.LEAVEOS_DEMO_ACCOUNTS ?? 'true'),
+  LEAVEOS_ENFORCE_WORKSTATION: isProduction ? 'true' : 'false',
   // Listen on every interface so other machines can connect. Without this the server
   // answers only on 127.0.0.1 and nobody else on the network can reach it.
-  LEAVEOS_BIND_ALL: 'true',
-  LEAVEOS_PUBLIC_URL: process.env.LEAVEOS_PUBLIC_URL ?? `http://${ip ?? 'localhost'}:${port}`,
+  LEAVEOS_BIND_ALL: process.env.LEAVEOS_BIND_ALL ?? dotEnv.LEAVEOS_BIND_ALL ?? 'true',
+  LEAVEOS_PUBLIC_URL:
+    process.env.LEAVEOS_PUBLIC_URL ??
+    dotEnv.LEAVEOS_PUBLIC_URL ??
+    `http://${ip ?? 'localhost'}:${port}`,
 };
 
 const line = '─'.repeat(58);

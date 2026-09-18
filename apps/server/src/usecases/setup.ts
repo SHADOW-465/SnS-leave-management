@@ -21,7 +21,8 @@ export async function demoAccounts(ctx: RequestContext): Promise<{
   password: string;
   accounts: { email: string; name: string; roles: string; password?: string }[];
 }> {
-  if (!ctx.config.showDemoAccounts) return { password: '', accounts: [] };
+  if (ctx.config.env === 'production' || !ctx.config.showDemoAccounts)
+    return { password: '', accounts: [] };
 
   const rows = (await ctx.sqlite
     .prepare(

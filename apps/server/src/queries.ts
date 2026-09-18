@@ -521,43 +521,282 @@ export async function availability(ctx: RequestContext, from: string, days: numb
 export async function reports(ctx: RequestContext) {
   requirePrincipal(ctx);
   await authorizeAction(ctx, 'report.leave.view', null);
-  const byMonth = (await ctx.sqlite
+  const periodId = await currentPeriodId(ctx);
+  const period = (await ctx.sqlite
+    .prepare(`SELECT id, label, starts_on, ends_on FROM leave_period WHERE id = ?`)
+    .get(periodId)) as
+    { id: string; label: string; starts_on: string; ends_on: string } | undefined;
+
+  const byMonthRaw = (await ctx.sqlite
     .prepare(
-      `SELECT substr(start_date, 1, 7) AS ym, SUM(total_half_days) AS half
-       FROM leave_request WHERE status = 'approved' GROUP BY substr(start_date, 1, 7) ORDER BY 1`,
+      `SELECT substr(start_date, 1, 7) AS ym,
+              COALESCE(SUM(total_half_days), 0) AS half,
+              COUNT(*) AS req_count,
+              COUNT(DISTINCT employee_id) AS emp_count
+       FROM leave_request
+       WHERE status = 'approved'
+       GROUP BY substr(start_date, 1, 7)
+       ORDER BY 1`,
     )
     .all()) as {
     ym: string;
     half: number;
+    req_count: number;
+    emp_count: number;
   }[];
+
+  const byMonth = byMonthRaw.map((m) => ({
+    ym: m.ym,
+    label: m.ym.slice(5),
+    days: (Number(m.half) || 0) / 2,
+    half: Number(m.half) || 0,
+    requestCount: Number(m.req_count) || 0,
+    employeeCount: Number(m.emp_count) || 0,
+  }));
+
   const pendingAge = (await ctx.sqlite
-    .prepare(`SELECT COUNT(*) AS n FROM leave_request WHERE status = 'pending_approval'`)
-    .get()) as {
-    n: number;
-  };
+    .prepare(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(total_half_days), 0) AS half
+       FROM leave_request WHERE status = 'pending_approval'`,
+    )
+    .get()) as { n: number; half: number };
+
+  const rejectedStat = (await ctx.sqlite
+    .prepare(`SELECT COUNT(*) AS n FROM leave_request WHERE status = 'rejected'`)
+    .get()) as { n: number };
+
+  const selfApprovedStat = (await ctx.sqlite
+    .prepare(`SELECT COUNT(*) AS n FROM leave_request WHERE was_self_approved = 1`)
+    .get()) as { n: number };
+
+  const activeHeadcount = (await ctx.sqlite
+    .prepare(`SELECT COUNT(*) AS n FROM employee WHERE status != 'exited'`)
+    .get()) as { n: number };
+
+  const totalApprovedHalf = byMonth.reduce((a, b) => a + b.half, 0);
+  const totalApprovedDays = totalApprovedHalf / 2;
+  const totalApprovedRequests = byMonth.reduce((a, b) => a + b.requestCount, 0);
+  const avgDaysPerEmp =
+    activeHeadcount.n > 0 ? (totalApprovedDays / activeHeadcount.n).toFixed(1) : '0.0';
+
+  const departmentsRaw = (await ctx.sqlite
+    .prepare(
+      `SELECT d.id, d.code, d.name,
+              COUNT(DISTINCT CASE WHEN e.status != 'exited' THEN e.id ELSE NULL END) AS head_count,
+              COALESCE(SUM(CASE WHEN r.status = 'approved' THEN r.total_half_days ELSE 0 END), 0) AS half,
+              COUNT(DISTINCT CASE WHEN r.status = 'approved' THEN r.id ELSE NULL END) AS req_count
+       FROM department d
+       LEFT JOIN employee e ON e.department_id = d.id
+       LEFT JOIN leave_request r ON r.employee_id = e.id
+       GROUP BY d.id, d.code, d.name
+       ORDER BY d.name`,
+    )
+    .all()) as {
+    id: string;
+    code: string;
+    name: string;
+    head_count: number;
+    half: number;
+    req_count: number;
+  }[];
+
+  const byDepartment = departmentsRaw.map((d) => {
+    const days = (Number(d.half) || 0) / 2;
+    const hc = Number(d.head_count) || 0;
+    return {
+      id: d.id,
+      code: d.code,
+      name: d.name,
+      headcount: hc,
+      totalDaysTaken: days,
+      avgDaysPerEmployee: hc > 0 ? (days / hc).toFixed(1) : '0.0',
+      requestCount: Number(d.req_count) || 0,
+    };
+  });
+
+  const leaveTypesRaw = (await ctx.sqlite
+    .prepare(
+      `SELECT t.id, t.code, t.name, t.colour_token,
+              COALESCE(SUM(CASE WHEN r.status = 'approved' THEN r.total_half_days ELSE 0 END), 0) AS half,
+              COUNT(DISTINCT CASE WHEN r.status = 'approved' THEN r.id ELSE NULL END) AS req_count,
+              COUNT(DISTINCT CASE WHEN r.status = 'approved' THEN r.employee_id ELSE NULL END) AS emp_count
+       FROM leave_type t
+       LEFT JOIN leave_request r ON r.leave_type_id = t.id
+       GROUP BY t.id, t.code, t.name, t.colour_token
+       ORDER BY t.name`,
+    )
+    .all()) as {
+    id: string;
+    code: string;
+    name: string;
+    colour_token: string;
+    half: number;
+    req_count: number;
+    emp_count: number;
+  }[];
+
+  const byLeaveType = leaveTypesRaw.map((t) => {
+    const days = (Number(t.half) || 0) / 2;
+    const pct = totalApprovedDays > 0 ? Math.round((days / totalApprovedDays) * 100) : 0;
+    return {
+      id: t.id,
+      code: t.code,
+      name: t.name,
+      colourToken: t.colour_token,
+      totalDaysTaken: days,
+      percentOfTotal: pct,
+      requestCount: Number(t.req_count) || 0,
+      employeeCount: Number(t.emp_count) || 0,
+    };
+  });
+
+  const sortedTypes = [...byLeaveType].sort((a, b) => b.totalDaysTaken - a.totalDaysTaken);
+  const firstType = sortedTypes[0];
+  const mostUsedLeaveType = firstType && firstType.totalDaysTaken > 0 ? firstType.name : 'None';
+
+  const employeesRaw = (await ctx.sqlite
+    .prepare(
+      `SELECT e.id, e.employee_code, e.first_name, e.last_name, e.work_email, e.status, e.joined_on,
+              d.id AS dept_id,
+              d.name AS dept_name,
+              tm.name AS team_name
+       FROM employee e
+       JOIN department d ON d.id = e.department_id
+       LEFT JOIN team tm ON tm.id = e.team_id
+       ORDER BY e.first_name, e.last_name`,
+    )
+    .all()) as {
+    id: string;
+    employee_code: string;
+    first_name: string;
+    last_name: string;
+    work_email: string;
+    status: string;
+    joined_on: string;
+    dept_id: string;
+    dept_name: string;
+    team_name: string | null;
+  }[];
+
+  const ledgersRaw = (await ctx.sqlite
+    .prepare(
+      `SELECT employee_id, leave_type_id, entry_type, quantity_half_days
+       FROM balance_ledger
+       WHERE period_id = ?`,
+    )
+    .all(periodId)) as {
+    employee_id: string;
+    leave_type_id: string;
+    entry_type: string;
+    quantity_half_days: number;
+  }[];
+
+  const pendingByEmpRaw = (await ctx.sqlite
+    .prepare(
+      `SELECT employee_id, COALESCE(SUM(total_half_days), 0) AS half
+       FROM leave_request
+       WHERE status = 'pending_approval'
+       GROUP BY employee_id`,
+    )
+    .all()) as { employee_id: string; half: number }[];
+
+  const pendingByEmpMap = new Map<string, number>();
+  for (const p of pendingByEmpRaw) {
+    pendingByEmpMap.set(p.employee_id, Number(p.half) || 0);
+  }
+
+  const empLedgerMap = new Map<
+    string,
+    {
+      granted: number;
+      used: number;
+      total: number;
+    }
+  >();
+  for (const l of ledgersRaw) {
+    let rec = empLedgerMap.get(l.employee_id);
+    if (!rec) {
+      rec = { granted: 0, used: 0, total: 0 };
+      empLedgerMap.set(l.employee_id, rec);
+    }
+    const q = Number(l.quantity_half_days) || 0;
+    if (
+      [
+        'OPENING',
+        'ACCRUAL',
+        'ENTITLEMENT_GRANT',
+        'CARRY_FORWARD',
+        'MIGRATION_OPENING',
+        'ADJUSTMENT',
+      ].includes(l.entry_type)
+    ) {
+      rec.granted += q;
+    } else if (['DEDUCTION', 'ENCASHMENT', 'EXPIRY'].includes(l.entry_type)) {
+      rec.used += -q;
+    }
+    rec.total += q;
+  }
+
+  const employeeSummaries = employeesRaw.map((e) => {
+    const rec = empLedgerMap.get(e.id);
+    const grantedDays = (rec?.granted ?? 0) / 2;
+    const takenDays = (rec?.used ?? 0) / 2;
+    const remainingDays = (rec?.total ?? 0) / 2;
+    const pendingDays = (pendingByEmpMap.get(e.id) ?? 0) / 2;
+
+    return {
+      id: e.id,
+      code: e.employee_code,
+      name: `${e.first_name} ${e.last_name}`,
+      departmentId: e.dept_id,
+      departmentName: e.dept_name,
+      teamName: e.team_name ?? '—',
+      status: e.status,
+      joinedOn: e.joined_on,
+      entitlementDays: grantedDays,
+      takenDays,
+      remainingDays,
+      pendingDays,
+    };
+  });
+
   return {
+    period: period
+      ? {
+          id: period.id,
+          label: period.label,
+          startsOn: period.starts_on,
+          endsOn: period.ends_on,
+        }
+      : null,
     cards: [
       {
         label: 'Approved days (this data)',
-        value: formatHalfDays(byMonth.reduce((a, b) => a + b.half, 0)),
+        value: formatHalfDays(totalApprovedHalf),
         note: 'Sum of approved requests',
       },
       { label: 'Pending', value: String(pendingAge.n), note: 'Awaiting HR or Admin' },
       {
         label: 'Self-approvals',
-        value: String(
-          (
-            (await ctx.sqlite
-              .prepare(`SELECT COUNT(*) AS n FROM leave_request WHERE was_self_approved = 1`)
-              .get()) as {
-              n: number;
-            }
-          ).n,
-        ),
+        value: String(selfApprovedStat.n),
         note: 'Standing report (DW-32)',
       },
     ],
-    byMonth: byMonth.map((m) => ({ label: m.ym.slice(5), days: m.half / 2, half: m.half })),
+    summary: {
+      totalApprovedDays,
+      totalApprovedRequests,
+      pendingCount: pendingAge.n,
+      pendingDays: (Number(pendingAge.half) || 0) / 2,
+      activeEmployeesCount: activeHeadcount.n,
+      avgDaysPerEmployee: avgDaysPerEmp,
+      selfApprovalsCount: selfApprovedStat.n,
+      rejectedCount: rejectedStat.n,
+      mostUsedLeaveType,
+    },
+    byMonth,
+    byDepartment,
+    byLeaveType,
+    employeeSummaries,
   };
 }
 export async function auditLog(ctx: RequestContext, q?: string) {

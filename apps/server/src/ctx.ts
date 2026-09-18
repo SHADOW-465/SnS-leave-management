@@ -62,6 +62,21 @@ export async function loadPrincipal(sqlite: Db, userId: string): Promise<Princip
         }
       ).code,
   );
+  if (user.employee_id) {
+    const isLeadOrHead = await sqlite
+      .prepare(
+        `SELECT 1 FROM team WHERE lead_employee_id = ? AND archived_at IS NULL
+         UNION
+         SELECT 1 FROM department WHERE head_employee_id = ? AND archived_at IS NULL
+         UNION
+         SELECT 1 FROM employee WHERE manager_employee_id = ?
+         LIMIT 1`,
+      )
+      .get(user.employee_id, user.employee_id, user.employee_id);
+    if (isLeadOrHead && !roles.includes('manager')) {
+      roles.push('manager');
+    }
+  }
   return {
     userId: user.id,
     employeeId: user.employee_id,

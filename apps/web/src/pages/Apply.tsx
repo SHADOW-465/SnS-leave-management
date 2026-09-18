@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@sns/ui';
+import { Button, Select } from '@sns/ui';
 import { api, ApiError, type Me } from '../api.js';
 
 export function ApplyPage({ me }: { me: Me }) {
@@ -20,12 +20,53 @@ export function ApplyPage({ me }: { me: Me }) {
   const [fileId, setFileId] = useState<string | null>(null);
   const typeId = leaveTypeId || types.data?.[0]?.id || '';
 
+  const canApplyForOthers = Boolean(
+    me.permissions.some(
+      (p) => p.startsWith('leave.request.create:') && p !== 'leave.request.create:self',
+    ) ||
+    me.roles.includes('manager') ||
+    me.roles.includes('hr_officer') ||
+    me.roles.includes('admin'),
+  );
+
+  const [applyMode, setApplyMode] = useState<'myself' | 'other'>('myself');
+  const [targetEmployeeId, setTargetEmployeeId] = useState<string>('');
+
+  const employeesQ = useQuery({
+    queryKey: ['employees-for-apply'],
+    queryFn: () =>
+      api<
+        {
+          id: string;
+          first_name: string;
+          last_name: string;
+          employee_code: string;
+          department_name?: string;
+          team_name?: string;
+          status?: string;
+        }[]
+      >('/api/v1/employees'),
+    enabled: canApplyForOthers,
+  });
+
+  const otherEmployees = useMemo(() => {
+    return (employeesQ.data ?? [])
+      .filter((e) => e.status !== 'exited' && e.id !== me.employeeId)
+      .map((e) => ({
+        value: e.id,
+        label: `${e.first_name} ${e.last_name} (${e.employee_code}) — ${e.team_name || e.department_name || 'Staff'}`,
+      }));
+  }, [employeesQ.data, me.employeeId]);
+
+  const activeEmployeeId = applyMode === 'other' ? targetEmployeeId : undefined;
+
   const previewQ = useMemo(() => {
     if (!typeId || !startDate || !endDate) return '';
     const p = new URLSearchParams({ leaveTypeId: typeId, startDate, endDate });
     if (duration !== 'full') p.set('halfDayStart', duration);
+    if (activeEmployeeId) p.set('employeeId', activeEmployeeId);
     return `/api/v1/leave/preview?${p.toString()}`;
-  }, [typeId, startDate, endDate, duration]);
+  }, [typeId, startDate, endDate, duration, activeEmployeeId]);
 
   const preview = useQuery({
     queryKey: ['preview', previewQ],
@@ -54,6 +95,7 @@ export function ApplyPage({ me }: { me: Me }) {
           halfDayStart: duration === 'full' ? null : duration,
           reason,
           attachmentId: fileId,
+          employeeId: activeEmployeeId || undefined,
         }),
       });
       await qc.invalidateQueries();
@@ -79,20 +121,69 @@ export function ApplyPage({ me }: { me: Me }) {
             {error}
           </p>
         ) : null}
+        {canApplyForOthers ? (
+          <div className="field" style={{ marginBottom: 18 }}>
+            <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>
+              Applying For
+            </label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <Button
+                variant={applyMode === 'myself' ? 'primary' : 'secondary'}
+                size="sm"
+                type="button"
+                onClick={() => {
+                  setApplyMode('myself');
+                  setTargetEmployeeId('');
+                }}
+              >
+                Myself ({me.displayName})
+              </Button>
+              <Button
+                variant={applyMode === 'other' ? 'primary' : 'secondary'}
+                size="sm"
+                type="button"
+                onClick={() => {
+                  setApplyMode('other');
+                  const first = otherEmployees[0];
+                  if (!targetEmployeeId && first) {
+                    setTargetEmployeeId(first.value);
+                  }
+                }}
+              >
+                On Behalf of Team Member
+              </Button>
+            </div>
+            {applyMode === 'other' ? (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Select
+                  id="f-target-emp"
+                  name="targetEmployeeId"
+                  value={targetEmployeeId}
+                  onChange={(val) => setTargetEmployeeId(val)}
+                  fullWidth
+                  options={otherEmployees}
+                />
+                <p className="note" style={{ color: 'var(--accent, #3b82f6)', margin: '4px 0 0' }}>
+                  ℹ️ Submitting sudden/uninformed leave on behalf of an absent team member. You will
+                  be recorded as the submitter, and the employee will be notified.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="field">
           <label htmlFor="f-type">Leave type</label>
-          <select
+          <Select
             id="f-type"
-            className="select"
+            name="leaveTypeId"
             value={typeId}
-            onChange={(e) => setType(e.target.value)}
-          >
-            {(types.data ?? []).map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+            onChange={(val) => setType(val)}
+            fullWidth
+            options={(types.data ?? []).map((t) => ({
+              value: t.id,
+              label: t.name,
+            }))}
+          />
         </div>
         <div className="two">
           <div className="field">

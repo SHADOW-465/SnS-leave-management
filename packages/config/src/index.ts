@@ -29,6 +29,8 @@ export const appConfigSchema = z.object({
   showDemoAccounts: bool.default(false),
   /** First-run seed when the database is empty. Hosted preview only. */
   seedOnEmpty: bool.default(false),
+  /** Enforce 1:1 workstation device binding to prevent cross-account logins / buddy punching. */
+  enforceWorkstationBinding: bool.default(false),
   /** Optional. When set, the API uses Postgres (Supabase preview). Unset for office SQLite. */
   databaseUrl: z
     .string()
@@ -109,9 +111,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     trustProxy: env.LEAVEOS_TRUST_PROXY ?? (hostedPreview ? true : undefined),
     hostedPreview: env.LEAVEOS_HOSTED_PREVIEW ?? hostedPreview,
     showDemoAccounts:
-      env.LEAVEOS_DEMO_ACCOUNTS ??
-      (hostedPreview || envName === 'development' || envName === undefined),
-    seedOnEmpty: env.LEAVEOS_SEED_DEMO ?? hostedPreview,
+      envName === 'production'
+        ? false
+        : env.LEAVEOS_DEMO_ACCOUNTS !== undefined
+          ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_DEMO_ACCOUNTS.toLowerCase())
+          : Boolean(hostedPreview || envName === 'development' || envName === undefined),
+    seedOnEmpty:
+      envName === 'production'
+        ? false
+        : env.LEAVEOS_SEED_DEMO !== undefined
+          ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_SEED_DEMO.toLowerCase())
+          : Boolean(hostedPreview),
+    enforceWorkstationBinding:
+      env.LEAVEOS_ENFORCE_WORKSTATION !== undefined
+        ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_ENFORCE_WORKSTATION.toLowerCase())
+        : envName === 'production',
     databaseUrl:
       env.DATABASE_URL ??
       env.SUPABASE_DB_URL ??

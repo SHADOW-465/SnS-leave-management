@@ -45,4 +45,24 @@ describe('config', () => {
     expect(c.cookieSecure).toBe(false);
     expect(c.trustProxy).toBe(false);
   });
+
+  it('disables demo accounts and seeding in production, and enables workstation enforcement', () => {
+    const c = loadConfig({
+      LEAVEOS_DATA_DIR: './data',
+      LEAVEOS_ENV: 'production',
+      LEAVEOS_DEMO_ACCOUNTS: 'true', // Attempt to force demo accounts in production
+    });
+    expect(c.showDemoAccounts).toBe(false);
+    expect(c.seedOnEmpty).toBe(false);
+    expect(c.enforceWorkstationBinding).toBe(true);
+  });
+
+  it('allows demo accounts and disables workstation binding restriction in development', () => {
+    const c = loadConfig({
+      LEAVEOS_DATA_DIR: './data',
+      LEAVEOS_ENV: 'development',
+    });
+    expect(c.showDemoAccounts).toBe(true);
+    expect(c.enforceWorkstationBinding).toBe(false);
+  });
 });

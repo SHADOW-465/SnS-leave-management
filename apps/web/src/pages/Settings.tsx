@@ -1,6 +1,6 @@
 import { cloneElement, useEffect, useId, useState, type FormEvent, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, EmptyState, ErrorState, Skeleton } from '@sns/ui';
+import { Button, EmptyState, ErrorState, Select, Skeleton } from '@sns/ui';
 import { api, ApiError, can, type Me } from '../api.js';
 
 type Rules = {
@@ -176,14 +176,17 @@ function PolicyEditor({ policy, readOnly }: { policy: Policy; readOnly: boolean 
                 />
               </Field>
               <Field label="How it is granted" hint="Monthly accrual, or the whole amount at once.">
-                <select
+                <Select
                   value={rules.accrualMethod}
-                  onChange={(e) => set('accrualMethod', e.target.value as Rules['accrualMethod'])}
-                >
-                  <option value="annual_grant">All at the start of the year</option>
-                  <option value="monthly">Accrues monthly</option>
-                  <option value="none">Not granted automatically</option>
-                </select>
+                  onChange={(val) => set('accrualMethod', val as Rules['accrualMethod'])}
+                  fullWidth
+                  disabled={readOnly}
+                  options={[
+                    { value: 'annual_grant', label: 'All at the start of the year' },
+                    { value: 'monthly', label: 'Accrues monthly' },
+                    { value: 'none', label: 'Not granted automatically' },
+                  ]}
+                />
               </Field>
               {rules.accrualMethod === 'monthly' ? (
                 <Field label="Accrue every (months)" hint="1 means every month.">
@@ -240,16 +243,19 @@ function PolicyEditor({ policy, readOnly }: { policy: Policy; readOnly: boolean 
             <legend>Probation</legend>
             <div className="fields">
               <Field label="During probation" hint="Applies until the probation end date.">
-                <select
+                <Select
                   value={rules.probationRestriction}
-                  onChange={(e) =>
-                    set('probationRestriction', e.target.value as Rules['probationRestriction'])
+                  onChange={(val) =>
+                    set('probationRestriction', val as Rules['probationRestriction'])
                   }
-                >
-                  <option value="none">Allowed as normal</option>
-                  <option value="limited">Allowed up to a limit</option>
-                  <option value="forbid">Not allowed</option>
-                </select>
+                  fullWidth
+                  disabled={readOnly}
+                  options={[
+                    { value: 'none', label: 'Allowed as normal' },
+                    { value: 'limited', label: 'Allowed up to a limit' },
+                    { value: 'forbid', label: 'Not allowed' },
+                  ]}
+                />
               </Field>
               {rules.probationRestriction === 'limited' ? (
                 <Field label="Limit during probation (days)" hint="Per request.">
@@ -484,8 +490,12 @@ function LeaveYearCard({ readOnly }: { readOnly: boolean }) {
           <fieldset disabled={readOnly}>
             <div className="fields">
               <Field label="Start month">
-                <select name="m" defaultValue={org.data?.company.leave_year_start_month ?? 1}>
-                  {[
+                <Select
+                  name="m"
+                  defaultValue={String(org.data?.company.leave_year_start_month ?? 1)}
+                  fullWidth
+                  disabled={readOnly}
+                  options={[
                     'January',
                     'February',
                     'March',
@@ -498,12 +508,11 @@ function LeaveYearCard({ readOnly }: { readOnly: boolean }) {
                     'October',
                     'November',
                     'December',
-                  ].map((label, i) => (
-                    <option key={label} value={i + 1}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                  ].map((label, i) => ({
+                    value: String(i + 1),
+                    label,
+                  }))}
+                />
               </Field>
               <Field label="Start day">
                 <input

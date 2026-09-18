@@ -15,11 +15,36 @@ import { addHoursIso } from '../time.js';
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
+export function isOfficeNetwork(rawIp: string | null | undefined): boolean {
+  if (!rawIp) return false;
+  let ip = rawIp.trim();
+  if (ip.startsWith('::ffff:')) {
+    ip = ip.slice(7);
+  }
+  if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('127.')) return true;
+  if (ip.startsWith('10.') || ip.startsWith('192.168.')) return true;
+  const m = ip.match(/^172\.(\d+)\./);
+  if (m && m[1]) {
+    const octet = parseInt(m[1], 10);
+    if (octet >= 16 && octet <= 31) return true;
+  }
+  if (
+    process.env.OFFICE_IP &&
+    process.env.OFFICE_IP.split(',')
+      .map((s) => s.trim())
+      .includes(ip)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export async function login(
   ctx: RequestContext,
   input: {
     email: string;
     password: string;
+    workstationId?: string;
   },
 ) {
   const account = (await ctx.sqlite
@@ -77,6 +102,94 @@ export async function login(
       .run(attempts, until, acc.id);
     throw await failure('bad_password');
   }
+
+  // Workstation device 1:1 binding enforcement
+  if (input.workstationId && acc.employee_id) {
+    const wsFingerprint = input.workstationId.trim();
+    const bound = (await ctx.sqlite
+      .prepare(`SELECT * FROM workstation_device WHERE device_fingerprint = ?`)
+      .get(wsFingerprint)) as
+      | {
+          id: string;
+          employee_id: string;
+          is_active: number;
+        }
+      | undefined;
+
+    if (bound) {
+      if (bound.employee_id !== acc.employee_id) {
+        if (ctx.config.enforceWorkstationBinding) {
+          await ctx.sqlite
+            .prepare(
+              `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, request_id, ip, result)
+               VALUES (?, ?, ?, ?, 'auth.workstation_violation', 'workstation_device', ?, ?, ?, 'denied')`,
+            )
+            .run(newId(), ctx.now, acc.id, acc.email, bound.id, ctx.requestId, ctx.ip);
+
+          throw new DomainError(
+            'WORKSTATION_MISMATCH',
+            'This workstation is assigned to another employee. Cross-account access is prohibited on office workstations.',
+            { httpStatus: 403 },
+          );
+        }
+
+        // In development / testing mode, allow re-associating or updating the workstation so the tester can test any account
+        await ctx.sqlite
+          .prepare(
+            `UPDATE workstation_device SET employee_id = ?, last_seen_at = ?, last_seen_ip = ? WHERE id = ?`,
+          )
+          .run(acc.employee_id, ctx.now, ctx.ip, bound.id);
+      } else {
+        await ctx.sqlite
+          .prepare(`UPDATE workstation_device SET last_seen_at = ?, last_seen_ip = ? WHERE id = ?`)
+          .run(ctx.now, ctx.ip, bound.id);
+      }
+    } else {
+      const empBound = (await ctx.sqlite
+        .prepare(`SELECT id FROM workstation_device WHERE employee_id = ? AND is_active = 1`)
+        .get(acc.employee_id)) as { id: string } | undefined;
+
+      if (empBound && ctx.config.enforceWorkstationBinding) {
+        await ctx.sqlite
+          .prepare(
+            `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, request_id, ip, result)
+             VALUES (?, ?, ?, ?, 'auth.workstation_mismatch', 'workstation_device', ?, ?, ?, 'denied')`,
+          )
+          .run(newId(), ctx.now, acc.id, acc.email, empBound.id, ctx.requestId, ctx.ip);
+
+        throw new DomainError(
+          'WORKSTATION_MISMATCH',
+          'You already have an office workstation assigned. Contact an administrator to transfer your workstation binding.',
+          { httpStatus: 403 },
+        );
+      }
+
+      const wsId = newId();
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO workstation_device (id, device_fingerprint, employee_id, device_label, last_seen_at, last_seen_ip, is_active, created_at, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        )
+        .run(
+          wsId,
+          wsFingerprint,
+          acc.employee_id,
+          ctx.userAgent ? ctx.userAgent.slice(0, 100) : 'Office Workstation',
+          ctx.now,
+          ctx.ip,
+          ctx.now,
+          acc.id,
+        );
+
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, request_id, ip, result)
+           VALUES (?, ?, ?, ?, 'auth.workstation_paired', 'workstation_device', ?, ?, ?, 'ok')`,
+        )
+        .run(newId(), ctx.now, acc.id, acc.email, wsId, ctx.requestId, ctx.ip);
+    }
+  }
+
   const { token, tokenHash } = newSessionToken();
   const csrf = newCsrfToken();
   const expires = addHoursIso(ctx.now, ctx.config.sessionAbsoluteHours);
@@ -120,6 +233,19 @@ async function recordLoginAttendance(
   userId: string,
 ) {
   if (!employeeId) return;
+  if (!isOfficeNetwork(ctx.ip)) {
+    try {
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, request_id, ip, result)
+           VALUES (?, ?, ?, ?, 'auth.offsite_attendance_suppressed', 'attendance_raw', ?, ?, ?, 'suppressed')`,
+        )
+        .run(newId(), ctx.now, userId, `emp:${employeeId}`, employeeId, ctx.requestId, ctx.ip);
+    } catch {
+      // Attendance audit failure should not break login
+    }
+    return;
+  }
   try {
     const existing = (await ctx.sqlite
       .prepare(

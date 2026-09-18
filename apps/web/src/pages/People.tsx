@@ -1,6 +1,6 @@
 import { useState, useMemo, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, EmptyState, StatusPill } from '@sns/ui';
+import { Button, EmptyState, StatusPill, Select } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
 import { initials, formatDate } from '../format.js';
 import {
@@ -292,50 +292,48 @@ export function PeoplePage({ me }: { me: Me }) {
               />
 
               {org.data?.departments?.length ? (
-                <select
+                <Select
                   value={deptFilter}
-                  onChange={(e) => setDeptFilter(e.target.value)}
-                  className="people-select-filter"
+                  onChange={setDeptFilter}
                   aria-label="Filter by department"
-                >
-                  <option value="ALL">All Departments</option>
-                  {org.data.departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'All Departments' },
+                    ...org.data.departments.map((d) => ({
+                      value: d.id,
+                      label: d.name,
+                    })),
+                  ]}
+                />
               ) : null}
 
               {teams.length ? (
-                <select
+                <Select
                   value={teamFilter}
-                  onChange={(e) => setTeamFilter(e.target.value)}
-                  className="people-select-filter"
+                  onChange={setTeamFilter}
                   aria-label="Filter by team"
-                >
-                  <option value="ALL">All Teams</option>
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.department_name})
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'All Teams' },
+                    ...teams.map((t) => ({
+                      value: t.id,
+                      label: `${t.name} (${t.department_name})`,
+                    })),
+                  ]}
+                />
               ) : null}
 
-              <select
+              <Select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="people-select-filter"
+                onChange={setStatusFilter}
                 aria-label="Filter by status"
-              >
-                <option value="ALL">All Statuses</option>
-                <option value="active">Active</option>
-                <option value="probation">Probation</option>
-                <option value="notice">Notice Period</option>
-                <option value="exited">Exited</option>
-                <option value="suspended">Suspended</option>
-              </select>
+                options={[
+                  { value: 'ALL', label: 'All Statuses' },
+                  { value: 'active', label: 'Active' },
+                  { value: 'probation', label: 'Probation' },
+                  { value: 'notice', label: 'Notice Period' },
+                  { value: 'exited', label: 'Exited' },
+                  { value: 'suspended', label: 'Suspended' },
+                ]}
+              />
             </div>
 
             {canCreate && (
@@ -594,19 +592,18 @@ export function PeoplePage({ me }: { me: Me }) {
               />
 
               {departments.length > 0 && (
-                <select
+                <Select
                   value={teamDeptFilter}
-                  onChange={(e) => setTeamDeptFilter(e.target.value)}
-                  className="people-select-filter"
+                  onChange={setTeamDeptFilter}
                   aria-label="Filter teams by department"
-                >
-                  <option value="ALL">All Departments</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} ({d.code})
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: 'ALL', label: 'All Departments' },
+                    ...departments.map((d) => ({
+                      value: d.id,
+                      label: `${d.name} (${d.code})`,
+                    })),
+                  ]}
+                />
               )}
             </div>
 
@@ -1010,10 +1007,16 @@ export function PeoplePage({ me }: { me: Me }) {
           box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
         }
         .people-select-filter {
-          padding: 8px 12px;
+          appearance: none !important;
+          -webkit-appearance: none !important;
+          padding: 8px 32px 8px 12px;
           border-radius: 8px;
           border: 1px solid var(--border, #cbd5e1);
-          background: var(--input-bg, #ffffff);
+          background-color: var(--input-bg, #ffffff);
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+          background-repeat: no-repeat !important;
+          background-position: right 10px center !important;
+          background-size: 14px 14px !important;
           color: var(--fg, #0f172a);
           font-size: 13.5px;
           cursor: pointer;
@@ -1347,6 +1350,22 @@ export function PeoplePage({ me }: { me: Me }) {
           box-sizing: border-box;
           outline: none;
         }
+        select.form-input {
+          appearance: none !important;
+          -webkit-appearance: none !important;
+          background-color: var(--input-bg, #ffffff);
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+          background-repeat: no-repeat !important;
+          background-position: right 10px center !important;
+          background-size: 14px 14px !important;
+          padding-right: 32px !important;
+          cursor: pointer;
+        }
+        select.form-input option {
+          background: #ffffff;
+          color: #0f172a;
+          padding: 8px 12px;
+        }
         .form-input:focus {
           border-color: #6366f1;
           box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
@@ -1509,79 +1528,76 @@ function CreateEmployeeModal({
             <div className="form-grid-2">
               <div className="form-group">
                 <label className="form-label">Department *</label>
-                <select
+                <Select
                   value={selectedDeptId}
-                  onChange={(e) => setSelectedDeptId(e.target.value)}
-                  required
-                  className="form-input"
-                >
-                  {org.departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} {d.code ? `(${d.code})` : ''}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setSelectedDeptId(val)}
+                  fullWidth
+                  options={org.departments.map((d) => ({
+                    value: d.id,
+                    label: `${d.name}${d.code ? ` (${d.code})` : ''}`,
+                  }))}
+                />
               </div>
 
               <div className="form-group">
                 <label className="form-label">Team (Optional)</label>
-                <select name="teamId" className="form-input">
-                  <option value="">None / Unassigned</option>
-                  {availableTeams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  name="teamId"
+                  fullWidth
+                  options={[
+                    { value: '', label: 'None / Unassigned' },
+                    ...availableTeams.map((t) => ({ value: t.id, label: t.name })),
+                  ]}
+                />
               </div>
             </div>
 
             <div className="form-grid-2">
               <div className="form-group">
                 <label className="form-label">Job Title *</label>
-                <select name="jobTitleId" required className="form-input">
-                  {org.jobTitles.map((jt) => (
-                    <option key={jt.id} value={jt.id}>
-                      {jt.name}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  name="jobTitleId"
+                  required
+                  fullWidth
+                  options={org.jobTitles.map((jt) => ({ value: jt.id, label: jt.name }))}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Employment Type *</label>
-                <select name="employmentTypeId" required className="form-input">
-                  {org.employmentTypes.map((et) => (
-                    <option key={et.id} value={et.id}>
-                      {et.name}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  name="employmentTypeId"
+                  required
+                  fullWidth
+                  options={org.employmentTypes.map((et) => ({ value: et.id, label: et.name }))}
+                />
               </div>
             </div>
 
             <div className="form-grid-2">
               <div className="form-group">
                 <label className="form-label">Location *</label>
-                <select name="locationId" required className="form-input">
-                  {org.locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  name="locationId"
+                  required
+                  fullWidth
+                  options={org.locations.map((loc) => ({ value: loc.id, label: loc.name }))}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Manager (Optional)</label>
-                <select name="managerEmployeeId" className="form-input">
-                  <option value="">None (Top-level)</option>
-                  {employees
-                    .filter((e) => e.status !== 'exited')
-                    .map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.first_name} {e.last_name} ({e.department_name})
-                      </option>
-                    ))}
-                </select>
+                <Select
+                  name="managerEmployeeId"
+                  fullWidth
+                  options={[
+                    { value: '', label: 'None (Top-level)' },
+                    ...employees
+                      .filter((e) => e.status !== 'exited')
+                      .map((e) => ({
+                        value: e.id,
+                        label: `${e.first_name} ${e.last_name} (${e.department_name})`,
+                      })),
+                  ]}
+                />
               </div>
             </div>
 
@@ -1768,98 +1784,81 @@ function EditEmployeeModal({
             <div className="form-grid-2">
               <div className="form-group">
                 <label className="form-label">Department *</label>
-                <select
+                <Select
                   value={selectedDeptId}
-                  onChange={(e) => setSelectedDeptId(e.target.value)}
-                  required
-                  className="form-input"
-                >
-                  {org.departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} {d.code ? `(${d.code})` : ''}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setSelectedDeptId(val)}
+                  fullWidth
+                  options={org.departments.map((d) => ({
+                    value: d.id,
+                    label: `${d.name}${d.code ? ` (${d.code})` : ''}`,
+                  }))}
+                />
               </div>
 
               <div className="form-group">
                 <label className="form-label">Team</label>
-                <select name="teamId" defaultValue={emp.team_id ?? ''} className="form-input">
-                  <option value="">None / Unassigned</option>
-                  {availableTeams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  name="teamId"
+                  defaultValue={emp.team_id ?? ''}
+                  fullWidth
+                  options={[
+                    { value: '', label: 'None / Unassigned' },
+                    ...availableTeams.map((t) => ({ value: t.id, label: t.name })),
+                  ]}
+                />
               </div>
             </div>
 
             <div className="form-grid-2">
               <div className="form-group">
                 <label className="form-label">Job Title *</label>
-                <select
+                <Select
                   name="jobTitleId"
                   defaultValue={emp.job_title_id}
                   required
-                  className="form-input"
-                >
-                  {org.jobTitles.map((jt) => (
-                    <option key={jt.id} value={jt.id}>
-                      {jt.name}
-                    </option>
-                  ))}
-                </select>
+                  fullWidth
+                  options={org.jobTitles.map((jt) => ({ value: jt.id, label: jt.name }))}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Employment Type *</label>
-                <select
+                <Select
                   name="employmentTypeId"
                   defaultValue={emp.employment_type_id}
                   required
-                  className="form-input"
-                >
-                  {org.employmentTypes.map((et) => (
-                    <option key={et.id} value={et.id}>
-                      {et.name}
-                    </option>
-                  ))}
-                </select>
+                  fullWidth
+                  options={org.employmentTypes.map((et) => ({ value: et.id, label: et.name }))}
+                />
               </div>
             </div>
 
             <div className="form-grid-2">
               <div className="form-group">
                 <label className="form-label">Location *</label>
-                <select
+                <Select
                   name="locationId"
                   defaultValue={emp.location_id}
                   required
-                  className="form-input"
-                >
-                  {org.locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
+                  fullWidth
+                  options={org.locations.map((loc) => ({ value: loc.id, label: loc.name }))}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Manager</label>
-                <select
+                <Select
                   name="managerEmployeeId"
                   defaultValue={emp.manager_employee_id ?? ''}
-                  className="form-input"
-                >
-                  <option value="">None (Top-level)</option>
-                  {employees
-                    .filter((e) => e.id !== emp.id && e.status !== 'exited')
-                    .map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.first_name} {e.last_name} ({e.department_name})
-                      </option>
-                    ))}
-                </select>
+                  fullWidth
+                  options={[
+                    { value: '', label: 'None (Top-level)' },
+                    ...employees
+                      .filter((e) => e.id !== emp.id && e.status !== 'exited')
+                      .map((e) => ({
+                        value: e.id,
+                        label: `${e.first_name} ${e.last_name} (${e.department_name})`,
+                      })),
+                  ]}
+                />
               </div>
             </div>
 
@@ -1887,12 +1886,17 @@ function EditEmployeeModal({
 
             <div className="form-group">
               <label className="form-label">Status *</label>
-              <select name="status" defaultValue={emp.status} className="form-input">
-                <option value="active">Active</option>
-                <option value="probation">Probation</option>
-                <option value="notice">Notice</option>
-                <option value="suspended">Suspended</option>
-              </select>
+              <Select
+                name="status"
+                defaultValue={emp.status}
+                fullWidth
+                options={[
+                  { value: 'active', label: 'Active' },
+                  { value: 'probation', label: 'Probation' },
+                  { value: 'notice', label: 'Notice' },
+                  { value: 'suspended', label: 'Suspended' },
+                ]}
+              />
             </div>
           </div>
 
@@ -2335,16 +2339,19 @@ function CreateDepartmentModal({
 
             <div className="form-group">
               <label className="form-label">Department Head (Optional)</label>
-              <select name="headEmployeeId" className="form-input">
-                <option value="">None (Unassigned)</option>
-                {employees
-                  .filter((e) => e.status !== 'exited')
-                  .map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.first_name} {e.last_name} ({e.job_title_name})
-                    </option>
-                  ))}
-              </select>
+              <Select
+                name="headEmployeeId"
+                fullWidth
+                options={[
+                  { value: '', label: 'None (Unassigned)' },
+                  ...employees
+                    .filter((e) => e.status !== 'exited')
+                    .map((e) => ({
+                      value: e.id,
+                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                    })),
+                ]}
+              />
             </div>
           </div>
 
@@ -2437,20 +2444,20 @@ function EditDepartmentModal({
 
             <div className="form-group">
               <label className="form-label">Department Head</label>
-              <select
+              <Select
                 name="headEmployeeId"
                 defaultValue={dept.head_employee_id ?? ''}
-                className="form-input"
-              >
-                <option value="">None (Unassigned)</option>
-                {employees
-                  .filter((e) => e.status !== 'exited')
-                  .map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.first_name} {e.last_name} ({e.job_title_name})
-                    </option>
-                  ))}
-              </select>
+                fullWidth
+                options={[
+                  { value: '', label: 'None (Unassigned)' },
+                  ...employees
+                    .filter((e) => e.status !== 'exited')
+                    .map((e) => ({
+                      value: e.id,
+                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                    })),
+                ]}
+              />
             </div>
           </div>
 
@@ -2614,13 +2621,15 @@ function CreateTeamModal({
 
             <div className="form-group">
               <label className="form-label">Department *</label>
-              <select name="departmentId" required className="form-input">
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} ({d.code})
-                  </option>
-                ))}
-              </select>
+              <Select
+                name="departmentId"
+                required
+                fullWidth
+                options={departments.map((d) => ({
+                  value: d.id,
+                  label: `${d.name} (${d.code})`,
+                }))}
+              />
             </div>
 
             <div className="form-group">
@@ -2635,16 +2644,19 @@ function CreateTeamModal({
 
             <div className="form-group">
               <label className="form-label">Team Lead (Optional)</label>
-              <select name="leadEmployeeId" className="form-input">
-                <option value="">None (Unassigned)</option>
-                {employees
-                  .filter((e) => e.status !== 'exited')
-                  .map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.first_name} {e.last_name} ({e.job_title_name})
-                    </option>
-                  ))}
-              </select>
+              <Select
+                name="leadEmployeeId"
+                fullWidth
+                options={[
+                  { value: '', label: 'None (Unassigned)' },
+                  ...employees
+                    .filter((e) => e.status !== 'exited')
+                    .map((e) => ({
+                      value: e.id,
+                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                    })),
+                ]}
+              />
             </div>
           </div>
 
@@ -2720,18 +2732,16 @@ function EditTeamModal({
 
             <div className="form-group">
               <label className="form-label">Department *</label>
-              <select
+              <Select
                 name="departmentId"
                 defaultValue={team.department_id}
                 required
-                className="form-input"
-              >
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} ({d.code})
-                  </option>
-                ))}
-              </select>
+                fullWidth
+                options={departments.map((d) => ({
+                  value: d.id,
+                  label: `${d.name} (${d.code})`,
+                }))}
+              />
             </div>
 
             <div className="form-group">
@@ -2741,20 +2751,20 @@ function EditTeamModal({
 
             <div className="form-group">
               <label className="form-label">Team Lead</label>
-              <select
+              <Select
                 name="leadEmployeeId"
                 defaultValue={team.lead_employee_id ?? ''}
-                className="form-input"
-              >
-                <option value="">None (Unassigned)</option>
-                {employees
-                  .filter((e) => e.status !== 'exited')
-                  .map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.first_name} {e.last_name} ({e.job_title_name})
-                    </option>
-                  ))}
-              </select>
+                fullWidth
+                options={[
+                  { value: '', label: 'None (Unassigned)' },
+                  ...employees
+                    .filter((e) => e.status !== 'exited')
+                    .map((e) => ({
+                      value: e.id,
+                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                    })),
+                ]}
+              />
             </div>
           </div>
 
@@ -2860,20 +2870,21 @@ function ManageTeamMembersModal({
             <label className="form-label" style={{ marginBottom: 6 }}>
               Add Employee to Team
             </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <select
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Select
                 value={selectedToAdd}
-                onChange={(e) => setSelectedToAdd(e.target.value)}
-                className="form-input"
+                onChange={(val) => setSelectedToAdd(val)}
                 style={{ flex: 1 }}
-              >
-                <option value="">Select an employee to add…</option>
-                {availableToAdd.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.first_name} {e.last_name} ({e.job_title_name} • {e.department_name})
-                  </option>
-                ))}
-              </select>
+                fullWidth
+                placeholder="Select an employee to add…"
+                options={[
+                  { value: '', label: 'Select an employee to add…' },
+                  ...availableToAdd.map((e) => ({
+                    value: e.id,
+                    label: `${e.first_name} ${e.last_name} (${e.job_title_name} • ${e.department_name})`,
+                  })),
+                ]}
+              />
               <Button
                 variant="primary"
                 onClick={() => {

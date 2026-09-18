@@ -32,6 +32,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, readonly KnownPermission[]> = {
   manager: pick(
     'employee.read:self',
     'employee.read:reports_recursive',
+    'employee.read:team',
     'employee.update:self',
     'employee.field.payroll.read:self',
     'employee.field.identity.read:self',
@@ -39,6 +40,9 @@ export const ROLE_PERMISSIONS: Record<RoleCode, readonly KnownPermission[]> = {
     'employee.field.contact.read:direct_reports',
     'org.structure.read:company',
     'leave.request.create:self',
+    'leave.request.create:direct_reports',
+    'leave.request.create:reports_recursive',
+    'leave.request.create:team',
     'leave.request.read:self',
     'leave.request.read:reports_recursive',
     'leave.request.withdraw:self',

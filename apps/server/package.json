@@ -27,6 +27,8 @@
     "@sns/domain": "workspace:*",
     "fastify": "^5.2.1",
     "nodemailer": "^6.10.0",
+    "pdf-lib": "^1.17.1",
+    "xlsx": "^0.18.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {

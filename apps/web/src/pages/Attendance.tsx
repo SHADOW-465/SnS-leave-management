@@ -1,6 +1,6 @@
 import { useState, useMemo, type FormEvent, type ChangeEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, EmptyState } from '@sns/ui';
+import { Button, EmptyState, Select } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
 import { initials, formatDate } from '../format.js';
 import {
@@ -497,37 +497,32 @@ export function AttendancePage({ me }: { me: Me }) {
           />
         </div>
 
-        <div className="filter-select-wrap">
-          <Filter size={14} style={{ color: 'var(--text-tertiary)' }} />
-          <select
-            className="att-select"
-            value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value as 'all' | 'login' | 'import')}
-            aria-label="Filter by signal source"
-          >
-            <option value="all">All Sources</option>
-            <option value="login">Login Signals</option>
-            <option value="import">Imported Records</option>
-          </select>
-        </div>
+        <Select
+          value={sourceFilter}
+          onChange={(v) => setSourceFilter(v as 'all' | 'login' | 'import')}
+          aria-label="Filter by signal source"
+          icon={<Filter size={14} />}
+          options={[
+            { value: 'all', label: 'All Sources' },
+            { value: 'login', label: 'Login Signals' },
+            { value: 'import', label: 'Imported Records' },
+          ]}
+        />
 
         {org.data?.departments && org.data.departments.length > 0 && (
-          <div className="filter-select-wrap">
-            <Users size={14} style={{ color: 'var(--text-tertiary)' }} />
-            <select
-              className="att-select"
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-              aria-label="Filter by department"
-            >
-              <option value="ALL">All Departments</option>
-              {org.data.departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            value={deptFilter}
+            onChange={setDeptFilter}
+            aria-label="Filter by department"
+            icon={<Users size={14} />}
+            options={[
+              { value: 'ALL', label: 'All Departments' },
+              ...org.data.departments.map((d) => ({
+                value: d.id,
+                label: d.name,
+              })),
+            ]}
+          />
         )}
       </div>
 
@@ -892,12 +887,12 @@ export function AttendancePage({ me }: { me: Me }) {
 
                 <div className="form-field">
                   <label htmlFor="corr-field">Target Field</label>
-                  <select
+                  <Select
                     id="corr-field"
-                    className="att-input"
                     value={correctionField}
-                    onChange={(e) => {
-                      const f = e.target.value as typeof correctionField;
+                    fullWidth
+                    onChange={(val) => {
+                      const f = val as typeof correctionField;
                       setCorrectionField(f);
                       if (f === 'first_login_at')
                         setCorrectionNewValue(correctingRow.first_login_at || '');
@@ -906,12 +901,19 @@ export function AttendancePage({ me }: { me: Me }) {
                       else if (f === 'work_date') setCorrectionNewValue(correctingRow.work_date);
                       else setCorrectionNewValue('');
                     }}
-                  >
-                    <option value="first_login_at">First Login Timestamp (first_login_at)</option>
-                    <option value="last_login_at">Last Login Timestamp (last_login_at)</option>
-                    <option value="work_date">Work Date (work_date)</option>
-                    <option value="notes">Notes / Memo (notes)</option>
-                  </select>
+                    options={[
+                      {
+                        value: 'first_login_at',
+                        label: 'First Login Timestamp (first_login_at)',
+                      },
+                      {
+                        value: 'last_login_at',
+                        label: 'Last Login Timestamp (last_login_at)',
+                      },
+                      { value: 'work_date', label: 'Work Date (work_date)' },
+                      { value: 'notes', label: 'Notes / Memo (notes)' },
+                    ]}
+                  />
                 </div>
 
                 <div className="form-field">

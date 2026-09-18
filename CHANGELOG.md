@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.1.8 — 2026-09-12
+
+### Added — Office Security Perimeter, Workstation 1:1 Binding, On-Behalf Leave & Hierarchy Notifications
+
+- **Office Network Perimeter Enforcement**: Implemented `isOfficeNetwork(ip)` check covering local loopbacks, RFC 1918 private subnets (`10.0.0.0/8`, `192.168.0.0/16`, `172.16.0.0/12`), and office gateway IP. Blocks remote / offsite logins from registering attendance signals in `attendance_raw`, writing `auth.offsite_attendance_suppressed` to the immutable audit log.
+- **Workstation-to-Employee 1:1 Device Binding**: Added database table `workstation_device` via migration `0004_workstation_device_binding.sql`. Clients generate and send an immutable device token (`X-Workstation-Id`). Each office workstation is strictly paired to a single employee on initial login; cross-account logins from paired office computers are aborted with `403 WORKSTATION_MISMATCH` and recorded as `auth.workstation_violation` in `audit_event`, eliminating "buddy punching".
+- **Team Lead On-Behalf Sudden Leave**: Team leads, managers, HR officers, and administrators can now submit unplanned or sudden leave on behalf of absent team members directly from `Apply.tsx`. Includes an "Applying For" switcher (`Myself` vs `On Behalf of Team Member`) with employee dropdown, live balance lookup, and routing calculation. Submissions record both target employee and submitter, log `leave.request.submitted_on_behalf` audit events, and notify the absent employee.
+- **Downstream Hierarchy Notification Flow**:
+  - When approved by a Team Lead: the employee receives confirmation, while the Department Head and HR Officers receive `leave.approved.informational` notifications with employee and duration details.
+  - When approved by a Department Head: HR Officers and Administrators receive informational notifications.
+  - When approved by HR: Administrators receive informational notifications.
+- **Development vs. Production Environment Guardrails**:
+  - In development mode (`LEAVEOS_ENV=development`), workstation 1:1 binding restrictions are bypassed (`enforceWorkstationBinding: false`), allowing testers and developers to freely switch between and log into any account (Admin, Team Lead, Department Head, HR, Employee) on their single browser/machine without being blocked by `403 WORKSTATION_MISMATCH`.
+  - In production mode (`LEAVEOS_ENV=production`), `showDemoAccounts` and `seedOnEmpty` are strictly enforced as `false` (no demo accounts panel, no testing mode badge, no synthetic account seeding), while `enforceWorkstationBinding` is strictly enforced (`true`) to prevent buddy punching and unauthorized cross-account logins on office workstations.
+  - Updated `scripts/start-leaveos.mjs` and `apps/web/src/pages/Login.tsx` to ensure seamless demo accounts display and one-click role logins in development, while guaranteeing a clean, production-grade interface in production.
+
+## 0.1.7 — 2026-09-12
+
+### Added — Executive Reports & Analytics, Multi-Sheet Excel and PDF Export
+
+- **Executive Reports & Analytics Dashboard (`apps/web/src/pages/Reports.tsx`)**: Replaced the basic 3-card view with an executive-grade reporting suite. Features a 5-card KPI ribbon (Total Leave Taken, Active Headcount, Average Days / Staff, Pending Approvals with alert state, and Audit & Compliance tracking DW-32 self-approvals).
+- **Interactive Multi-Tab Breakdown**:
+  - **Monthly Trends**: Proportional visual bar chart with hover tooltips and accessible tabular data showing days, request counts, and employee numbers.
+  - **Department Breakdown**: Tracks department code, headcount, total days taken, average days per employee, request volume, and visual utilization share meters.
+  - **Leave Type Distribution**: Color-tokened leave category pills, total days taken, request count, employee count, and percentage share progress bars.
+  - **Employee Leave Balances**: Real-time search across name, code, department, or team, paired with custom `<Select>` dropdown filters for Department and Status. Displays employee code, department, team, `<StatusPill>`, entitlement days, taken days, bold color-coded remaining balance, and pending days badge.
+- **Multi-Sheet Excel Export (`/api/v1/reports/export.xlsx`)**: Integrated SheetJS (`xlsx`) to produce a structured, multi-tab `.xlsx` workbook containing *Executive Summary*, *Departments*, *Leave Types*, *Monthly Trends*, and *Employee Balances* with bold headers and auto-proportioned column widths.
+- **Executive Vector PDF Export (`/api/v1/reports/export.pdf`)**: Server-side vector PDF generation using `pdf-lib` with Simon & Sons Leave OS header, reporting period metadata, KPI highlight cards, department summary table, leave type utilization table, and multi-page employee balance table with running footers and page counts.
+- **Clean Print Layout (`@media print`)**: Comprehensive print stylesheet hiding sidebar, navigation, search filters, and action buttons for clean browser printing.
+- **Local & Vercel Deployment Parity**: Both `xlsx` and `pdf-lib` are 100% pure JavaScript with zero native C++ binaries, bundled into `api/index.js` via esbuild for Vercel serverless while functioning 100% offline on the local office LAN.
+- **RBAC & Audit Compliance**: Every export endpoint strictly enforces `report.export` authorization via `authorizeAction` and logs immutable `report.exported` events to `audit_event` per ADR 0006 and ADR 0004.
+
+## 0.1.6 — 2026-09-12
+
+### Changed — Comprehensive custom dropdown system and sidebar layout refinement
+
+- **Universal Custom Select System (`@sns/ui`)**: Built and deployed an accessible, keyboard-friendly custom `Select` popover component across all pages and dialog modals (Leave Type on Apply page, filter bars and modals in People and Attendance, Accrual & Probation and Leave Year on Settings). Completely eliminates OS-native Windows dropdown menus, replaced with custom floating popover cards, subtle ambient elevation shadows, 180° chevron rotation, hover states, and checkmark indicators. Supports full-width form layouts and hidden input constraint validation.
+- **Sidebar Dimensions & Separation**: Slimmed the primary navigation sidebar from 248px to 216px for balanced proportions. Replaced harsh 1px perpendicular black boxy borders with tonal surface separation (`#f8f8f6` sidebar vs `#ffffff` canvas) and an ambient diffused micro-shadow, paired with a backdrop-blurred topbar.
+- **Localhost Developer Experience & Demo Accounts**: Updated `scripts/start-leaveos.mjs` to default `LEAVEOS_DEMO_ACCOUNTS=true` for local runs, making demo accounts immediately accessible on `localhost:3000`. Updated `package.json` `"start"` script to automatically run `pnpm build` prior to starting the server, ensuring local builds never serve stale bundles. Fixed static file route caching in Fastify (`apps/server/src/app.ts`).
+
 ## 0.1.5 — 2026-09-08
 
 ### Fixed — leave balances no longer reset to zero at the leave year boundary

@@ -38,6 +38,9 @@ const sql0002 = JSON.stringify(
 const sql0003 = JSON.stringify(
   fs.readFileSync(path.join(sqlDir, '0003_team_lead_approver.sql'), 'utf8'),
 );
+const sql0004 = JSON.stringify(
+  fs.readFileSync(path.join(sqlDir, '0004_workstation_device_binding.sql'), 'utf8'),
+);
 
 fs.mkdirSync('api', { recursive: true });
 
@@ -69,7 +72,7 @@ await esbuild.build({
           let src = await fs.promises.readFile(args.path, 'utf8');
           src = src.replace(
             /let sql = fs\.readFileSync\(new URL\(`\.\/sql\/\$\{m\.id\}\.sql`, import\.meta\.url\), 'utf8'\);/,
-            `let sql = m.id === '0001_init' ? ${sql0001} : m.id === '0002_holiday_one_kind_per_date' ? ${sql0002} : ${sql0003};`,
+            `let sql = m.id === '0001_init' ? ${sql0001} : m.id === '0002_holiday_one_kind_per_date' ? ${sql0002} : m.id === '0003_team_lead_approver' ? ${sql0003} : ${sql0004};`,
           );
           return { contents: src, loader: 'ts' };
         });
@@ -79,6 +82,9 @@ await esbuild.build({
 });
 
 const nativeRoot = path.resolve('api/node_modules');
+if (fs.existsSync(nativeRoot)) {
+  fs.rmSync(nativeRoot, { recursive: true, force: true });
+}
 if (!copyPackage('@node-rs/argon2', nativeRoot)) {
   console.error('Failed to copy @node-rs/argon2 into api/node_modules');
   process.exit(1);
@@ -93,6 +99,7 @@ if (fs.existsSync(pnpmDir)) {
     const innerNs = path.join(inner, '@node-rs');
     if (fs.existsSync(innerNs)) {
       for (const pkg of fs.readdirSync(innerNs)) {
+        if (fs.existsSync(path.join(nativeRoot, '@node-rs', pkg))) continue;
         const from = path.join(innerNs, pkg);
         const opts = { recursive: true, force: true, dereference: true };
         fs.cpSync(from, path.join(nativeRoot, '@node-rs', pkg), opts);

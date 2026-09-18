@@ -168,7 +168,12 @@ export async function previewLeave(
       name: o.name,
       when: `${formatDisplayDate(o.start_date)} – ${formatDisplayDate(o.end_date)}`,
     })),
-    approver: await describeRouteFor(ctx, employeeId, p.userId),
+    approver: await (async () => {
+      const targetAccount = (await ctx.sqlite
+        .prepare(`SELECT id FROM user_account WHERE employee_id = ?`)
+        .get(employeeId)) as { id: string } | undefined;
+      return describeRouteFor(ctx, employeeId, targetAccount?.id ?? p.userId);
+    })(),
   };
 }
 /**
@@ -305,9 +310,13 @@ export async function submitLeave(
   // Position in the org structure decides the chain, not only the account's role: a
   // team lead is an ordinary employee account that happens to lead a team.
   void roles;
+  const empAccount = (await ctx.sqlite
+    .prepare(`SELECT id FROM user_account WHERE employee_id = ?`)
+    .get(employeeId)) as { id: string } | undefined;
+  const requesterUserId = empAccount?.id ?? p.userId;
   const kind = await requesterKindOf(ctx, employeeId);
   const workflow = await pickWorkflow(ctx, kind);
-  const routing = await resolveApprover(ctx, employeeId, p.userId, kind);
+  const routing = await resolveApprover(ctx, employeeId, requesterUserId, kind);
   const id = newId();
   await withTx(ctx.sqlite, async () => {
     await ctx.sqlite
@@ -369,17 +378,41 @@ export async function submitLeave(
          VALUES (?, ?, 1, ?, ?, 'pending')`,
       )
       .run(newId(), id, routing.approverUserId, routing.approverEmployeeId);
+    if (onBehalf && empAccount) {
+      await notify(
+        ctx,
+        empAccount.id,
+        'leave.submitted_on_behalf',
+        'Leave submitted on your behalf',
+        `${p.email} recorded a leave request on your behalf for ${input.startDate} to ${input.endDate}.`,
+        'leave_request',
+        id,
+      );
+    }
+    const submitTitle = onBehalf
+      ? `Leave request submitted on behalf of ${emp.first_name} ${emp.last_name}`
+      : 'Leave request awaiting a decision';
+    const submitBody = onBehalf
+      ? `${p.email} submitted a leave request on behalf of ${emp.first_name} ${emp.last_name}.`
+      : `${emp.first_name} ${emp.last_name} submitted a request.`;
     await notify(
       ctx,
       routing.approverUserId,
       'leave.submitted',
-      'Leave request awaiting a decision',
-      `${emp.first_name} ${emp.last_name} submitted a request.`,
+      submitTitle,
+      submitBody,
       'leave_request',
       id,
     );
     await queueEmail(ctx, routing.approverUserId, emp, input, counted, id);
-    await audit(ctx, 'leave.request.submitted', 'leave_request', id, null, { id, onBehalf });
+    await audit(
+      ctx,
+      onBehalf ? 'leave.request.submitted_on_behalf' : 'leave.request.submitted',
+      'leave_request',
+      id,
+      null,
+      { id, onBehalf, submittedBy: p.userId, employeeId },
+    );
     if (input.idempotencyKey) {
       await ctx.sqlite
         .prepare(
@@ -662,6 +695,103 @@ export async function decideLeave(
         'leave_request',
         req.id,
       );
+    }
+
+    if (input.decision === 'approve') {
+      const empDetails = (await ctx.sqlite
+        .prepare(
+          `SELECT e.first_name, e.last_name, e.department_id, d.head_employee_id, lt.name AS leave_type_name
+           FROM employee e
+           LEFT JOIN department d ON d.id = e.department_id
+           LEFT JOIN leave_type lt ON lt.id = ?
+           WHERE e.id = ?`,
+        )
+        .get(req.leave_type_id, req.employee_id)) as
+        | {
+            first_name: string;
+            last_name: string;
+            department_id: string | null;
+            head_employee_id: string | null;
+            leave_type_name: string | null;
+          }
+        | undefined;
+
+      const approverKind = await requesterKindOf(ctx, p.employeeId ?? '');
+      const recipientUserIds = new Set<string>();
+
+      // 1. If approved by Team Lead or Department Head, include Department Head (if different from approver and employee)
+      if (
+        empDetails?.head_employee_id &&
+        empDetails.head_employee_id !== p.employeeId &&
+        empDetails.head_employee_id !== req.employee_id
+      ) {
+        const headAccount = (await ctx.sqlite
+          .prepare(`SELECT id FROM user_account WHERE employee_id = ? AND is_disabled = 0`)
+          .get(empDetails.head_employee_id)) as { id: string } | undefined;
+        if (headAccount) {
+          recipientUserIds.add(headAccount.id);
+        }
+      }
+
+      // 2. If approved by Team Lead, Dept Head, or below, include active HR officers
+      if (
+        approverKind === 'team_lead' ||
+        approverKind === 'department_head' ||
+        approverKind === 'employee'
+      ) {
+        const hrAccounts = (await ctx.sqlite
+          .prepare(
+            `SELECT ua.id FROM user_account ua
+             JOIN user_role ur ON ur.user_account_id = ua.id
+             JOIN role r ON r.id = ur.role_id
+             WHERE r.code = 'hr_officer' AND ua.is_disabled = 0`,
+          )
+          .all()) as { id: string }[];
+        for (const hr of hrAccounts) {
+          if (hr.id !== p.userId && hr.id !== owner?.id) {
+            recipientUserIds.add(hr.id);
+          }
+        }
+      }
+
+      // 3. If approved by Dept Head, HR Officer, or Admin, include Administrators
+      if (
+        approverKind === 'department_head' ||
+        approverKind === 'hr_officer' ||
+        approverKind === 'admin'
+      ) {
+        const adminAccounts = (await ctx.sqlite
+          .prepare(
+            `SELECT ua.id FROM user_account ua
+             JOIN user_role ur ON ur.user_account_id = ua.id
+             JOIN role r ON r.id = ur.role_id
+             WHERE r.code = 'admin' AND ua.is_disabled = 0`,
+          )
+          .all()) as { id: string }[];
+        for (const adm of adminAccounts) {
+          if (adm.id !== p.userId && adm.id !== owner?.id) {
+            recipientUserIds.add(adm.id);
+          }
+        }
+      }
+
+      const empName = empDetails ? `${empDetails.first_name} ${empDetails.last_name}` : 'Employee';
+      const leaveName = empDetails?.leave_type_name ?? 'Leave';
+      const daysCount = (req.total_half_days / 2).toFixed(1).replace(/\.0$/, '');
+      const infoTitle = `Leave Approved: ${empName}`;
+      const infoBody = `${p.email} approved ${leaveName} for ${empName} (${req.start_date} to ${req.end_date}, ${daysCount} days).`;
+
+      for (const recipientId of recipientUserIds) {
+        await notify(
+          ctx,
+          recipientId,
+          'leave.approved.informational',
+          infoTitle,
+          infoBody,
+          'leave_request',
+          req.id,
+        );
+      }
     }
     const auditAction =
       isSelf && input.decision === 'approve'

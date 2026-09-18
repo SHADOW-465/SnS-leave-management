@@ -22,7 +22,7 @@
     "format:check": "prettier --check .",
     "db:migrate": "pnpm --filter @sns/database migrate",
     "seed:demo": "pnpm --filter @sns/server seed:demo",
-    "start": "node scripts/start-leaveos.mjs",
+    "start": "pnpm build && node scripts/start-leaveos.mjs",
     "service": "node scripts/service.mjs"
   },
   "devDependencies": {

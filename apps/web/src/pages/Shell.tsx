@@ -355,7 +355,7 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
               {me.email}
             </p>
           </div>
-          <Button onClick={signOut} disabled={signingOut}>
+          <Button size="sm" onClick={signOut} disabled={signingOut} style={{ width: '100%' }}>
             {signingOut ? 'Signing out…' : 'Sign out'}
           </Button>
         </div>

@@ -30,11 +30,16 @@ export async function listEmployees(ctx: RequestContext, q: string) {
     )
     .all()) as Record<string, unknown>[];
   const canCompany = p.permissions.some((x) => x === 'employee.read:company');
+  const canTeam = p.permissions.some((x) => x === 'employee.read:team');
   const filtered = canCompany
     ? rows
     : rows.filter((r) => {
         const id = String(r.id);
-        return id === p.employeeId || graph.recursiveReports.has(id);
+        if (id === p.employeeId) return true;
+        if (graph.recursiveReports.has(id)) return true;
+        if (graph.reports.has(id)) return true;
+        if (canTeam && p.teamId && r.team_id === p.teamId) return true;
+        return false;
       });
   const needle = q.trim().toLowerCase();
   return filtered.filter((r) => {

@@ -75,12 +75,11 @@ export function LoginPage() {
     retry: false,
   });
 
-  const accounts: DemoAccountItem[] =
-    demo.data?.accounts && demo.data.accounts.length > 0
-      ? demo.data.accounts
-      : import.meta.env.DEV
-        ? DEFAULT_DEMO_ACCOUNTS
-        : [];
+  const accounts: DemoAccountItem[] = demo.data
+    ? (demo.data.accounts ?? [])
+    : import.meta.env.DEV
+      ? DEFAULT_DEMO_ACCOUNTS
+      : [];
 
   async function performLogin(targetEmail: string, targetPass: string) {
     setPending(true);

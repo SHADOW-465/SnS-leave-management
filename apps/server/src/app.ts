@@ -135,9 +135,9 @@ export async function buildApp(config: AppConfig, sqlite: Db): Promise<FastifyIn
   // the server answered 404 for every page and served no interface at all.
   const webDist = resolveWebDist(here);
   if (webDist) {
-    await app.register(staticPlugin, { root: webDist, wildcard: false });
+    await app.register(staticPlugin, { root: webDist });
     app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith('/api')) {
+      if (req.url.startsWith('/api') || req.url.startsWith('/assets/')) {
         return reply.status(404).send({
           error: { code: 'NOT_FOUND', message: 'Not found.', requestId: String(req.id) },
         });

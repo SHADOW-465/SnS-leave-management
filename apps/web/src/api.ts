@@ -15,8 +15,23 @@ function csrf(): string {
   return m ? decodeURIComponent(m[1] ?? '') : '';
 }
 
+export function getOrCreateWorkstationId(): string {
+  if (typeof window === 'undefined' || !window.localStorage) return 'ws_office_terminal';
+  let id = localStorage.getItem('leaveos_workstation_id');
+  if (!id) {
+    id =
+      'ws_' +
+      (typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2) + Date.now().toString(36));
+    localStorage.setItem('leaveos_workstation_id', id);
+  }
+  return id;
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
+  headers.set('x-workstation-id', getOrCreateWorkstationId());
   if (init.body && !(init.body instanceof FormData)) {
     headers.set('content-type', 'application/json');
   }

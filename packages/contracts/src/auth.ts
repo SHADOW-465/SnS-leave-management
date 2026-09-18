@@ -5,6 +5,7 @@ export const loginBodySchema = z
   .object({
     email,
     password: z.string().min(1).max(200),
+    workstationId: z.string().min(1).max(200).optional(),
   })
   .strict();
 

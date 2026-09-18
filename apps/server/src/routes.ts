@@ -27,6 +27,8 @@ import {
 } from '@sns/contracts';
 import { DomainError, newId, csvSafe } from '@sns/domain';
 import { hashToken } from '@sns/auth';
+import * as XLSX from 'xlsx';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { authorizeAction, requirePrincipal, type RequestContext } from './ctx.js';
 import { sendError } from './http.js';
 import {
@@ -155,7 +157,14 @@ export async function registerRoutes(app: FastifyInstance) {
   app.post('/api/v1/auth/login', async (req, reply) => {
     try {
       const body = parse(loginBodySchema, req.body);
-      const result = await login(req.ctx, body);
+      const workstationHeader = req.headers['x-workstation-id'];
+      const workstationId =
+        body.workstationId ??
+        (typeof workstationHeader === 'string' ? workstationHeader : undefined);
+      const result = await login(req.ctx, {
+        ...body,
+        workstationId,
+      });
       reply
         .setCookie('leaveos.sid', result.token, cookieOpts(req.ctx, true))
         .setCookie('leaveos.csrf', result.csrf, { ...cookieOpts(req.ctx, false), httpOnly: false });
@@ -567,23 +576,681 @@ export async function registerRoutes(app: FastifyInstance) {
       return sendError(req, reply, err);
     }
   });
+  async function recordReportExportAudit(ctx: RequestContext) {
+    await ctx.sqlite
+      .prepare(
+        `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, request_id, result)
+         VALUES (?, ?, ?, ?, 'report.exported', 'report', ?, 'ok')`,
+      )
+      .run(
+        newId(),
+        ctx.now,
+        ctx.principal?.userId ?? null,
+        ctx.principal?.email ?? 'unknown',
+        ctx.requestId,
+      );
+  }
+
+  app.get('/api/v1/reports/export.xlsx', async (req, reply) => {
+    try {
+      await authorizeAction(req.ctx, 'report.export', null);
+      const data = await reports(req.ctx);
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: Executive Summary
+      const summaryAoa: (string | number)[][] = [
+        ['Simon & Sons Leave OS — Executive Leave Report'],
+        ['Generated At', req.ctx.now],
+        ['Reporting Period', data.period?.label ?? 'Active Period'],
+        [],
+        ['Metric', 'Value', 'Notes'],
+        [
+          'Total Approved Leave Days',
+          data.summary.totalApprovedDays,
+          'Days approved across all employees',
+        ],
+        [
+          'Total Approved Requests',
+          data.summary.totalApprovedRequests,
+          'Count of approved leave requests',
+        ],
+        [
+          'Pending Approvals',
+          data.summary.pendingCount,
+          `${data.summary.pendingDays} days awaiting decision`,
+        ],
+        ['Active Headcount', data.summary.activeEmployeesCount, 'Excludes exited employees'],
+        [
+          'Average Days per Employee',
+          Number(data.summary.avgDaysPerEmployee),
+          'Total approved days / active headcount',
+        ],
+        [
+          'Most Utilized Leave Type',
+          data.summary.mostUsedLeaveType,
+          'Highest volume of approved days',
+        ],
+        [
+          'Self-Approved Requests',
+          data.summary.selfApprovalsCount,
+          'Standing governance report (DW-32)',
+        ],
+        ['Rejected Requests', data.summary.rejectedCount, 'Decisions marked rejected'],
+      ];
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
+      wsSummary['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 42 }];
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Executive Summary');
+
+      // Sheet 2: Department Breakdown
+      const deptHeaders = [
+        'Department Code',
+        'Department Name',
+        'Headcount',
+        'Total Days Taken',
+        'Avg Days / Employee',
+        'Approved Requests',
+      ];
+      const deptRows = data.byDepartment.map((d) => [
+        d.code,
+        d.name,
+        d.headcount,
+        d.totalDaysTaken,
+        Number(d.avgDaysPerEmployee),
+        d.requestCount,
+      ]);
+      const wsDept = XLSX.utils.aoa_to_sheet([deptHeaders, ...deptRows]);
+      wsDept['!cols'] = [
+        { wch: 18 },
+        { wch: 28 },
+        { wch: 12 },
+        { wch: 18 },
+        { wch: 20 },
+        { wch: 18 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsDept, 'Departments');
+
+      // Sheet 3: Leave Types Breakdown
+      const typeHeaders = [
+        'Code',
+        'Leave Type Name',
+        'Total Days Taken',
+        '% of Total Leave',
+        'Approved Requests',
+        'Employees Count',
+      ];
+      const typeRows = data.byLeaveType.map((t) => [
+        t.code,
+        t.name,
+        t.totalDaysTaken,
+        `${t.percentOfTotal}%`,
+        t.requestCount,
+        t.employeeCount,
+      ]);
+      const wsType = XLSX.utils.aoa_to_sheet([typeHeaders, ...typeRows]);
+      wsType['!cols'] = [
+        { wch: 12 },
+        { wch: 28 },
+        { wch: 18 },
+        { wch: 16 },
+        { wch: 18 },
+        { wch: 18 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsType, 'Leave Types');
+
+      // Sheet 4: Monthly Trends
+      const monthHeaders = [
+        'Year-Month',
+        'Month Label',
+        'Approved Days',
+        'Requests Count',
+        'Employees Out',
+      ];
+      const monthRows = data.byMonth.map((m) => [
+        m.ym,
+        m.label,
+        m.days,
+        m.requestCount,
+        m.employeeCount,
+      ]);
+      const wsMonth = XLSX.utils.aoa_to_sheet([monthHeaders, ...monthRows]);
+      wsMonth['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(wb, wsMonth, 'Monthly Trends');
+
+      // Sheet 5: Employee Leave Balances
+      const empHeaders = [
+        'Employee Code',
+        'Employee Name',
+        'Department',
+        'Team',
+        'Status',
+        'Joined Date',
+        'Entitlement (Days)',
+        'Taken (Days)',
+        'Remaining (Days)',
+        'Pending (Days)',
+      ];
+      const empRows = data.employeeSummaries.map((e) => [
+        e.code,
+        e.name,
+        e.departmentName,
+        e.teamName,
+        e.status,
+        e.joinedOn,
+        e.entitlementDays,
+        e.takenDays,
+        e.remainingDays,
+        e.pendingDays,
+      ]);
+      const wsEmp = XLSX.utils.aoa_to_sheet([empHeaders, ...empRows]);
+      wsEmp['!cols'] = [
+        { wch: 16 },
+        { wch: 26 },
+        { wch: 22 },
+        { wch: 20 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 16 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsEmp, 'Employee Balances');
+
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      await recordReportExportAudit(req.ctx);
+
+      return reply
+        .header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('content-disposition', 'attachment; filename="leave-report.xlsx"')
+        .send(buf);
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+
+  app.get('/api/v1/reports/export.pdf', async (req, reply) => {
+    try {
+      await authorizeAction(req.ctx, 'report.export', null);
+      const data = await reports(req.ctx);
+
+      const pdfDoc = await PDFDocument.create();
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+      const primaryColor = rgb(0.09, 0.12, 0.18);
+      const textDark = rgb(0.12, 0.15, 0.2);
+      const textMuted = rgb(0.45, 0.48, 0.55);
+      const borderColor = rgb(0.85, 0.87, 0.9);
+      const bgHeader = rgb(0.95, 0.96, 0.98);
+      const accentNavy = rgb(0.12, 0.28, 0.55);
+
+      // Page 1: Overview, Department & Leave Type Summary
+      let page = pdfDoc.addPage([595.28, 841.89]);
+      const margin = 40;
+      const contentWidth = 595.28 - margin * 2;
+      let y = 801.89;
+
+      // Header Banner
+      page.drawRectangle({
+        x: margin,
+        y: y - 55,
+        width: contentWidth,
+        height: 60,
+        color: primaryColor,
+      });
+
+      page.drawText('SIMON & SONS LEAVE OS', {
+        x: margin + 16,
+        y: y - 24,
+        size: 15,
+        font: fontBold,
+        color: rgb(1, 1, 1),
+      });
+
+      page.drawText('EXECUTIVE LEAVE & UTILIZATION REPORT', {
+        x: margin + 16,
+        y: y - 42,
+        size: 9.5,
+        font,
+        color: rgb(0.8, 0.85, 0.92),
+      });
+
+      page.drawText(`Generated: ${req.ctx.now.slice(0, 19).replace('T', ' ')} UTC`, {
+        x: margin + contentWidth - 190,
+        y: y - 24,
+        size: 8,
+        font,
+        color: rgb(0.8, 0.85, 0.92),
+      });
+
+      page.drawText(`Period: ${data.period?.label ?? 'Active Period'}`, {
+        x: margin + contentWidth - 190,
+        y: y - 42,
+        size: 8,
+        font,
+        color: rgb(0.8, 0.85, 0.92),
+      });
+
+      y -= 75;
+
+      // Executive KPIs Ribbon (6 cards, 3 columns x 2 rows)
+      const kpis = [
+        {
+          label: 'Total Leave Taken',
+          val: `${data.summary.totalApprovedDays} Days`,
+          note: `${data.summary.totalApprovedRequests} requests approved`,
+        },
+        {
+          label: 'Active Headcount',
+          val: `${data.summary.activeEmployeesCount} Staff`,
+          note: 'Across all departments',
+        },
+        {
+          label: 'Avg Leave / Employee',
+          val: `${data.summary.avgDaysPerEmployee} Days`,
+          note: 'Annual leave density',
+        },
+        {
+          label: 'Pending Approvals',
+          val: `${data.summary.pendingCount} Pending`,
+          note: `${data.summary.pendingDays} days awaiting decision`,
+        },
+        {
+          label: 'Most Utilized Type',
+          val: data.summary.mostUsedLeaveType,
+          note: 'Highest booked volume',
+        },
+        {
+          label: 'Self-Approvals (Audit)',
+          val: `${data.summary.selfApprovalsCount} Requests`,
+          note: 'Standing governance report (DW-32)',
+        },
+      ];
+
+      const colWidth = (contentWidth - 16) / 3;
+      const cardHeight = 44;
+
+      kpis.forEach((k, idx) => {
+        const col = idx % 3;
+        const row = Math.floor(idx / 3);
+        const cardX = margin + col * (colWidth + 8);
+        const cardY = y - row * (cardHeight + 8) - cardHeight;
+
+        page.drawRectangle({
+          x: cardX,
+          y: cardY,
+          width: colWidth,
+          height: cardHeight,
+          color: bgHeader,
+          borderColor: borderColor,
+          borderWidth: 1,
+        });
+
+        page.drawText(k.label.toUpperCase(), {
+          x: cardX + 8,
+          y: cardY + cardHeight - 12,
+          size: 7,
+          font: fontBold,
+          color: textMuted,
+        });
+
+        page.drawText(k.val, {
+          x: cardX + 8,
+          y: cardY + cardHeight - 25,
+          size: 11,
+          font: fontBold,
+          color: textDark,
+        });
+
+        page.drawText(k.note, {
+          x: cardX + 8,
+          y: cardY + cardHeight - 37,
+          size: 7,
+          font,
+          color: textMuted,
+        });
+      });
+
+      y -= 2 * (cardHeight + 8) + 16;
+
+      // Section 1: Department Summary Table
+      page.drawText('DEPARTMENT BREAKDOWN', {
+        x: margin,
+        y: y,
+        size: 11,
+        font: fontBold,
+        color: accentNavy,
+      });
+      y -= 14;
+
+      const deptHeadersPdf = [
+        { label: 'CODE', x: margin, w: 60 },
+        { label: 'DEPARTMENT', x: margin + 60, w: 175 },
+        { label: 'HEADCOUNT', x: margin + 235, w: 80 },
+        { label: 'DAYS TAKEN', x: margin + 315, w: 80 },
+        { label: 'AVG DAYS/EMP', x: margin + 395, w: 70 },
+        { label: 'REQUESTS', x: margin + 465, w: 50 },
+      ];
+
+      page.drawRectangle({
+        x: margin,
+        y: y - 14,
+        width: contentWidth,
+        height: 18,
+        color: bgHeader,
+      });
+
+      deptHeadersPdf.forEach((h) => {
+        page.drawText(h.label, {
+          x: h.x + 4,
+          y: y - 10,
+          size: 7,
+          font: fontBold,
+          color: textMuted,
+        });
+      });
+      y -= 16;
+
+      data.byDepartment.forEach((d) => {
+        page.drawRectangle({
+          x: margin,
+          y: y - 14,
+          width: contentWidth,
+          height: 16,
+          borderColor: borderColor,
+          borderWidth: 0.5,
+        });
+        page.drawText(d.code, { x: margin + 4, y: y - 11, size: 8, font, color: textDark });
+        page.drawText(d.name.slice(0, 30), {
+          x: margin + 64,
+          y: y - 11,
+          size: 8,
+          font: fontBold,
+          color: textDark,
+        });
+        page.drawText(String(d.headcount), {
+          x: margin + 239,
+          y: y - 11,
+          size: 8,
+          font,
+          color: textDark,
+        });
+        page.drawText(`${d.totalDaysTaken} d`, {
+          x: margin + 319,
+          y: y - 11,
+          size: 8,
+          font,
+          color: textDark,
+        });
+        page.drawText(`${d.avgDaysPerEmployee} d`, {
+          x: margin + 399,
+          y: y - 11,
+          size: 8,
+          font,
+          color: textDark,
+        });
+        page.drawText(String(d.requestCount), {
+          x: margin + 469,
+          y: y - 11,
+          size: 8,
+          font,
+          color: textDark,
+        });
+        y -= 16;
+      });
+
+      y -= 16;
+
+      // Section 2: Leave Type Utilization Table
+      page.drawText('LEAVE TYPE UTILIZATION', {
+        x: margin,
+        y: y,
+        size: 11,
+        font: fontBold,
+        color: accentNavy,
+      });
+      y -= 14;
+
+      const typeHeadersPdf = [
+        { label: 'CODE', x: margin, w: 60 },
+        { label: 'LEAVE TYPE', x: margin + 60, w: 175 },
+        { label: 'DAYS TAKEN', x: margin + 235, w: 80 },
+        { label: '% OF TOTAL', x: margin + 315, w: 80 },
+        { label: 'REQUESTS', x: margin + 395, w: 70 },
+        { label: 'EMPLOYEES', x: margin + 465, w: 50 },
+      ];
+
+      page.drawRectangle({
+        x: margin,
+        y: y - 14,
+        width: contentWidth,
+        height: 18,
+        color: bgHeader,
+      });
+
+      typeHeadersPdf.forEach((h) => {
+        page.drawText(h.label, {
+          x: h.x + 4,
+          y: y - 10,
+          size: 7,
+          font: fontBold,
+          color: textMuted,
+        });
+      });
+      y -= 16;
+
+      data.byLeaveType.forEach((t) => {
+        page.drawRectangle({
+          x: margin,
+          y: y - 14,
+          width: contentWidth,
+          height: 16,
+          borderColor: borderColor,
+          borderWidth: 0.5,
+        });
+        page.drawText(t.code, { x: margin + 4, y: y - 11, size: 8, font, color: textDark });
+        page.drawText(t.name.slice(0, 30), {
+          x: margin + 64,
+          y: y - 11,
+          size: 8,
+          font: fontBold,
+          color: textDark,
+        });
+        page.drawText(`${t.totalDaysTaken} d`, {
+          x: margin + 239,
+          y: y - 11,
+          size: 8,
+          font,
+          color: textDark,
+        });
+        page.drawText(`${t.percentOfTotal}%`, {
+          x: margin + 319,
+          y: y - 11,
+          size: 8,
+          font,
+          color: textDark,
+        });
+        page.drawText(String(t.requestCount), {
+          x: margin + 399,
+          y: y - 11,
+          size: 8,
+          font,
+          color: textDark,
+        });
+        page.drawText(String(t.employeeCount), {
+          x: margin + 469,
+          y: y - 11,
+          size: 8,
+          font,
+          color: textDark,
+        });
+        y -= 16;
+      });
+
+      // Page 2: Employee Leave Balances
+      page = pdfDoc.addPage([595.28, 841.89]);
+      y = 801.89;
+
+      page.drawRectangle({
+        x: margin,
+        y: y - 35,
+        width: contentWidth,
+        height: 40,
+        color: primaryColor,
+      });
+
+      page.drawText('EMPLOYEE LEAVE BALANCES & ENTITLEMENTS', {
+        x: margin + 14,
+        y: y - 22,
+        size: 13,
+        font: fontBold,
+        color: rgb(1, 1, 1),
+      });
+
+      page.drawText(`Active Period: ${data.period?.label ?? 'Current Period'}`, {
+        x: margin + contentWidth - 170,
+        y: y - 22,
+        size: 8,
+        font,
+        color: rgb(0.8, 0.85, 0.92),
+      });
+
+      y -= 52;
+
+      const empTableHeaders = [
+        { label: 'CODE', x: margin, w: 50 },
+        { label: 'EMPLOYEE NAME', x: margin + 50, w: 140 },
+        { label: 'DEPARTMENT', x: margin + 190, w: 110 },
+        { label: 'ENTITLED', x: margin + 300, w: 55 },
+        { label: 'TAKEN', x: margin + 355, w: 50 },
+        { label: 'REMAINING', x: margin + 405, w: 55 },
+        { label: 'PENDING', x: margin + 460, w: 55 },
+      ];
+
+      const drawEmpHeader = (p: typeof page, currY: number) => {
+        p.drawRectangle({
+          x: margin,
+          y: currY - 14,
+          width: contentWidth,
+          height: 18,
+          color: bgHeader,
+        });
+        empTableHeaders.forEach((h) => {
+          p.drawText(h.label, {
+            x: h.x + 3,
+            y: currY - 10,
+            size: 7,
+            font: fontBold,
+            color: textMuted,
+          });
+        });
+      };
+
+      drawEmpHeader(page, y);
+      y -= 16;
+
+      for (const emp of data.employeeSummaries) {
+        if (y < 55) {
+          page = pdfDoc.addPage([595.28, 841.89]);
+          y = 801.89;
+          drawEmpHeader(page, y);
+          y -= 16;
+        }
+
+        page.drawRectangle({
+          x: margin,
+          y: y - 13,
+          width: contentWidth,
+          height: 15,
+          borderColor: borderColor,
+          borderWidth: 0.5,
+        });
+
+        page.drawText(emp.code, { x: margin + 3, y: y - 10, size: 7.5, font, color: textDark });
+        page.drawText(emp.name.slice(0, 24), {
+          x: margin + 53,
+          y: y - 10,
+          size: 7.5,
+          font: fontBold,
+          color: textDark,
+        });
+        page.drawText(emp.departmentName.slice(0, 18), {
+          x: margin + 193,
+          y: y - 10,
+          size: 7.5,
+          font,
+          color: textDark,
+        });
+        page.drawText(`${emp.entitlementDays} d`, {
+          x: margin + 303,
+          y: y - 10,
+          size: 7.5,
+          font,
+          color: textDark,
+        });
+        page.drawText(`${emp.takenDays} d`, {
+          x: margin + 358,
+          y: y - 10,
+          size: 7.5,
+          font,
+          color: textDark,
+        });
+        page.drawText(`${emp.remainingDays} d`, {
+          x: margin + 408,
+          y: y - 10,
+          size: 7.5,
+          font: fontBold,
+          color: emp.remainingDays < 0 ? rgb(0.8, 0.1, 0.1) : textDark,
+        });
+        page.drawText(emp.pendingDays > 0 ? `${emp.pendingDays} d` : '—', {
+          x: margin + 463,
+          y: y - 10,
+          size: 7.5,
+          font,
+          color: emp.pendingDays > 0 ? rgb(0.7, 0.4, 0) : textMuted,
+        });
+
+        y -= 15;
+      }
+
+      const allPages = pdfDoc.getPages();
+      allPages.forEach((p, idx) => {
+        p.drawText(
+          `Simon & Sons Leave OS  •  Audited Internal Record  •  Page ${idx + 1} of ${allPages.length}`,
+          {
+            x: margin,
+            y: 22,
+            size: 7.5,
+            font,
+            color: textMuted,
+          },
+        );
+      });
+
+      const pdfBytes = await pdfDoc.save();
+      await recordReportExportAudit(req.ctx);
+
+      return reply
+        .header('content-type', 'application/pdf')
+        .header('content-disposition', 'attachment; filename="leave-report.pdf"')
+        .send(Buffer.from(pdfBytes));
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+
   app.get('/api/v1/reports/export.csv', async (req, reply) => {
     try {
       await authorizeAction(req.ctx, 'report.export', null);
       const data = await reports(req.ctx);
-      const lines = ['month,days', ...data.byMonth.map((m) => `${csvSafe(m.label)},${m.days}`)];
-      await req.ctx.sqlite
-        .prepare(
-          `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, request_id, result)
-           VALUES (?, ?, ?, ?, 'report.exported', 'report', ?, 'ok')`,
-        )
-        .run(
-          newId(),
-          req.ctx.now,
-          req.ctx.principal?.userId ?? null,
-          req.ctx.principal?.email ?? 'unknown',
-          req.ctx.requestId,
-        );
+      const lines = [
+        'Employee Code,Employee Name,Department,Team,Status,Joined Date,Entitlement Days,Taken Days,Remaining Days,Pending Days',
+        ...data.employeeSummaries.map(
+          (e) =>
+            `${csvSafe(e.code)},${csvSafe(e.name)},${csvSafe(e.departmentName)},${csvSafe(e.teamName)},${csvSafe(e.status)},${csvSafe(e.joinedOn)},${e.entitlementDays},${e.takenDays},${e.remainingDays},${e.pendingDays}`,
+        ),
+      ];
+      await recordReportExportAudit(req.ctx);
       return reply
         .header('content-type', 'text/csv; charset=utf-8')
         .header('content-disposition', 'attachment; filename="leave-report.csv"')

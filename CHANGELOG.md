@@ -2,6 +2,10 @@
 
 ## 0.1.8 — 2026-09-12
 
+### Fixed — Hosted preview kept serving an older UI after `git push`
+
+Vercel production (`sns-leave-os.vercel.app`) was last deployed from the CLI against an older commit. `.vercelignore` excluded the web source and told the hosted build to reuse a prebuilt `public/` folder, so Reports, custom selects, and the rest of the localhost UI never reached the preview. The hosted build now compiles `apps/web` with Vite and always replaces `public/` from that output.
+
 ### Added — Office Security Perimeter, Workstation 1:1 Binding, On-Behalf Leave & Hierarchy Notifications
 
 - **Office Network Perimeter Enforcement**: Implemented `isOfficeNetwork(ip)` check covering local loopbacks, RFC 1918 private subnets (`10.0.0.0/8`, `192.168.0.0/16`, `172.16.0.0/12`), and office gateway IP. Blocks remote / offsite logins from registering attendance signals in `attendance_raw`, writing `auth.offsite_attendance_suppressed` to the immutable audit log.

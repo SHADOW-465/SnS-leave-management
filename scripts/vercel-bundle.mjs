@@ -1,6 +1,7 @@
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -19,16 +20,23 @@ function copyPackage(name, destRoot) {
   return true;
 }
 
-const publicIndex = path.resolve('public/index.html');
-if (!fs.existsSync(publicIndex)) {
-  const src = path.resolve('apps/web/dist');
-  if (!fs.existsSync(path.join(src, 'index.html'))) {
-    console.error('Build the web app first: pnpm --filter @sns/web exec vite build');
-    process.exit(1);
-  }
-  fs.rmSync('public', { recursive: true, force: true });
-  fs.cpSync(src, 'public', { recursive: true });
+const webDir = path.resolve('apps/web');
+const vite = spawnSync('pnpm', ['exec', 'vite', 'build'], {
+  cwd: webDir,
+  stdio: 'inherit',
+  shell: process.platform === 'win32',
+});
+if (vite.status !== 0) {
+  process.exit(vite.status ?? 1);
 }
+
+const src = path.resolve('apps/web/dist');
+if (!fs.existsSync(path.join(src, 'index.html'))) {
+  console.error('Vite build did not produce apps/web/dist/index.html');
+  process.exit(1);
+}
+fs.rmSync('public', { recursive: true, force: true });
+fs.cpSync(src, 'public', { recursive: true });
 
 const sqlDir = path.resolve('packages/database/src/sql');
 const sql0001 = JSON.stringify(fs.readFileSync(path.join(sqlDir, '0001_init.sql'), 'utf8'));

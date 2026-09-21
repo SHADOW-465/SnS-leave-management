@@ -115,9 +115,23 @@ function daysWaiting(submittedAt: string, now: string): string {
   if (days <= 0) return 'since today';
   return days === 1 ? '1 day' : `${days} days`;
 }
+const CREDIT_TYPES = `('OPENING','ACCRUAL','ENTITLEMENT_GRANT','CARRY_FORWARD','MIGRATION_OPENING','ADJUSTMENT')`;
+const USED_TYPES = `('DEDUCTION','ENCASHMENT','EXPIRY')`;
+const PENDING_TYPES = `('PENDING_HOLD','HOLD_RELEASE')`;
+
 export async function myHome(ctx: RequestContext) {
   const p = requirePrincipal(ctx);
-  if (!p.employeeId) return { balances: [], requests: [], probation: null };
+  if (!p.employeeId)
+    return {
+      employee: null,
+      period: null,
+      balances: [],
+      requests: [],
+      monthly: [],
+      upcomingApproved: [],
+      holidays: [],
+      probation: null,
+    };
   await authorizeAction(ctx, 'leave.balance.read', p.employeeId);
   const types = (await ctx.sqlite.prepare(`SELECT id, name, code FROM leave_type`).all()) as {
     id: string;
@@ -125,6 +139,10 @@ export async function myHome(ctx: RequestContext) {
     code: string;
   }[];
   const periodId = await currentPeriodId(ctx);
+  const period = (await ctx.sqlite
+    .prepare(`SELECT id, label, starts_on, ends_on FROM leave_period WHERE id = ?`)
+    .get(periodId)) as
+    { id: string; label: string; starts_on: string; ends_on: string } | undefined;
   const balances = [];
   for (const t of types) {
     let rules;
@@ -137,7 +155,7 @@ export async function myHome(ctx: RequestContext) {
       .prepare(
         `SELECT COALESCE(SUM(quantity_half_days), 0) AS n FROM balance_ledger
          WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?
-           AND entry_type IN ('OPENING','ACCRUAL','ENTITLEMENT_GRANT','CARRY_FORWARD','MIGRATION_OPENING','ADJUSTMENT')`,
+           AND entry_type IN ${CREDIT_TYPES}`,
       )
       .get(p.employeeId, t.id, periodId)) as { n: number };
     // Taken is read from the ledger itself, not inferred as entitlement minus
@@ -146,42 +164,101 @@ export async function myHome(ctx: RequestContext) {
       .prepare(
         `SELECT COALESCE(SUM(-quantity_half_days), 0) AS n FROM balance_ledger
          WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?
-           AND entry_type IN ('DEDUCTION','ENCASHMENT','EXPIRY')`,
+           AND entry_type IN ${USED_TYPES}`,
       )
       .get(p.employeeId, t.id, periodId)) as { n: number };
-    const avail = await availableHalfDays(ctx, p.employeeId, t.id, periodId);
+    const pending = (await ctx.sqlite
+      .prepare(
+        `SELECT COALESCE(SUM(-quantity_half_days), 0) AS n FROM balance_ledger
+         WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?
+           AND entry_type IN ${PENDING_TYPES}`,
+      )
+      .get(p.employeeId, t.id, periodId)) as { n: number };
+    // Display available is earned minus approved use. Pending is shown separately
+    // and only reduces the number after the manager approves (functional framework §4/§6).
+    // The apply check still uses the ledger sum, which includes PENDING_HOLD.
+    const displayAvailable = granted.n - used.n;
     // A type with no entitlement and nothing taken (typically unpaid leave) has no
     // balance to report. It stays available on the apply form; it just does not earn
     // a card that reads "0 / 0".
-    if (granted.n <= 0 && used.n <= 0) continue;
+    if (granted.n <= 0 && used.n <= 0 && pending.n <= 0) continue;
     const pct = granted.n > 0 ? Math.min(100, Math.round((used.n / granted.n) * 100)) : 0;
+    const pendingNote = pending.n > 0 ? ` · ${formatHalfDays(pending.n)} pending approval` : '';
     balances.push({
       id: t.id,
       name: t.name,
       code: t.code,
-      left: formatHalfDays(avail),
+      left: formatHalfDays(displayAvailable),
       total: formatHalfDays(granted.n),
+      eligibility: formatHalfDays(rules.entitlementHalfDays),
       taken: formatHalfDays(used.n),
+      pending: formatHalfDays(pending.n),
+      earnedHalfDays: granted.n,
+      usedHalfDays: used.n,
+      pendingHalfDays: pending.n,
       unlimited: granted.n <= 0 && rules.negativeBalanceAllowed,
       note:
         granted.n <= 0 && rules.negativeBalanceAllowed
           ? `${formatHalfDays(used.n)} taken · no entitlement, deducted from pay`
-          : `${formatHalfDays(used.n)} taken of ${formatHalfDays(granted.n)}`,
+          : `${formatHalfDays(used.n)} taken of ${formatHalfDays(granted.n)}${pendingNote}`,
       pct: `${pct}%`,
-      aria: `${t.name}: ${formatHalfDays(avail)} of ${formatHalfDays(granted.n)} remaining`,
+      aria: `${t.name}: ${formatHalfDays(displayAvailable)} of ${formatHalfDays(granted.n)} available, ${formatHalfDays(pending.n)} pending`,
     });
   }
   const emp = (await ctx.sqlite
-    .prepare(`SELECT * FROM employee WHERE id = ?`)
+    .prepare(
+      `SELECT e.employee_code, e.first_name, e.last_name, e.probation_end_on, e.status, e.joined_on,
+              d.name AS department_name,
+              m.first_name || ' ' || m.last_name AS manager_name
+       FROM employee e
+       JOIN department d ON d.id = e.department_id
+       LEFT JOIN employee m ON m.id = e.manager_employee_id
+       WHERE e.id = ?`,
+    )
     .get(p.employeeId)) as {
+    employee_code: string;
+    first_name: string;
+    last_name: string;
     probation_end_on: string | null;
     status: string;
     joined_on: string;
+    department_name: string;
+    manager_name: string | null;
   };
   const requests = await listRequests(ctx, { mine: true });
+  const monthly = await monthlySummaryFor(ctx, p.employeeId, periodId, period, balances);
+  const upcomingApproved = requests.filter((r) => {
+    const row = r as Record<string, unknown>;
+    return row.status === 'approved' && String(row.end_date) >= ctx.today;
+  });
+  const holidays = (await ctx.sqlite
+    .prepare(
+      `SELECT h.date, h.name, h.kind
+       FROM holiday h
+       JOIN holiday_calendar c ON c.id = h.holiday_calendar_id
+       JOIN location loc ON loc.holiday_calendar_id = c.id
+       JOIN employee e ON e.location_id = loc.id
+       WHERE e.id = ? AND h.date >= ? AND h.kind IN ('public','optional')
+       ORDER BY h.date
+       LIMIT 12`,
+    )
+    .all(p.employeeId, ctx.today)) as { date: string; name: string; kind: string }[];
   return {
+    employee: {
+      name: `${emp.first_name} ${emp.last_name}`,
+      code: emp.employee_code,
+      department: emp.department_name,
+      manager: emp.manager_name,
+      year: period?.label ?? ctx.today.slice(0, 4),
+    },
+    period: period
+      ? { id: period.id, label: period.label, startsOn: period.starts_on, endsOn: period.ends_on }
+      : null,
     balances,
     requests,
+    monthly,
+    upcomingApproved,
+    holidays,
     probation:
       emp.status === 'probation' || (emp.probation_end_on && emp.probation_end_on > ctx.today)
         ? {
@@ -190,6 +267,88 @@ export async function myHome(ctx: RequestContext) {
           }
         : null,
   };
+}
+
+async function monthlySummaryFor(
+  ctx: RequestContext,
+  employeeId: string,
+  periodId: string,
+  period: { starts_on: string; ends_on: string } | undefined,
+  balances: { id: string; code: string; earnedHalfDays: number }[],
+) {
+  if (!period) return [];
+  const focus =
+    balances.find((b) => b.code === 'EL') ??
+    balances.find((b) => b.earnedHalfDays > 0) ??
+    balances[0];
+  if (!focus) return [];
+  const entries = (await ctx.sqlite
+    .prepare(
+      `SELECT entry_type, quantity_half_days, effective_on
+       FROM balance_ledger
+       WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?
+       ORDER BY effective_on, created_at`,
+    )
+    .all(employeeId, focus.id, periodId)) as {
+    entry_type: string;
+    quantity_half_days: number;
+    effective_on: string;
+  }[];
+  const months: {
+    ym: string;
+    label: string;
+    earned: number;
+    used: number;
+    balance: number;
+  }[] = [];
+  const start = period.starts_on.slice(0, 7);
+  const endCap = ctx.today < period.ends_on ? ctx.today : period.ends_on;
+  const end = endCap.slice(0, 7);
+  let running = 0;
+  let y = Number(start.slice(0, 4));
+  let m = Number(start.slice(5, 7));
+  const endY = Number(end.slice(0, 4));
+  const endM = Number(end.slice(5, 7));
+  while (y < endY || (y === endY && m <= endM)) {
+    const ym = `${y}-${String(m).padStart(2, '0')}`;
+    let earned = 0;
+    let used = 0;
+    for (const e of entries) {
+      if (e.effective_on.slice(0, 7) !== ym) continue;
+      if (
+        [
+          'OPENING',
+          'ACCRUAL',
+          'ENTITLEMENT_GRANT',
+          'CARRY_FORWARD',
+          'MIGRATION_OPENING',
+          'ADJUSTMENT',
+        ].includes(e.entry_type)
+      ) {
+        earned += e.quantity_half_days;
+      } else if (['DEDUCTION', 'ENCASHMENT', 'EXPIRY'].includes(e.entry_type)) {
+        used += -e.quantity_half_days;
+      }
+    }
+    running += earned - used;
+    const label = new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-GB', {
+      month: 'long',
+      timeZone: 'UTC',
+    });
+    months.push({
+      ym,
+      label,
+      earned: earned / 2,
+      used: used / 2,
+      balance: running / 2,
+    });
+    m += 1;
+    if (m === 13) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return months;
 }
 export async function listRequests(
   ctx: RequestContext,
@@ -550,7 +709,7 @@ export async function availability(ctx: RequestContext, from: string, days: numb
     })),
   };
 }
-export async function reports(ctx: RequestContext) {
+export async function reports(ctx: RequestContext, opts?: { year?: number; month?: number }) {
   requirePrincipal(ctx);
   await authorizeAction(ctx, 'report.leave.view', null);
   const periodId = await currentPeriodId(ctx);
@@ -829,7 +988,99 @@ export async function reports(ctx: RequestContext) {
     byDepartment,
     byLeaveType,
     employeeSummaries,
+    payroll: await monthlyPayroll(ctx, employeesRaw, opts),
   };
+}
+
+async function monthlyPayroll(
+  ctx: RequestContext,
+  employees: {
+    id: string;
+    employee_code: string;
+    first_name: string;
+    last_name: string;
+    dept_name: string;
+    status: string;
+  }[],
+  opts?: { year?: number; month?: number },
+) {
+  const year = opts?.year ?? Number(ctx.today.slice(0, 4));
+  const month = opts?.month ?? Number(ctx.today.slice(5, 7));
+  const ym = `${year}-${String(month).padStart(2, '0')}`;
+  const monthStart = `${ym}-01`;
+  const nextMonth =
+    month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
+  const label = new Date(Date.UTC(year, month - 1, 1)).toLocaleString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+
+  const entries = (await ctx.sqlite
+    .prepare(
+      `SELECT employee_id, entry_type, quantity_half_days, effective_on
+       FROM balance_ledger`,
+    )
+    .all()) as {
+    employee_id: string;
+    entry_type: string;
+    quantity_half_days: number;
+    effective_on: string;
+  }[];
+
+  const pendingByEmp = (await ctx.sqlite
+    .prepare(
+      `SELECT employee_id, COALESCE(SUM(total_half_days), 0) AS half
+       FROM leave_request
+       WHERE status = 'pending_approval'
+       GROUP BY employee_id`,
+    )
+    .all()) as { employee_id: string; half: number }[];
+  const pendingMap = new Map(pendingByEmp.map((p) => [p.employee_id, Number(p.half) || 0]));
+
+  const isCredit = (t: string) =>
+    [
+      'OPENING',
+      'ACCRUAL',
+      'ENTITLEMENT_GRANT',
+      'CARRY_FORWARD',
+      'MIGRATION_OPENING',
+      'ADJUSTMENT',
+    ].includes(t);
+  const isUsed = (t: string) => ['DEDUCTION', 'ENCASHMENT', 'EXPIRY'].includes(t);
+
+  const rows = employees
+    .filter((e) => e.status !== 'exited')
+    .map((e) => {
+      let openingHalf = 0;
+      let earnedHalf = 0;
+      let usedHalf = 0;
+      for (const row of entries) {
+        if (row.employee_id !== e.id) continue;
+        if (isCredit(row.entry_type) || isUsed(row.entry_type)) {
+          if (row.effective_on < monthStart) openingHalf += row.quantity_half_days;
+        }
+        if (row.effective_on >= monthStart && row.effective_on < nextMonth) {
+          if (isCredit(row.entry_type)) earnedHalf += row.quantity_half_days;
+          else if (isUsed(row.entry_type)) usedHalf += -row.quantity_half_days;
+        }
+      }
+      const pendingHalf = pendingMap.get(e.id) ?? 0;
+      const closingHalf = openingHalf + earnedHalf - usedHalf;
+      return {
+        employeeId: e.id,
+        employeeCode: e.employee_code,
+        name: `${e.first_name} ${e.last_name}`,
+        department: e.dept_name,
+        opening: openingHalf / 2,
+        earned: earnedHalf / 2,
+        used: usedHalf / 2,
+        pending: pendingHalf / 2,
+        closing: closingHalf / 2,
+      };
+    });
+
+  return { year, month, ym, label, rows };
 }
 export async function auditLog(ctx: RequestContext, q?: string) {
   requirePrincipal(ctx);

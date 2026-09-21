@@ -218,9 +218,10 @@ describe('monthly accrual', () => {
 
     const before = (await sqlite
       .prepare(
-        `SELECT COUNT(*) AS n FROM balance_ledger WHERE entry_type = 'ACCRUAL' AND employee_id = ?`,
+        `SELECT COUNT(*) AS n FROM balance_ledger
+          WHERE entry_type = 'ACCRUAL' AND employee_id = ? AND leave_type_id = ?`,
       )
-      .get(employeeId)) as { n: number };
+      .get(employeeId, leaveTypeId)) as { n: number };
     expect(Number(before.n)).toBe(0);
 
     await runMonthlyAccrual(sqlite);
@@ -280,10 +281,13 @@ describe('monthly accrual', () => {
 
   it('does not accrue a type the policy grants annually', async () => {
     const { app, sqlite } = await boot();
+    const leaveTypeId = await clType(sqlite);
     await runMonthlyAccrual(sqlite);
     const rows = (await sqlite
-      .prepare(`SELECT COUNT(*) AS n FROM balance_ledger WHERE entry_type = 'ACCRUAL'`)
-      .get()) as { n: number };
+      .prepare(
+        `SELECT COUNT(*) AS n FROM balance_ledger WHERE entry_type = 'ACCRUAL' AND leave_type_id = ?`,
+      )
+      .get(leaveTypeId)) as { n: number };
     expect(Number(rows.n)).toBe(0);
     await app.close();
   });

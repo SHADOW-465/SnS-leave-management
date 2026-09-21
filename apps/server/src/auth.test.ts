@@ -210,7 +210,15 @@ describe('setup seeding (regression: un-awaited seeds raced the balance grant)',
          WHERE employee_id = ? AND entry_type = 'ENTITLEMENT_GRANT'`,
       )
       .get(admin.id)) as { n: number };
-    expect(granted.n).toBe(entitled.n);
+    const annual = (await sqlite
+      .prepare(
+        `SELECT COUNT(*) AS n FROM leave_policy_version
+         WHERE published_at IS NOT NULL AND rules_json LIKE '%"accrualMethod":"annual_grant"%'`,
+      )
+      .get()) as { n: number };
+    expect(granted.n).toBe(annual.n);
+    expect(granted.n).toBeGreaterThan(0);
+    expect(granted.n).toBeLessThanOrEqual(entitled.n);
     await app.close();
   });
 

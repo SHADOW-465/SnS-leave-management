@@ -186,6 +186,67 @@ describe('API slice', () => {
     expect(denied.statusCode).toBe(403);
     await app.close();
   });
+  it('rejects a second request that overlaps pending leave', async () => {
+    const { app } = await boot();
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/setup',
+      payload: {
+        companyName: 'Test Co',
+        timezone: 'UTC',
+        leaveYearStartMonth: 1,
+        leaveYearStartDay: 1,
+        adminName: 'Ada Example',
+        adminEmail: 'admin@example.invalid',
+        adminPassword: 'ChangeMe_admin_1',
+        loadSampleData: true,
+      },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'amina@example.invalid', password: 'ChangeMe_demo_1' },
+    });
+    const cookies = login.headers['set-cookie'];
+    const cookieHeader = Array.isArray(cookies)
+      ? cookies.map((c) => c.split(';')[0]).join('; ')
+      : String(cookies);
+    const csrf = /leaveos.csrf=([^;]+)/.exec(cookieHeader)?.[1] ?? '';
+    const types = await app.inject({
+      method: 'GET',
+      url: '/api/v1/leave-types',
+      headers: { cookie: cookieHeader },
+    });
+    const typeId = (types.json() as { data: { id: string; code: string }[] }).data.find(
+      (t) => t.code === 'CL',
+    )!.id;
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/leave-requests',
+      headers: { cookie: cookieHeader, 'x-csrf-token': csrf, 'idempotency-key': 'ov-1' },
+      payload: {
+        leaveTypeId: typeId,
+        startDate: '2026-10-12',
+        endDate: '2026-10-14',
+        reason: 'First request in this range.',
+      },
+    });
+    expect(first.statusCode).toBe(201);
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/leave-requests',
+      headers: { cookie: cookieHeader, 'x-csrf-token': csrf, 'idempotency-key': 'ov-2' },
+      payload: {
+        leaveTypeId: typeId,
+        startDate: '2026-10-14',
+        endDate: '2026-10-16',
+        reason: 'Overlaps the fourteenth.',
+      },
+    });
+    expect(second.statusCode).toBe(409);
+    expect((second.json() as { error: { code: string } }).error.code).toBe('LEAVE_OVERLAP');
+    await app.close();
+  });
   it('notifications delivery, listing with entity metadata, and individual/bulk read marking', async () => {
     const { app } = await boot();
     await app.inject({

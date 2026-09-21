@@ -46,6 +46,7 @@ interface EmployeeRecord {
   version: number;
   user_account_id: string | null;
   account_disabled: number | null;
+  phone: string | null;
 }
 
 interface DepartmentRecord {
@@ -1437,6 +1438,7 @@ function CreateEmployeeModal({
     const managerEmployeeId = String(fd.get('managerEmployeeId') ?? '') || null;
     const jobTitleId = String(fd.get('jobTitleId') ?? '');
     const employmentTypeId = String(fd.get('employmentTypeId') ?? '');
+    const phone = String(fd.get('phone') ?? '').trim();
     const createAccount = fd.get('createAccount') === 'on';
 
     try {
@@ -1455,6 +1457,7 @@ function CreateEmployeeModal({
           managerEmployeeId,
           jobTitleId,
           employmentTypeId,
+          phone: phone || undefined,
           createAccount,
         }),
       });
@@ -1618,6 +1621,11 @@ function CreateEmployeeModal({
               </div>
             </div>
 
+            <div className="form-group">
+              <label className="form-label">Mobile</label>
+              <input name="phone" className="form-input" placeholder="e.g. 9876543210" />
+            </div>
+
             <div style={{ marginTop: 8 }}>
               <label
                 style={{
@@ -1688,6 +1696,7 @@ function EditEmployeeModal({
     const managerEmployeeId = String(fd.get('managerEmployeeId') ?? '') || null;
     const jobTitleId = String(fd.get('jobTitleId') ?? '');
     const employmentTypeId = String(fd.get('employmentTypeId') ?? '');
+    const phone = String(fd.get('phone') ?? '').trim();
     const status = String(fd.get('status') ?? emp.status) as EmployeeRecord['status'];
 
     try {
@@ -1707,6 +1716,7 @@ function EditEmployeeModal({
           jobTitleId,
           employmentTypeId,
           status,
+          phone: phone || null,
           expectedVersion: emp.version,
         }),
       });
@@ -1882,6 +1892,16 @@ function EditEmployeeModal({
                   className="form-input"
                 />
               </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Mobile</label>
+              <input
+                name="phone"
+                className="form-input"
+                defaultValue={emp.phone ?? ''}
+                placeholder="e.g. 9876543210"
+              />
             </div>
 
             <div className="form-group">

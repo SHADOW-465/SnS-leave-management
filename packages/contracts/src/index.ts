@@ -60,4 +60,6 @@ export {
   setRolesBodySchema,
   setAllowanceBodySchema,
   bulkHolidayBodySchema,
+  importHolidaysBodySchema,
+  importHolidayRowSchema,
 } from './admin.js';

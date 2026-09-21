@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import {
   bulkHolidayBodySchema,
+  importHolidaysBodySchema,
   createDelegationBodySchema,
   setAllowanceBodySchema,
   ok,
@@ -12,6 +13,7 @@ import {
   setRolesBodySchema,
 } from '@sns/contracts';
 import type { RoleCode } from '@sns/domain';
+import { authorizeAction } from './ctx.js';
 import { sendError } from './http.js';
 import {
   approvalMap,
@@ -27,7 +29,12 @@ import {
   setTeamLead,
   setUserRoles,
 } from './usecases/admin.js';
-import { applyHolidays, listAllowances, setAllowances } from './usecases/allowances.js';
+import {
+  applyHolidays,
+  importHolidays,
+  listAllowances,
+  setAllowances,
+} from './usecases/allowances.js';
 
 /** Wraps a handler so every administrator route answers with the same envelope. */
 function handle(
@@ -137,4 +144,20 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     '/api/v1/holidays/bulk',
     handle((req) => applyHolidays(req.ctx, body(bulkHolidayBodySchema, req))),
   );
+  app.post(
+    '/api/v1/holidays/import',
+    handle((req) => importHolidays(req.ctx, body(importHolidaysBodySchema, req))),
+  );
+  app.get('/api/v1/holidays/template.csv', async (req, reply) => {
+    try {
+      await authorizeAction(req.ctx, 'holiday.calendar.manage', null);
+      const csv = 'date,name,kind\n2026-01-01,New Year,public\n2026-01-15,Pongal,public\n';
+      return reply
+        .header('content-type', 'text/csv; charset=utf-8')
+        .header('content-disposition', 'attachment; filename="holiday-template.csv"')
+        .send(csv);
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
 }

@@ -64,3 +64,18 @@ export const bulkHolidayBodySchema = z
     calendarId: ulid.optional(),
   })
   .strict();
+
+export const importHolidayRowSchema = z
+  .object({
+    date: isoDate,
+    name: z.string().trim().min(2).max(120),
+    kind: z.enum(['public', 'optional', 'declared_working']).default('public'),
+  })
+  .strict();
+
+export const importHolidaysBodySchema = z
+  .object({
+    rows: z.array(importHolidayRowSchema).min(1).max(400),
+    calendarId: ulid.optional(),
+  })
+  .strict();

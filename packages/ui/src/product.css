@@ -2464,9 +2464,12 @@ select option {
 
 .reports-progress-fill {
   height: 100%;
+  width: 100%;
   border-radius: 9999px;
   background: var(--accent-default, #3b82f6);
-  transition: width 0.3s ease;
+  transform: scaleX(var(--fill, 0));
+  transform-origin: left center;
+  transition: transform 0.3s ease;
 }
 
 /* Print Styles */
@@ -2573,4 +2576,104 @@ select option {
 }
 .cal-chip:hover {
   background: #fef3f2;
+}
+
+.emp-identity {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px 24px;
+  align-items: flex-end;
+}
+.emp-hello {
+  margin: 2px 0 0;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+.emp-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 8px 20px;
+  margin: 0;
+}
+@media (min-width: 720px) {
+  .emp-meta {
+    grid-template-columns: repeat(4, auto);
+  }
+}
+.emp-meta dt {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.emp-meta dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+.emp-stats {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.emp-available {
+  border-color: var(--accent-subtle-bg, #e0e7ff);
+}
+.emp-cta {
+  margin: 0;
+}
+.btn-primary-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 9px;
+  background: var(--accent-default, #4f46e5);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+.btn-primary-link:hover {
+  background: var(--accent-hover, #4338ca);
+}
+.pending-list,
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+}
+.plain-list {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plain-list a {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+}
+.pending-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 9px;
+  text-decoration: none;
+  color: inherit;
+}
+.pending-row:hover {
+  background: var(--surface-raised, #f6f6f3);
+}
+.table-wrap {
+  overflow-x: auto;
+}
+.cal-import {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }

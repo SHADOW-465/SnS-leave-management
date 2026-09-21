@@ -7,6 +7,7 @@ import {
   formatDisplayDate,
   formatHalfDays,
   holdQuantity,
+  leaveRangesOverlap,
   newId,
   releaseQuantity,
   NoApproverError,
@@ -92,6 +93,51 @@ async function currentPolicy(
     throw new DomainError('LEAVE_NO_POLICY', 'No published policy exists for this leave type.');
   return { id: row.id, rules: JSON.parse(row.rules_json) as LeavePolicyRules };
 }
+async function hasOwnOverlappingLeave(
+  ctx: RequestContext,
+  employeeId: string,
+  range: {
+    startDate: string;
+    endDate: string;
+    halfDayStart: DayPortion | null;
+    halfDayEnd: DayPortion | null;
+    ignoreRequestId?: string;
+  },
+): Promise<boolean> {
+  const rows = (await ctx.sqlite
+    .prepare(
+      `SELECT id, start_date, end_date, half_day_start, half_day_end
+       FROM leave_request
+       WHERE employee_id = ?
+         AND status IN ('pending_approval','approved','cancellation_requested')
+         AND start_date <= ? AND end_date >= ?`,
+    )
+    .all(employeeId, range.endDate, range.startDate)) as {
+    id: string;
+    start_date: string;
+    end_date: string;
+    half_day_start: DayPortion | null;
+    half_day_end: DayPortion | null;
+  }[];
+  return rows.some((row) => {
+    if (range.ignoreRequestId && row.id === range.ignoreRequestId) return false;
+    return leaveRangesOverlap(
+      {
+        startDate: range.startDate,
+        endDate: range.endDate,
+        halfDayStart: range.halfDayStart,
+        halfDayEnd: range.halfDayEnd,
+      },
+      {
+        startDate: row.start_date,
+        endDate: row.end_date,
+        halfDayStart: row.half_day_start,
+        halfDayEnd: row.half_day_end,
+      },
+    );
+  });
+}
+
 async function availableHalfDays(
   ctx: RequestContext,
   employeeId: string,
@@ -156,6 +202,12 @@ export async function previewLeave(
     start_date: string;
     end_date: string;
   }[];
+  const ownOverlap = await hasOwnOverlappingLeave(ctx, employeeId, {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    halfDayStart: input.halfDayStart ?? null,
+    halfDayEnd: input.halfDayEnd ?? null,
+  });
   return {
     workingDays: formatHalfDays(counted),
     countedHalfDays: counted,
@@ -164,6 +216,7 @@ export async function previewLeave(
     available: formatHalfDays(available),
     after: formatHalfDays(available - counted),
     leaveTypeName: type?.name ?? '',
+    ownOverlap,
     overlaps: overlaps.map((o) => ({
       name: o.name,
       when: `${formatDisplayDate(o.start_date)} – ${formatDisplayDate(o.end_date)}`,
@@ -306,6 +359,24 @@ export async function submitLeave(
     hasAttachment: Boolean(input.attachmentId),
     availableHalfDays: available,
   });
+  if (
+    await hasOwnOverlappingLeave(ctx, employeeId, {
+      startDate: input.startDate,
+      endDate: input.endDate,
+      halfDayStart: input.halfDayStart ?? null,
+      halfDayEnd: input.halfDayEnd ?? null,
+    })
+  ) {
+    throw new DomainError('LEAVE_OVERLAP', 'These dates overlap an existing leave request.', {
+      httpStatus: 409,
+      details: [
+        {
+          path: 'startDate',
+          message: 'Choose dates that do not overlap a pending or approved request.',
+        },
+      ],
+    });
+  }
   const roles = (
     (await ctx.sqlite
       .prepare(

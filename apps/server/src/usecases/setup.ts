@@ -1,6 +1,15 @@
 import { hashPassword } from '@sns/auth';
 import { isBootstrapped, seedSystem, withTx } from '@sns/database';
-import { DomainError, defaultRulesForCode, newId, periodBounds } from '@sns/domain';
+import {
+  DomainError,
+  defaultRulesForCode,
+  monthlyAccrualHalfDays,
+  monthsInclusive,
+  newId,
+  periodBounds,
+  prorateJoinerHalfDays,
+  type LeavePolicyRules,
+} from '@sns/domain';
 import type { RequestContext } from '../ctx.js';
 /** Shared password for the synthetic sample accounts. Development convenience only. */
 export const DEMO_PASSWORD = 'ChangeMe_demo_1';
@@ -780,9 +789,28 @@ export async function grantOpeningBalances(
     id: string;
     code: string;
   }[];
+  const period = (await ctx.sqlite
+    .prepare(`SELECT starts_on AS startsOn, ends_on AS endsOn FROM leave_period WHERE id = ?`)
+    .get(periodId)) as { startsOn: string; endsOn: string } | undefined;
+  const employee = (await ctx.sqlite
+    .prepare(`SELECT joined_on AS joinedOn FROM employee WHERE id = ?`)
+    .get(employeeId)) as { joinedOn: string } | undefined;
   for (const t of types) {
-    const rules = defaultRulesForCode(t.code);
+    const rules = (await publishedRules(ctx, t.id)) ?? defaultRulesForCode(t.code);
     if (rules.entitlementHalfDays <= 0) continue;
+    if (rules.accrualMethod === 'monthly') {
+      await grantMonthlyCatchUp(ctx, {
+        employeeId,
+        leaveTypeId: t.id,
+        periodId,
+        actor,
+        rules,
+        joinedOn: employee?.joinedOn ?? ctx.today,
+        periodStart: period?.startsOn ?? ctx.today,
+        periodEnd: period?.endsOn ?? ctx.today,
+      });
+      continue;
+    }
     await ctx.sqlite
       .prepare(
         `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, reason, created_by, created_at)
@@ -798,6 +826,90 @@ export async function grantOpeningBalances(
         actor,
         ctx.now,
       );
+  }
+}
+
+async function publishedRules(
+  ctx: RequestContext,
+  leaveTypeId: string,
+): Promise<LeavePolicyRules | null> {
+  const row = (await ctx.sqlite
+    .prepare(
+      `SELECT rules_json FROM leave_policy_version
+        WHERE leave_type_id = ? AND published_at IS NOT NULL AND effective_from <= ?
+        ORDER BY version_no DESC LIMIT 1`,
+    )
+    .get(leaveTypeId, ctx.today)) as { rules_json: string } | undefined;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.rules_json) as LeavePolicyRules;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Credits every elapsed month in the current leave year so a mid-year joiner (or a
+ * first-run seed) does not wait until the next 1st of the month to have a balance.
+ * Writes `accrual_run` so the monthly job cannot double-credit those months.
+ */
+async function grantMonthlyCatchUp(
+  ctx: RequestContext,
+  input: {
+    employeeId: string;
+    leaveTypeId: string;
+    periodId: string;
+    actor: string;
+    rules: LeavePolicyRules;
+    joinedOn: string;
+    periodStart: string;
+    periodEnd: string;
+  },
+) {
+  const from = input.joinedOn > input.periodStart ? input.joinedOn : input.periodStart;
+  const to = ctx.today < input.periodEnd ? ctx.today : input.periodEnd;
+  if (from > to) return;
+  for (const month of monthsInclusive(from, to)) {
+    const already = (await ctx.sqlite
+      .prepare(
+        `SELECT id FROM accrual_run
+          WHERE employee_id = ? AND leave_type_id = ? AND accrual_month = ?`,
+      )
+      .get(input.employeeId, input.leaveTypeId, month)) as { id: string } | undefined;
+    if (already) continue;
+    const quantity =
+      month === input.joinedOn.slice(0, 7)
+        ? prorateJoinerHalfDays({
+            entitlementHalfDays: input.rules.entitlementHalfDays,
+            joinedOn: input.joinedOn,
+            monthIso: month,
+          })
+        : monthlyAccrualHalfDays(input.rules.entitlementHalfDays);
+    const effectiveOn = `${month}-01`;
+    if (quantity > 0) {
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, reason, created_by, created_at)
+           VALUES (?, ?, ?, ?, 'ACCRUAL', ?, ?, 'job_run', ?, ?, ?)`,
+        )
+        .run(
+          newId(),
+          input.employeeId,
+          input.leaveTypeId,
+          input.periodId,
+          quantity,
+          effectiveOn,
+          `Monthly accrual for ${month}`,
+          input.actor,
+          ctx.now,
+        );
+    }
+    await ctx.sqlite
+      .prepare(
+        `INSERT INTO accrual_run (id, period_id, employee_id, leave_type_id, accrual_month, ran_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(newId(), input.periodId, input.employeeId, input.leaveTypeId, month, ctx.now);
   }
 }
 export async function currentPeriodId(ctx: RequestContext): Promise<string> {

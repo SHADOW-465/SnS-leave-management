@@ -48,7 +48,10 @@ export function defaultRulesForCode(code: string): LeavePolicyRules {
     case 'EL':
       return {
         ...base,
-        entitlementHalfDays: 36,
+        // Functional framework default: 2 days credited each month, 24 days a year.
+        entitlementHalfDays: 48,
+        accrualMethod: 'monthly',
+        accrualCadenceMonths: 1,
         halfDaysAllowed: false,
         minNoticeDays: 7,
         attachmentRequiredAfterHalfDays: null,

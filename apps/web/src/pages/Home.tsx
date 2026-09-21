@@ -4,39 +4,65 @@ import { EmptyState, ErrorState, Skeleton, StatusPill } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
 import { daysLabel, formatRange, initials } from '../format.js';
 
+type HomeBalance = {
+  id: string;
+  name: string;
+  code: string;
+  left: string;
+  total: string;
+  eligibility: string;
+  taken: string;
+  pending: string;
+  unlimited: boolean;
+  note: string;
+  pct: string;
+  aria: string;
+};
+
+type HomeRequest = {
+  id: string;
+  type_name: string;
+  start_date: string;
+  end_date: string;
+  total_half_days: number;
+  status: string;
+  employee_name?: string;
+};
+
+type HomeData = {
+  employee: {
+    name: string;
+    code: string;
+    department: string;
+    manager: string | null;
+    year: string;
+  } | null;
+  period: { label: string } | null;
+  balances: HomeBalance[];
+  requests: HomeRequest[];
+  monthly: { ym: string; label: string; earned: number; used: number; balance: number }[];
+  upcomingApproved: HomeRequest[];
+  holidays: { date: string; name: string; kind: string }[];
+  probation: { title: string; body: string } | null;
+};
+
 export function HomePage({ me }: { me: Me }) {
   if (can(me, 'leave.request.approve') || can(me, 'system.health.read')) {
     return <AdminHome />;
   }
-  return <EmpHome />;
+  return <EmpHome me={me} />;
 }
 
-function EmpHome() {
+function EmpHome({ me }: { me: Me }) {
   const q = useQuery({
     queryKey: ['home'],
+    queryFn: () => api<HomeData>('/api/v1/home'),
+  });
+  const approvals = useQuery({
+    queryKey: ['home-approvals'],
     queryFn: () =>
-      api<{
-        balances: {
-          id: string;
-          name: string;
-          left: string;
-          total: string;
-          taken: string;
-          unlimited: boolean;
-          note: string;
-          pct: string;
-          aria: string;
-        }[];
-        requests: {
-          id: string;
-          type_name: string;
-          start_date: string;
-          end_date: string;
-          total_half_days: number;
-          status: string;
-        }[];
-        probation: { title: string; body: string } | null;
-      }>('/api/v1/home'),
+      api<HomeRequest[]>('/api/v1/leave-requests?view=approvals&status=pending_approval'),
+    enabled: me.approvesLeave,
   });
   if (q.isPending) return <Skeleton />;
   if (q.isError) {
@@ -58,8 +84,118 @@ function EmpHome() {
       />
     );
   }
+  const headline = data.balances.find((b) => b.code === 'EL') ?? data.balances[0]!;
+  const pendingApprovals = approvals.data ?? [];
   return (
     <div className="page">
+      {data.employee ? (
+        <section className="card emp-identity" aria-label="Your details">
+          <div>
+            <p className="kicker" style={{ margin: 0 }}>
+              Welcome
+            </p>
+            <h2 className="emp-hello">{data.employee.name}</h2>
+          </div>
+          <dl className="emp-meta">
+            <div>
+              <dt>Employee ID</dt>
+              <dd>{data.employee.code}</dd>
+            </div>
+            <div>
+              <dt>Department</dt>
+              <dd>{data.employee.department}</dd>
+            </div>
+            <div>
+              <dt>Reporting manager</dt>
+              <dd>{data.employee.manager ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Leave year</dt>
+              <dd>{data.employee.year}</dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+
+      {me.approvesLeave ? (
+        <section className="card card-flush" aria-label="Pending leave requests">
+          <div className="card-head">
+            <h2>Pending leave requests</h2>
+            <Link to="/approvals">Open queue</Link>
+          </div>
+          {approvals.isPending ? (
+            <p className="note" style={{ padding: 18 }}>
+              Loading requests waiting for you…
+            </p>
+          ) : pendingApprovals.length === 0 ? (
+            <p className="note" style={{ padding: 18 }}>
+              Nothing waiting for your decision.
+            </p>
+          ) : (
+            <ul className="pending-list">
+              {pendingApprovals.slice(0, 6).map((r) => (
+                <li key={r.id}>
+                  <Link to={`/approvals/${r.id}`} className="pending-row">
+                    <strong>
+                      {r.employee_name ?? 'Employee'} · {r.type_name}
+                    </strong>
+                    <span className="note">
+                      {formatRange(r.start_date, r.end_date)} · {daysLabel(r.total_half_days)} days
+                    </span>
+                    <StatusPill status={r.status} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      <section aria-label="Leave this year" className="kpi-grid emp-stats">
+        <div className="card">
+          <p className="muted">Yearly eligibility</p>
+          <p className="big">{headline.eligibility}</p>
+          <p className="note">{headline.name}</p>
+        </div>
+        <div className="card">
+          <p className="muted">Earned</p>
+          <p className="big">{headline.total}</p>
+          <p className="note">Credited this leave year</p>
+        </div>
+        <div className="card">
+          <p className="muted">Used</p>
+          <p className="big">{headline.taken}</p>
+          <p className="note">After approval only</p>
+        </div>
+        <div className="card">
+          <p className="muted">Pending</p>
+          <p className="big">{headline.pending}</p>
+          <p className="note">Waiting on a decision</p>
+        </div>
+        <div className="card emp-available">
+          <p className="muted">Available balance</p>
+          <p className="big">{headline.left}</p>
+          <p className="note">Does not drop until leave is approved</p>
+        </div>
+      </section>
+
+      <p className="emp-cta">
+        <Link to="/apply" className="btn-primary-link">
+          Apply for leave
+        </Link>
+      </p>
+
+      {data.probation ? (
+        <section className="banner banner-warn">
+          <div>
+            <strong>{data.probation.title}</strong>
+            <p className="note" style={{ margin: '4px 0 0', color: 'inherit' }}>
+              {data.probation.body}
+            </p>
+          </div>
+        </section>
+      ) : null}
+
       <section aria-label="Leave balances" className="kpi-grid">
         {data.balances.map((b) => (
           <div key={b.id} className="card">
@@ -77,25 +213,95 @@ function EmpHome() {
           </div>
         ))}
       </section>
-      {data.probation ? (
-        <section className="banner banner-warn">
-          <div>
-            <strong>{data.probation.title}</strong>
-            <p className="note" style={{ margin: '4px 0 0', color: 'inherit' }}>
-              {data.probation.body}
-            </p>
+
+      {data.monthly.length ? (
+        <section className="card card-flush">
+          <div className="card-head">
+            <h2>Leave summary</h2>
+            <span className="note" style={{ margin: 0 }}>
+              {headline.name} · month by month
+            </span>
+          </div>
+          <div className="table-wrap">
+            <table className="data">
+              <caption className="sr-only">Monthly earned, used and closing balance</caption>
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Earned</th>
+                  <th>Used</th>
+                  <th>Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.monthly.map((row) => (
+                  <tr key={row.ym}>
+                    <td>{row.label}</td>
+                    <td className="mono">{formatDays(row.earned)}</td>
+                    <td className="mono">{formatDays(row.used)}</td>
+                    <td className="mono">{formatDays(row.balance)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
       ) : null}
-      <section className="card card-flush">
-        <div className="card-head">
-          <h2>My requests</h2>
-          <Link to="/requests">See all</Link>
+
+      <div className="split">
+        <section className="card card-flush">
+          <div className="card-head">
+            <h2>My requests</h2>
+            <Link to="/requests">See all</Link>
+          </div>
+          <RequestTable rows={data.requests} />
+        </section>
+        <div className="page-stack">
+          <section className="card">
+            <h2 style={{ margin: '0 0 12px', fontSize: 14.5 }}>Upcoming approved leave</h2>
+            {data.upcomingApproved.length === 0 ? (
+              <p className="note">No approved leave coming up.</p>
+            ) : (
+              <ul className="plain-list">
+                {data.upcomingApproved.map((r) => (
+                  <li key={r.id}>
+                    <Link to={`/requests/${r.id}`}>
+                      <strong>{r.type_name}</strong>
+                      <span className="note">
+                        {formatRange(r.start_date, r.end_date)} · {daysLabel(r.total_half_days)}{' '}
+                        days
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section className="card">
+            <h2 style={{ margin: '0 0 12px', fontSize: 14.5 }}>Government holidays</h2>
+            {data.holidays.length === 0 ? (
+              <p className="note">
+                None listed yet. HR adds them on the <Link to="/calendar">holiday calendar</Link>.
+              </p>
+            ) : (
+              <ul className="plain-list">
+                {data.holidays.map((h) => (
+                  <li key={h.date}>
+                    <strong>{h.name}</strong>
+                    <span className="note">{formatRange(h.date, h.date)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
-        <RequestTable rows={data.requests} />
-      </section>
+      </div>
     </div>
   );
+}
+
+function formatDays(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
 function AdminHome() {

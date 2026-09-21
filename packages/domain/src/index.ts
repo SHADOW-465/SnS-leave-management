@@ -9,6 +9,7 @@ export {
   formatIsoDate,
   isIsoDate,
   monthIndex,
+  monthsInclusive,
   parseIsoDate,
 } from './dates.js';
 export { ConflictError, DomainError, ForbiddenError, NotAuthenticatedError } from './errors.js';
@@ -40,6 +41,7 @@ export {
   validatePolicyAgainstRequest,
   type LeavePolicyRules,
 } from './leave/policy.js';
+export { leaveRangesOverlap, type LeaveRange } from './leave/overlap.js';
 export {
   LEDGER_ENTRY_TYPES,
   applyCarryForwardCap,

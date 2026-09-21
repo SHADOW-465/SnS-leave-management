@@ -17,6 +17,7 @@ export const createEmployeeBodySchema = z
     managerEmployeeId: ulid.nullable().optional(),
     jobTitleId: ulid,
     employmentTypeId: ulid,
+    phone: z.string().trim().max(20).optional(),
     createAccount: z.boolean().default(true),
   })
   .strict();
@@ -36,6 +37,7 @@ export const updateEmployeeBodySchema = z
     employmentTypeId: ulid.optional(),
     probationEndOn: isoDate.nullable().optional(),
     status: employeeStatus.optional(),
+    phone: z.string().trim().max(20).nullable().optional(),
     expectedVersion: z.number().int().positive(),
   })
   .strict();

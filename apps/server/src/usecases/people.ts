@@ -17,7 +17,8 @@ export async function listEmployees(ctx: RequestContext, q: string) {
               loc.name AS location_name,
               jt.name AS job_title_name,
               ua.id AS user_account_id,
-              ua.is_disabled AS account_disabled
+              ua.is_disabled AS account_disabled,
+              ec.phone AS phone
        FROM employee e
        JOIN department d ON d.id = e.department_id
        LEFT JOIN team t ON t.id = e.team_id
@@ -26,6 +27,7 @@ export async function listEmployees(ctx: RequestContext, q: string) {
        LEFT JOIN location loc ON loc.id = e.location_id
        LEFT JOIN job_title jt ON jt.id = e.job_title_id
        LEFT JOIN user_account ua ON ua.employee_id = e.id
+       LEFT JOIN employee_contact ec ON ec.employee_id = e.id
        ORDER BY e.first_name, e.last_name`,
     )
     .all()) as Record<string, unknown>[];
@@ -45,7 +47,7 @@ export async function listEmployees(ctx: RequestContext, q: string) {
   return filtered.filter((r) => {
     if (!needle) return true;
     const blob =
-      `${r.first_name} ${r.last_name} ${r.employee_code ?? ''} ${r.work_email ?? ''} ${r.department_name} ${r.team_name ?? ''} ${r.job_title_name ?? ''} ${r.manager_name ?? ''}`.toLowerCase();
+      `${r.first_name} ${r.last_name} ${r.employee_code ?? ''} ${r.work_email ?? ''} ${r.phone ?? ''} ${r.department_name} ${r.team_name ?? ''} ${r.job_title_name ?? ''} ${r.manager_name ?? ''}`.toLowerCase();
     return blob.includes(needle);
   });
 }
@@ -62,7 +64,8 @@ export async function getEmployee(ctx: RequestContext, employeeId: string) {
               loc.name AS location_name,
               jt.name AS job_title_name,
               ua.id AS user_account_id,
-              ua.is_disabled AS account_disabled
+              ua.is_disabled AS account_disabled,
+              ec.phone AS phone
        FROM employee e
        JOIN department d ON d.id = e.department_id
        LEFT JOIN team t ON t.id = e.team_id
@@ -71,6 +74,7 @@ export async function getEmployee(ctx: RequestContext, employeeId: string) {
        LEFT JOIN location loc ON loc.id = e.location_id
        LEFT JOIN job_title jt ON jt.id = e.job_title_id
        LEFT JOIN user_account ua ON ua.employee_id = e.id
+       LEFT JOIN employee_contact ec ON ec.employee_id = e.id
        WHERE e.id = ?`,
     )
     .get(employeeId)) as Record<string, unknown> | undefined;
@@ -95,6 +99,7 @@ export async function updateEmployee(
     employmentTypeId?: string;
     probationEndOn?: string | null;
     status?: 'active' | 'probation' | 'notice' | 'exited' | 'suspended';
+    phone?: string | null;
     expectedVersion: number;
   },
 ) {
@@ -250,6 +255,9 @@ export async function updateEmployee(
       }
     }
 
+    if (input.phone !== undefined) {
+      await upsertEmployeePhone(ctx, employeeId, input.phone, p.userId);
+    }
     await audit(ctx, 'employee.updated', 'employee', employeeId, null, {
       changes: {
         firstName: input.firstName,
@@ -259,6 +267,7 @@ export async function updateEmployee(
         status: input.status,
         departmentId: input.departmentId,
         managerEmployeeId: input.managerEmployeeId,
+        phone: input.phone,
       },
     });
   });
@@ -280,6 +289,7 @@ export async function createEmployee(
     managerEmployeeId?: string | null;
     jobTitleId: string;
     employmentTypeId: string;
+    phone?: string;
     createAccount: boolean;
   },
 ) {
@@ -348,6 +358,9 @@ export async function createEmployee(
           `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)`,
         )
         .run(userId, role.id, p.userId, ctx.now);
+    }
+    if (input.phone) {
+      await upsertEmployeePhone(ctx, id, input.phone, p.userId);
     }
     await grantOpeningBalances(ctx, id, await currentPeriodId(ctx), p.userId);
     await audit(ctx, 'employee.created', 'employee', id, null, {
@@ -1075,4 +1088,23 @@ export async function manageTeamMembers(
   });
 
   return { id: teamId, success: true };
+}
+
+async function upsertEmployeePhone(
+  ctx: RequestContext,
+  employeeId: string,
+  phone: string | null,
+  actor: string,
+) {
+  const value = phone?.trim() || null;
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO employee_contact (employee_id, phone, created_at, created_by, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(employee_id) DO UPDATE SET
+         phone = excluded.phone,
+         updated_at = excluded.updated_at,
+         updated_by = excluded.updated_by`,
+    )
+    .run(employeeId, value, ctx.now, actor, ctx.now, actor);
 }

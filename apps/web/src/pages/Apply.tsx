@@ -75,6 +75,8 @@ export function ApplyPage({ me }: { me: Me }) {
         workingDays: string;
         skipped: string;
         after: string;
+        available: string;
+        ownOverlap: boolean;
         overlaps: { name: string; when: string }[];
         approver: string;
       }>(previewQ),
@@ -255,7 +257,7 @@ export function ApplyPage({ me }: { me: Me }) {
           />
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <Button variant="primary" type="submit">
+          <Button variant="primary" type="submit" disabled={Boolean(preview.data?.ownOverlap)}>
             Submit request
           </Button>
           <Button type="button" onClick={() => void nav('/')}>
@@ -270,15 +272,23 @@ export function ApplyPage({ me }: { me: Me }) {
         <div className="card">
           <h2 style={{ margin: '0 0 12px', fontSize: 14.5 }}>Request summary</h2>
           <dl className="summary-dl">
+            <dt>Available balance</dt>
+            <dd>{preview.data?.available ?? '—'}</dd>
             <dt>Working days</dt>
             <dd>{preview.data?.workingDays ?? '—'}</dd>
             <dt>Holidays skipped</dt>
             <dd>{preview.data?.skipped ?? '—'}</dd>
             <dt>Balance after</dt>
             <dd>{preview.data?.after ?? '—'}</dd>
-            <dt>Goes to</dt>
+            <dt>Reporting manager</dt>
             <dd>{preview.data?.approver ?? 'Working it out…'}</dd>
           </dl>
+          {preview.data?.ownOverlap ? (
+            <p role="alert" style={{ color: 'var(--status-rejected-fg)', margin: '12px 0 0' }}>
+              These dates overlap a leave request you already have. Change the dates before
+              submitting.
+            </p>
+          ) : null}
         </div>
         <div className="card">
           <h2 style={{ margin: '0 0 12px', fontSize: 14.5 }}>Who else is out</h2>

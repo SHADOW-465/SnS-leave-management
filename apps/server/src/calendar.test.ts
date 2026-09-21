@@ -322,8 +322,10 @@ describe('the calendar drives the working-day calculation', () => {
     expect(empHomeRes.statusCode).toBe(200);
     const empHome = empHomeRes.json() as {
       data: {
-        balances: { id: string; left: string; total: string; taken: string }[];
+        balances: { id: string; left: string; total: string; taken: string; pending: string }[];
         requests: { id: string; total_half_days: number }[];
+        employee: { code: string; department: string } | null;
+        monthly: { label: string }[];
       };
     };
     const reqInHome = empHome.data.requests.find((r) => r.id === reqId);
@@ -331,8 +333,11 @@ describe('the calendar drives the working-day calculation', () => {
     expect(reqInHome?.total_half_days).toBe(10); // 5 full days (10 half-days)
     const clBalance = empHome.data.balances.find((b) => b.id === typeId);
     expect(clBalance).toBeDefined();
-    // 12 granted - 5 days pending hold = 7 remaining
-    expect(clBalance?.left).toBe('7');
+    // Available does not drop until the request is approved. Pending is shown separately.
+    expect(clBalance?.left).toBe('12');
+    expect(clBalance?.pending).toBe('5');
+    expect(empHome.data.employee?.code).toBeTruthy();
+    expect(empHome.data.monthly.length).toBeGreaterThan(0);
 
     // Step 7: Verify employee my requests query (/leave-requests?mine=1) reflects the updated count
     const empReqsRes = await app.inject({
@@ -462,5 +467,32 @@ describe('dashboard scope', () => {
     expect(kpis).toHaveLength(4);
     // Development scaffolding must not reappear as a headline metric.
     expect(kpis.map((k) => k.label).join(' ')).not.toMatch(/placeholder/i);
+  });
+});
+
+describe('holiday spreadsheet import', () => {
+  it('imports named public holidays from a row list', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/holidays/import',
+      headers: auth(hr),
+      payload: {
+        rows: [
+          { date: '2026-01-01', name: 'New Year', kind: 'public' },
+          { date: '2026-01-15', name: 'Pongal', kind: 'public' },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { data: { changed: string[]; message: string } };
+    expect(body.data.changed).toEqual(['2026-01-01', '2026-01-15']);
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/v1/calendar?year=2026&month=1',
+      headers: { cookie: hr.cookie },
+    });
+    const jan = (listed.json() as { data: { holidays: { date: string; name: string }[] } }).data
+      .holidays;
+    expect(jan.some((h) => h.date === '2026-01-01' && h.name === 'New Year')).toBe(true);
   });
 });

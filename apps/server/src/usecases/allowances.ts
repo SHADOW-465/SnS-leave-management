@@ -292,3 +292,43 @@ export async function applyHolidays(
           (skipped.length ? ` ${skipped.length} skipped.` : ''),
   };
 }
+
+export async function importHolidays(
+  ctx: RequestContext,
+  input: {
+    rows: { date: string; name: string; kind: 'public' | 'optional' | 'declared_working' }[];
+    calendarId?: string;
+  },
+) {
+  const groups = new Map<
+    string,
+    { kind: 'public' | 'optional' | 'declared_working'; name: string; dates: string[] }
+  >();
+  for (const row of input.rows) {
+    const key = `${row.kind}|${row.name}`;
+    const g = groups.get(key);
+    if (g) g.dates.push(row.date);
+    else groups.set(key, { kind: row.kind, name: row.name, dates: [row.date] });
+  }
+  const changed: string[] = [];
+  const skipped: { date: string; reason: string }[] = [];
+  for (const g of groups.values()) {
+    const result = await applyHolidays(ctx, {
+      dates: g.dates,
+      kind: g.kind,
+      name: g.name,
+      calendarId: input.calendarId,
+    });
+    changed.push(...result.changed);
+    skipped.push(...result.skipped);
+  }
+  return {
+    changed: [...new Set(changed)].sort(),
+    skipped,
+    message:
+      changed.length === 0
+        ? 'Nothing imported — every row was already on the calendar.'
+        : `${changed.length} ${changed.length === 1 ? 'holiday' : 'holidays'} imported.` +
+          (skipped.length ? ` ${skipped.length} skipped.` : ''),
+  };
+}

@@ -249,7 +249,7 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
   const titles: Record<string, [string, string]> = {
     '/': can(me, 'leave.request.approve')
       ? ['Dashboard', 'What needs a decision today']
-      : ['Overview', 'Your balances and requests'],
+      : ['Overview', 'Your balance, requests, and holidays'],
     '/apply': ['Apply for leave', 'Working days are calculated before you submit'],
     '/requests': ['Requests', 'Status, trail, and decisions'],
     '/calendar': ['Holiday calendar', 'Public, optional, and declared working days'],

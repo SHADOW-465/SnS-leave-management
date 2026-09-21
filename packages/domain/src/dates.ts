@@ -76,3 +76,22 @@ export function daysInMonth(year: number, monthIndex: number): number {
 export function monthIndex(iso: string): { year: number; month: number } {
   return { year: Number(iso.slice(0, 4)), month: Number(iso.slice(5, 7)) - 1 };
 }
+
+/** Inclusive calendar months as `YYYY-MM`, from the month of `fromIso` through the month of `toIso`. */
+export function monthsInclusive(fromIso: string, toIso: string): string[] {
+  if (compareIsoDate(toIso, fromIso) < 0) return [];
+  const out: string[] = [];
+  let year = Number(fromIso.slice(0, 4));
+  let month = Number(fromIso.slice(5, 7));
+  const endYear = Number(toIso.slice(0, 4));
+  const endMonth = Number(toIso.slice(5, 7));
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    out.push(`${year}-${String(month).padStart(2, '0')}`);
+    month += 1;
+    if (month === 13) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return out;
+}

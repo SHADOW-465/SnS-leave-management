@@ -576,9 +576,19 @@ export async function registerRoutes(app: FastifyInstance) {
       return sendError(req, reply, err);
     }
   });
+  function reportOpts(req: { query: unknown }) {
+    const q = req.query as Record<string, string>;
+    const year = q.year ? Number(q.year) : undefined;
+    const month = q.month ? Number(q.month) : undefined;
+    return {
+      year: year && year >= 2000 && year <= 2100 ? year : undefined,
+      month: month && month >= 1 && month <= 12 ? month : undefined,
+    };
+  }
+
   app.get('/api/v1/reports', async (req, reply) => {
     try {
-      return reply.send(ok(await reports(req.ctx), req.ctx.requestId));
+      return reply.send(ok(await reports(req.ctx, reportOpts(req)), req.ctx.requestId));
     } catch (err) {
       return sendError(req, reply, err);
     }
@@ -601,7 +611,7 @@ export async function registerRoutes(app: FastifyInstance) {
   app.get('/api/v1/reports/export.xlsx', async (req, reply) => {
     try {
       await authorizeAction(req.ctx, 'report.export', null);
-      const data = await reports(req.ctx);
+      const data = await reports(req.ctx, reportOpts(req));
       const wb = XLSX.utils.book_new();
 
       // Sheet 1: Executive Summary
@@ -763,6 +773,43 @@ export async function registerRoutes(app: FastifyInstance) {
       ];
       XLSX.utils.book_append_sheet(wb, wsEmp, 'Employee Balances');
 
+      const payrollHeaders = [
+        'Employee ID',
+        'Employee',
+        'Department',
+        'Opening',
+        'Earned',
+        'Used',
+        'Pending',
+        'Closing',
+      ];
+      const payrollRows = data.payroll.rows.map((r) => [
+        r.employeeCode,
+        r.name,
+        r.department,
+        r.opening,
+        r.earned,
+        r.used,
+        r.pending,
+        r.closing,
+      ]);
+      const wsPayroll = XLSX.utils.aoa_to_sheet([
+        [`Monthly payroll leave — ${data.payroll.label}`],
+        payrollHeaders,
+        ...payrollRows,
+      ]);
+      wsPayroll['!cols'] = [
+        { wch: 14 },
+        { wch: 26 },
+        { wch: 22 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 12 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsPayroll, 'Monthly Payroll');
+
       const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
       await recordReportExportAudit(req.ctx);
 
@@ -778,7 +825,7 @@ export async function registerRoutes(app: FastifyInstance) {
   app.get('/api/v1/reports/export.pdf', async (req, reply) => {
     try {
       await authorizeAction(req.ctx, 'report.export', null);
-      const data = await reports(req.ctx);
+      const data = await reports(req.ctx, reportOpts(req));
 
       const pdfDoc = await PDFDocument.create();
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -1249,8 +1296,15 @@ export async function registerRoutes(app: FastifyInstance) {
   app.get('/api/v1/reports/export.csv', async (req, reply) => {
     try {
       await authorizeAction(req.ctx, 'report.export', null);
-      const data = await reports(req.ctx);
+      const data = await reports(req.ctx, reportOpts(req));
       const lines = [
+        `Monthly payroll leave — ${data.payroll.label}`,
+        'Employee ID,Employee,Department,Opening,Earned,Used,Pending,Closing',
+        ...data.payroll.rows.map(
+          (r) =>
+            `${csvSafe(r.employeeCode)},${csvSafe(r.name)},${csvSafe(r.department)},${r.opening},${r.earned},${r.used},${r.pending},${r.closing}`,
+        ),
+        '',
         'Employee Code,Employee Name,Department,Team,Status,Joined Date,Entitlement Days,Taken Days,Remaining Days,Pending Days',
         ...data.employeeSummaries.map(
           (e) =>

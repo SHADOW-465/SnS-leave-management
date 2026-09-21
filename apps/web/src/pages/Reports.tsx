@@ -74,19 +74,40 @@ type ReportsResponse = {
     remainingDays: number;
     pendingDays: number;
   }[];
+  payroll: {
+    year: number;
+    month: number;
+    ym: string;
+    label: string;
+    rows: {
+      employeeId: string;
+      employeeCode: string;
+      name: string;
+      department: string;
+      opening: number;
+      earned: number;
+      used: number;
+      pending: number;
+      closing: number;
+    }[];
+  };
 };
 
-type ActiveTab = 'overview' | 'departments' | 'leaveTypes' | 'balances';
+type ActiveTab = 'overview' | 'departments' | 'leaveTypes' | 'balances' | 'payroll';
 
 export function ReportsPage() {
+  const now = new Date();
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDeptId, setSelectedDeptId] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [payrollYear, setPayrollYear] = useState(now.getFullYear());
+  const [payrollMonth, setPayrollMonth] = useState(now.getMonth() + 1);
 
+  const qs = `year=${payrollYear}&month=${payrollMonth}`;
   const { data, isPending, isError, error, refetch } = useQuery<ReportsResponse>({
-    queryKey: ['reports'],
-    queryFn: () => api<ReportsResponse>('/api/v1/reports'),
+    queryKey: ['reports', payrollYear, payrollMonth],
+    queryFn: () => api<ReportsResponse>(`/api/v1/reports?${qs}`),
   });
 
   const departmentOptions = useMemo(() => {
@@ -170,7 +191,7 @@ export function ReportsPage() {
 
         <div className="reports-actions-group">
           <a
-            href="/api/v1/reports/export.xlsx"
+            href={`/api/v1/reports/export.xlsx?${qs}`}
             download="leave-report.xlsx"
             className="reports-export-btn reports-export-excel"
             title="Download detailed multi-sheet Excel spreadsheet with all tables and metrics"
@@ -180,7 +201,7 @@ export function ReportsPage() {
           </a>
 
           <a
-            href="/api/v1/reports/export.pdf"
+            href={`/api/v1/reports/export.pdf?${qs}`}
             download="leave-report.pdf"
             className="reports-export-btn reports-export-pdf"
             title="Download formatted executive PDF summary report"
@@ -190,7 +211,7 @@ export function ReportsPage() {
           </a>
 
           <a
-            href="/api/v1/reports/export.csv"
+            href={`/api/v1/reports/export.csv?${qs}`}
             download="leave-report.csv"
             className="reports-export-btn reports-export-csv"
             title="Download CSV of employee balances"
@@ -335,6 +356,16 @@ export function ReportsPage() {
           <Users size={16} />
           <span>Employee Leave Balances</span>
           <span className="reports-tab-badge">{data.employeeSummaries.length}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`reports-tab-btn ${activeTab === 'payroll' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('payroll')}
+        >
+          <FileSpreadsheet size={16} />
+          <span>Monthly Payroll</span>
+          <span className="reports-tab-badge">{data.payroll.rows.length}</span>
         </button>
       </div>
 
@@ -673,7 +704,10 @@ export function ReportsPage() {
                             <div
                               className="reports-progress-fill"
                               style={{
-                                width: `${Math.min(100, Math.round((d.totalDaysTaken / maxDeptDays) * 100))}%`,
+                                ['--fill' as string]: Math.min(
+                                  1,
+                                  maxDeptDays > 0 ? d.totalDaysTaken / maxDeptDays : 0,
+                                ),
                               }}
                             />
                           </div>
@@ -846,7 +880,7 @@ export function ReportsPage() {
                           <div
                             className="reports-progress-fill"
                             style={{
-                              width: `${t.percentOfTotal}%`,
+                              ['--fill' as string]: Math.min(1, t.percentOfTotal / 100),
                               background: t.colourToken || 'var(--accent-default, #3b82f6)',
                             }}
                           />
@@ -1160,6 +1194,87 @@ export function ReportsPage() {
                           ) : (
                             <span style={{ color: 'var(--text-tertiary)' }}>—</span>
                           )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'payroll' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="card">
+            <div className="card-head" style={{ borderBottom: 'none', padding: '0 0 12px 0' }}>
+              <div>
+                <h2 style={{ fontSize: '16px', margin: 0 }}>
+                  Monthly payroll leave — {data.payroll.label}
+                </h2>
+                <p className="dim" style={{ fontSize: '13px', margin: '2px 0 0 0' }}>
+                  Opening + earned − used = closing. Pending is shown and is not deducted until
+                  approval.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8, minWidth: 280 }}>
+                <Select
+                  value={String(payrollMonth)}
+                  onChange={(v) => setPayrollMonth(Number(v))}
+                  options={Array.from({ length: 12 }, (_, i) => ({
+                    value: String(i + 1),
+                    label: new Date(Date.UTC(2026, i, 1)).toLocaleString('en-GB', {
+                      month: 'long',
+                      timeZone: 'UTC',
+                    }),
+                  }))}
+                />
+                <Select
+                  value={String(payrollYear)}
+                  onChange={(v) => setPayrollYear(Number(v))}
+                  options={[payrollYear - 1, payrollYear, payrollYear + 1].map((y) => ({
+                    value: String(y),
+                    label: String(y),
+                  }))}
+                />
+              </div>
+            </div>
+            {data.payroll.rows.length === 0 ? (
+              <EmptyState
+                title="No employees to report"
+                body="Active employees appear here once they are on the directory."
+              />
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data">
+                  <caption className="sr-only">Monthly payroll leave report</caption>
+                  <thead>
+                    <tr>
+                      <th>Employee ID</th>
+                      <th>Employee</th>
+                      <th>Department</th>
+                      <th>Opening</th>
+                      <th>Earned</th>
+                      <th>Used</th>
+                      <th>Pending</th>
+                      <th>Closing</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.payroll.rows.map((r) => (
+                      <tr key={r.employeeId}>
+                        <td className="mono">{r.employeeCode}</td>
+                        <td>
+                          <strong>{r.name}</strong>
+                        </td>
+                        <td>{r.department}</td>
+                        <td className="mono">{r.opening}</td>
+                        <td className="mono">{r.earned}</td>
+                        <td className="mono">{r.used}</td>
+                        <td className="mono">{r.pending}</td>
+                        <td className="mono">
+                          <strong>{r.closing}</strong>
                         </td>
                       </tr>
                     ))}

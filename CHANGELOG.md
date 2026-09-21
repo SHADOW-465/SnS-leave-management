@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.10 — 2026-09-21
+
+### Added — Leave Tracker functional framework gaps
+
+- **Employee overview**: identity (ID, department, reporting manager, leave year), yearly eligibility / earned / used / pending / available, month-by-month leave summary, upcoming approved leave, and upcoming holidays. Available balance does not drop until a request is approved; pending is shown separately. Team leads see pending requests on the same page.
+- **Monthly payroll leave report** (`Reports → Monthly Payroll`): year and month selector with Employee ID, name, department, Opening, Earned, Used, Pending, Closing. Included on Excel and CSV export.
+- **Holiday spreadsheet import**: HR can import `date,name,kind` CSV (Excel saved as CSV) from the holiday calendar, with a downloadable template.
+- **Overlap block**: a second request that occupies the same dates as a pending or approved one is refused (`LEAVE_OVERLAP`). Morning and afternoon on the same day may both stand.
+- **Earned leave default**: 2 days credited each month (24 days a year), configurable in Settings. New employees receive catch-up monthly accruals for elapsed months of the current leave year, recorded on `accrual_run` so the job cannot double-credit.
+- **Mobile number** on add/edit employee.
+
 ## 0.1.9 — 2026-09-21
 
 ### Added — Administrator controls, leave allowances, bulk holiday calendar

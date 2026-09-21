@@ -43,6 +43,7 @@ export function CalendarPage({ me }: { me: Me }) {
   const [dow, setDow] = useState('5'); // Saturday, Monday-first index
   const [multi, setMulti] = useState(false);
   const [span, setSpan] = useState<'month' | 'rest' | 'year'>('year');
+  const [importing, setImporting] = useState(false);
   const qc = useQueryClient();
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -146,6 +147,41 @@ export function CalendarPage({ me }: { me: Me }) {
       setError(err instanceof ApiError ? err.message : 'Could not save these days.');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function importFile(file: File) {
+    setBusy(true);
+    setImporting(true);
+    setError(null);
+    setStatus(null);
+    try {
+      if (/\.xlsx?$/i.test(file.name) && !/\.csv$/i.test(file.name)) {
+        setError(
+          'Save the workbook as CSV with columns date, name, and kind, then import that file.',
+        );
+        return;
+      }
+      const text = await file.text();
+      const rows = parseHolidayCsv(text);
+      if (!rows.length) {
+        setError('No holiday rows found. Use columns date, name, and optional kind.');
+        return;
+      }
+      const r = await api<BulkResult>('/api/v1/holidays/import', {
+        method: 'POST',
+        body: JSON.stringify({
+          rows,
+          ...(q.data?.calendarId ? { calendarId: q.data.calendarId } : {}),
+        }),
+      });
+      await qc.invalidateQueries();
+      setStatus(r.message);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not import that file.');
+    } finally {
+      setBusy(false);
+      setImporting(false);
     }
   }
 
@@ -441,6 +477,30 @@ export function CalendarPage({ me }: { me: Me }) {
         <p className="kicker" style={{ marginTop: 22 }}>
           {monthLabel}
         </p>
+        {canEdit ? (
+          <div className="cal-import">
+            <p className="kicker" style={{ margin: 0 }}>
+              Import from Excel
+            </p>
+            <p className="note" style={{ margin: 0 }}>
+              CSV or Excel with columns <code>date</code>, <code>name</code>, and optional{' '}
+              <code>kind</code> (public, optional, declared_working).
+            </p>
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls,text/csv"
+              disabled={importing}
+              aria-label="Import holidays spreadsheet"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) void importFile(file);
+              }}
+            />
+            <a href="/api/v1/holidays/template.csv">Download template</a>
+          </div>
+        ) : null}
+
         {monthHolidays.length === 0 ? (
           <p className="note">
             Nothing set this month.{' '}
@@ -488,6 +548,63 @@ function describeSelection(dates: string[], byDate: Map<string, Holiday>): strin
   ]
     .filter(Boolean)
     .join(' · ');
+}
+
+function parseHolidayCsv(text: string): { date: string; name: string; kind: HolidayKind }[] {
+  const lines = text
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+  const header = splitCsvLine(lines[0]!).map((h) => h.toLowerCase());
+  const dateIdx = header.findIndex((h) => h === 'date' || h === 'holiday_date');
+  const nameIdx = header.findIndex((h) => h === 'name' || h === 'holiday' || h === 'holiday_name');
+  const kindIdx = header.findIndex((h) => h === 'kind' || h === 'type');
+  if (dateIdx < 0 || nameIdx < 0) return [];
+  const out: { date: string; name: string; kind: HolidayKind }[] = [];
+  for (const line of lines.slice(1)) {
+    const cols = splitCsvLine(line);
+    const date = normaliseHolidayDate(cols[dateIdx] ?? '');
+    const name = (cols[nameIdx] ?? '').trim();
+    const rawKind = (kindIdx >= 0 ? cols[kindIdx] : 'public')?.trim().toLowerCase();
+    const kind: HolidayKind =
+      rawKind === 'optional' || rawKind === 'declared_working' ? rawKind : 'public';
+    if (date && name.length >= 2) out.push({ date, name, kind });
+  }
+  return out;
+}
+
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (quoted && line[i + 1] === '"') {
+        cur += '"';
+        i += 1;
+      } else quoted = !quoted;
+    } else if ((ch === ',' || ch === '\t') && !quoted) {
+      out.push(cur.trim());
+      cur = '';
+    } else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+function normaliseHolidayDate(raw: string): string | null {
+  const v = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const dmy = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/.exec(v);
+  if (dmy) {
+    return `${dmy[3]}-${dmy[2]!.padStart(2, '0')}-${dmy[1]!.padStart(2, '0')}`;
+  }
+  const named = Date.parse(v);
+  if (!Number.isNaN(named)) return new Date(named).toISOString().slice(0, 10);
+  return null;
 }
 
 function summariseSkips(skips: { date: string; reason: string }[]): string {

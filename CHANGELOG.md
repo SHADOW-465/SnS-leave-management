@@ -10,6 +10,9 @@
 - **Holiday calendar**: select several days (toggle, Shift-click range, weekday headings), or quick-select patterns such as "2nd Saturday of every month in 2026", then mark them as holidays, optional holidays, working days, or back to normal in one step (`POST /api/v1/holidays/bulk`). Leave already booked over changed days is recounted; meaningless changes (a weekday "made working", clearing a normal day) are skipped and reported.
 - **Approvals inbox** (`/approvals`): team leads, department heads and covers now see requests routed to them (previously only HR/admin saw the approval queue). Requesters see who their request is waiting on. Navigation is grouped by role with a pending-approvals badge.
 
+### Changed
+- Added `.graphifyignore` so the knowledge graph skips generated build output (`public/`, `api/`, `dist/`). Minified bundles had dominated the most-connected nodes; the graph is now 1,130 nodes / 1,799 edges of real source and docs.
+
 ### Fixed
 - "My requests" ignored the status and search filters.
 - Server test runs crashed with too many parallel database workers; capped at two.

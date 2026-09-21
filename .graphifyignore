@@ -1,0 +1,4 @@
+# Generated build output: minified bundles drown out the real code
+public/
+api/
+dist/

@@ -1101,7 +1101,7 @@ async function upsertEmployeePhone(
     .prepare(
       `INSERT INTO employee_contact (employee_id, phone, created_at, created_by, updated_at, updated_by)
        VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(employee_id) DO UPDATE SET
+       ON CONFLICT (employee_id) DO UPDATE SET
          phone = excluded.phone,
          updated_at = excluded.updated_at,
          updated_by = excluded.updated_by`,

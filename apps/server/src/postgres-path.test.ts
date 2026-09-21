@@ -540,4 +540,68 @@ describe('hosted Postgres: administrator controls', () => {
     });
     expect(res.statusCode).toBe(200);
   });
+
+  it('returns employee overview with identity, pending, and monthly rows', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/home',
+      headers: { cookie: employee.cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const data = (
+      res.json() as {
+        data: {
+          employee: { code: string; department: string };
+          monthly: unknown[];
+          balances: { pending: string; left: string }[];
+        };
+      }
+    ).data;
+    expect(data.employee.code).toBeTruthy();
+    expect(data.employee.department).toBeTruthy();
+    expect(Array.isArray(data.monthly)).toBe(true);
+    expect(data.balances.some((b) => typeof b.pending === 'string')).toBe(true);
+  });
+
+  it('returns monthly payroll columns on reports', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/reports?year=2026&month=1',
+      headers: { cookie: admin.cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const payroll = (
+      res.json() as {
+        data: { payroll: { rows: { employeeCode: string; closing: number }[] } };
+      }
+    ).data.payroll;
+    expect(payroll.rows.length).toBeGreaterThan(0);
+    expect(payroll.rows[0]!.employeeCode).toBeTruthy();
+  });
+
+  it('imports holidays from a row list', async () => {
+    const res = await post(admin, '/api/v1/holidays/import', {
+      rows: [{ date: '2026-01-26', name: 'Republic Day', kind: 'public' }],
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { data: { changed: string[] } }).data.changed).toContain('2026-01-26');
+  });
+
+  it('refuses overlapping leave on the hosted path', async () => {
+    const first = await post(employee, '/api/v1/leave-requests', {
+      leaveTypeId: clTypeId,
+      startDate: '2026-10-20',
+      endDate: '2026-10-21',
+      reason: 'Hosted overlap first request.',
+    });
+    expect(first.statusCode).toBe(201);
+    const second = await post(employee, '/api/v1/leave-requests', {
+      leaveTypeId: clTypeId,
+      startDate: '2026-10-21',
+      endDate: '2026-10-22',
+      reason: 'Hosted overlap second request.',
+    });
+    expect(second.statusCode).toBe(409);
+    expect((second.json() as { error: { code: string } }).error.code).toBe('LEAVE_OVERLAP');
+  });
 });

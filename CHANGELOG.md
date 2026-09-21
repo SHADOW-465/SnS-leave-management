@@ -11,6 +11,9 @@
 - **Earned leave default**: 2 days credited each month (24 days a year), configurable in Settings. New employees receive catch-up monthly accruals for elapsed months of the current leave year, recorded on `accrual_run` so the job cannot double-credit.
 - **Mobile number** on add/edit employee.
 
+### Fixed
+- Hosted Vercel build: keep a committed `api/index.js` stub so Vercel CLI 59 can match `functions.api/index.js` before `vercel-bundle.mjs` overwrites it. Recent production deploys failed with “pattern doesn't match any Serverless Functions”.
+
 ## 0.1.9 — 2026-09-21
 
 ### Added — Administrator controls, leave allowances, bulk holiday calendar

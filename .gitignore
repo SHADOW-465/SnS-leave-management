@@ -23,10 +23,9 @@ graphify-out
 .graphify
 .vercel
 /public
-/api/index.js
 /api/node_modules
 
-# Generated deployment bundle
-api/
+# Generated deployment bundle (keep api/index.js and api/package.json so Vercel
+# sees a Serverless Function before the build overwrites the stub).
 public/
 .tmp-pgtest/

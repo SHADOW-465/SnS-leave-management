@@ -1,3 +1,6 @@
+import { ApprovalRoutingPage } from './pages/ApprovalRouting.js';
+import { AllowancesPage } from './pages/Allowances.js';
+import { UsersPage } from './pages/Users.js';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ErrorState, Skeleton } from '@sns/ui';
@@ -60,6 +63,8 @@ export function App() {
         <Route path="/apply" element={<ApplyPage me={me.data} />} />
         <Route path="/requests" element={<QueuePage me={me.data} />} />
         <Route path="/requests/:id" element={<QueuePage me={me.data} />} />
+        <Route path="/approvals" element={<QueuePage me={me.data} />} />
+        <Route path="/approvals/:id" element={<QueuePage me={me.data} />} />
         <Route path="/calendar" element={<CalendarPage me={me.data} />} />
         <Route path="/team" element={<TeamPage />} />
         <Route
@@ -77,6 +82,9 @@ export function App() {
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/settings" element={<SettingsPage me={me.data} />} />
         <Route path="/attendance" element={<AttendancePage me={me.data} />} />
+        <Route path="/admin/routing" element={<ApprovalRoutingPage />} />
+        <Route path="/allowances" element={<AllowancesPage />} />
+        <Route path="/admin/users" element={<UsersPage me={me.data} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

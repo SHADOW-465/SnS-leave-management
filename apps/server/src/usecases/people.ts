@@ -614,6 +614,10 @@ export async function createDepartment(
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'org.structure.manage', null);
+  if (input.headEmployeeId) {
+    // Appointing who approves is reserved to administrators.
+    await authorizeAction(ctx, 'approval.routing.manage', null);
+  }
 
   const cleanName = input.name.trim();
   const cleanCode = input.code.trim().toUpperCase();
@@ -681,6 +685,14 @@ export async function updateDepartment(
     .get(departmentId)) as Record<string, unknown> | undefined;
   if (!existing) {
     throw new DomainError('NOT_FOUND', 'Department not found.', { httpStatus: 404 });
+  }
+  // Who heads a department decides whose leave they approve, so changing it is an
+  // approval-routing decision reserved to administrators, not a structure edit.
+  if (
+    input.headEmployeeId !== undefined &&
+    input.headEmployeeId !== (existing.head_employee_id as string | null)
+  ) {
+    await authorizeAction(ctx, 'approval.routing.manage', null);
   }
 
   const cleanName = input.name ? input.name.trim() : (existing.name as string);
@@ -826,6 +838,10 @@ export async function createTeam(
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'org.structure.manage', null);
+  if (input.leadEmployeeId) {
+    // Appointing who approves is reserved to administrators.
+    await authorizeAction(ctx, 'approval.routing.manage', null);
+  }
 
   const cleanName = input.name.trim();
 
@@ -907,6 +923,13 @@ export async function updateTeam(
     Record<string, unknown> | undefined;
   if (!existing) {
     throw new DomainError('NOT_FOUND', 'Team not found.', { httpStatus: 404 });
+  }
+  // The team lead approves the team's leave, so changing it is reserved to administrators.
+  if (
+    input.leadEmployeeId !== undefined &&
+    input.leadEmployeeId !== (existing.lead_employee_id as string | null)
+  ) {
+    await authorizeAction(ctx, 'approval.routing.manage', null);
   }
 
   const newDeptId = input.departmentId ?? (existing.department_id as string);

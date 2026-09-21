@@ -39,15 +39,14 @@ fs.rmSync('public', { recursive: true, force: true });
 fs.cpSync(src, 'public', { recursive: true });
 
 const sqlDir = path.resolve('packages/database/src/sql');
-const sql0001 = JSON.stringify(fs.readFileSync(path.join(sqlDir, '0001_init.sql'), 'utf8'));
-const sql0002 = JSON.stringify(
-  fs.readFileSync(path.join(sqlDir, '0002_holiday_one_kind_per_date.sql'), 'utf8'),
-);
-const sql0003 = JSON.stringify(
-  fs.readFileSync(path.join(sqlDir, '0003_team_lead_approver.sql'), 'utf8'),
-);
-const sql0004 = JSON.stringify(
-  fs.readFileSync(path.join(sqlDir, '0004_workstation_device_binding.sql'), 'utf8'),
+// Every migration file, inlined by id. Read from the folder rather than listed by hand, so
+// adding a migration cannot silently leave the hosted build on an older schema.
+const migrationSql = Object.fromEntries(
+  fs
+    .readdirSync(sqlDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => [f.replace(/\.sql$/, ''), fs.readFileSync(path.join(sqlDir, f), 'utf8')]),
 );
 
 fs.mkdirSync('api', { recursive: true });
@@ -80,7 +79,7 @@ await esbuild.build({
           let src = await fs.promises.readFile(args.path, 'utf8');
           src = src.replace(
             /let sql = fs\.readFileSync\(new URL\(`\.\/sql\/\$\{m\.id\}\.sql`, import\.meta\.url\), 'utf8'\);/,
-            `let sql = m.id === '0001_init' ? ${sql0001} : m.id === '0002_holiday_one_kind_per_date' ? ${sql0002} : m.id === '0003_team_lead_approver' ? ${sql0003} : ${sql0004};`,
+            `let sql = (${JSON.stringify(migrationSql)})[m.id];`,
           );
           return { contents: src, loader: 'ts' };
         });

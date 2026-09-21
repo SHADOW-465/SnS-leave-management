@@ -2508,3 +2508,69 @@ select option {
     padding: 4pt 6pt !important;
   }
 }
+
+.nav-section {
+  margin: 14px 0 4px;
+  padding: 0 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.nav-badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent, #4f46e5);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.cal-hint {
+  margin: 0 18px 8px;
+}
+.cal-dow-btn {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  border-radius: 6px;
+  font: inherit;
+}
+.cal-dow-btn:hover {
+  background: #eef0f7;
+  color: var(--text-primary);
+}
+.cal-mode label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.cal-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.cal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0;
+}
+.cal-chip {
+  border: 1px solid var(--border-subtle);
+  background: #f7f7f4;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cal-chip:hover {
+  background: #fef3f2;
+}

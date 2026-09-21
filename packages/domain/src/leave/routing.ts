@@ -97,10 +97,22 @@ export type ResolvedApprover = {
   /** Null when the first rung of the ladder was used. */
   escalation: EscalationReason | null;
   selfApproved: boolean;
+  /**
+   * When the usual approver has handed over to someone for a period, the employee they
+   * handed over from. The request goes to the delegate; this records why.
+   */
+  delegatedFromEmployeeId: string | null;
 };
 
 /**
- * Walks the ladder and returns the first usable approver.
+ * Walks the chain and returns the first usable approver.
+ *
+ * An administrator can shape the chain in two ways, both applied before the ladder:
+ *
+ * - an **override** names a specific approver for one person, whatever their team says;
+ * - a **delegation** hands one approver's decisions to someone else for a date range, so
+ *   when a team lead is on holiday their team's leave goes to the cover they chose
+ *   rather than jumping straight to the department head.
  *
  * A rung is skipped when nobody fills it, when everyone in it is disabled or on leave, or
  * when the only candidate is the requester — nobody approves their own leave, with the
@@ -115,40 +127,74 @@ export function resolveApproverChain(input: {
     department_head: ApproverCandidate[];
     roles: Record<string, ApproverCandidate[]>;
   };
+  /** An administrator's named approver for this requester, if one is set. */
+  override?: ApproverCandidate | null;
+  /** Active cover, keyed by the employee id of the approver who is handing over. */
+  delegations?: Record<string, ApproverCandidate>;
 }): ResolvedApprover {
-  const ladder = approvalLadder(input.requesterKind);
-  const roleRungs = roleRungsFor(input.requesterKind);
-  let roleIndex = 0;
+  const delegations = input.delegations ?? {};
   let firstFailure: EscalationReason | null = null;
   let usedFirstRung = true;
 
+  // Swap an approver for their cover when a delegation is active and the cover is usable.
+  const withCover = (c: ApproverCandidate): { c: ApproverCandidate; from: string | null } => {
+    const cover = c.employeeId ? delegations[c.employeeId] : undefined;
+    if (cover && usable(cover, input.requesterUserId)) {
+      return { c: cover, from: c.employeeId };
+    }
+    return { c, from: null };
+  };
+
+  if (input.override) {
+    const { c, from } = withCover(input.override);
+    if (usable(c, input.requesterUserId)) {
+      return {
+        approverUserId: c.userId,
+        approverEmployeeId: c.employeeId,
+        approverKind: 'specific_employee',
+        approverRole: null,
+        escalation: null,
+        selfApproved: false,
+        delegatedFromEmployeeId: from,
+      };
+    }
+    firstFailure = rungFailureReason('specific_employee', [c], input.requesterUserId);
+    usedFirstRung = false;
+  }
+
+  const ladder = approvalLadder(input.requesterKind);
+  const roleRungs = roleRungsFor(input.requesterKind);
+  let roleIndex = 0;
+
   for (const rung of ladder) {
-    let pool: ApproverCandidate[];
+    let raw: ApproverCandidate[];
     let rungRole: RoleCode | null = null;
     if (rung === 'role') {
       rungRole = roleRungs[roleIndex] ?? roleRungs[roleRungs.length - 1] ?? 'admin';
       roleIndex += 1;
-      pool = input.candidatesByKind.roles[rungRole] ?? [];
+      raw = input.candidatesByKind.roles[rungRole] ?? [];
     } else if (rung === 'team_lead') {
-      pool = input.candidatesByKind.team_lead;
+      raw = input.candidatesByKind.team_lead;
     } else if (rung === 'department_head') {
-      pool = input.candidatesByKind.department_head;
+      raw = input.candidatesByKind.department_head;
     } else {
-      pool = [];
+      raw = [];
     }
 
+    const covered = raw.map(withCover);
+    const pool = covered.map((x) => x.c);
     const reason = rungFailureReason(rung, pool, input.requesterUserId);
     if (reason === null) {
-      const chosen = pool.find(
-        (c) => c.userId !== input.requesterUserId && !c.isDisabled && !c.onLeave,
-      )!;
+      const index = pool.findIndex((c) => usable(c, input.requesterUserId));
+      const chosen = covered[index]!;
       return {
-        approverUserId: chosen.userId,
-        approverEmployeeId: chosen.employeeId,
+        approverUserId: chosen.c.userId,
+        approverEmployeeId: chosen.c.employeeId,
         approverKind: rung === 'role' ? 'role' : rung,
         approverRole: rungRole,
         escalation: usedFirstRung ? null : firstFailure,
         selfApproved: false,
+        delegatedFromEmployeeId: chosen.from,
       };
     }
     firstFailure ??= reason;
@@ -165,9 +211,14 @@ export function resolveApproverChain(input: {
       approverRole: 'admin',
       escalation: firstFailure,
       selfApproved: true,
+      delegatedFromEmployeeId: null,
     };
   }
   throw new NoApproverError(firstFailure ?? 'no_active_hr');
+}
+
+function usable(c: ApproverCandidate, requesterUserId: string): boolean {
+  return c.userId !== requesterUserId && !c.isDisabled && !c.onLeave;
 }
 
 function rungFailureReason(
@@ -212,7 +263,7 @@ export function describeApprover(kind: ApproverKind, roleCode?: string | null): 
     case 'skip_level':
       return "Manager's manager";
     case 'specific_employee':
-      return 'A named approver';
+      return 'Assigned approver';
     case 'role':
       return roleCode === 'admin' ? 'Administrator' : 'HR';
   }

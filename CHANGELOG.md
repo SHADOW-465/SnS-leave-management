@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.9 — 2026-09-21
+
+### Added — Administrator controls, leave allowances, bulk holiday calendar
+
+- **Approval routing** (`/admin/routing`, administrator only): appoint team leads and department heads, assign a specific approver to any one person (overrides the ladder), arrange dated cover while an approver is away, and see exactly where each person's leave goes today, with plain-language warnings for gaps. Pending requests can be reassigned. HR can no longer change leads/heads (`approval.routing.manage`). Migration `0005_approval_controls.sql`.
+- **Users & access** (`/admin/users`): change roles (with descriptions), disable/enable accounts, sign out everywhere, release a bound workstation. Guards stop an administrator locking themselves out or disabling the last administrator.
+- **Leave allowances** (`/allowances`): set this year's allowance for one leave type across many people at once. Writes a ledger ADJUSTMENT for the difference; never drops below leave already taken or pending (those people are reported, the rest are updated). Administrators now hold `leave.balance.adjust`.
+- **Holiday calendar**: select several days (toggle, Shift-click range, weekday headings), or quick-select patterns such as "2nd Saturday of every month in 2026", then mark them as holidays, optional holidays, working days, or back to normal in one step (`POST /api/v1/holidays/bulk`). Leave already booked over changed days is recounted; meaningless changes (a weekday "made working", clearing a normal day) are skipped and reported.
+- **Approvals inbox** (`/approvals`): team leads, department heads and covers now see requests routed to them (previously only HR/admin saw the approval queue). Requesters see who their request is waiting on. Navigation is grouped by role with a pending-approvals badge.
+
+### Fixed
+- "My requests" ignored the status and search filters.
+- Server test runs crashed with too many parallel database workers; capped at two.
+
 ## 0.1.8 — 2026-09-12
 
 ### Fixed — Hosted preview kept serving an older UI after `git push`

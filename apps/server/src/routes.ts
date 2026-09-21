@@ -77,6 +77,7 @@ import {
 } from './usecases/people.js';
 import { completeSetup, demoAccounts, setupStatus } from './usecases/setup.js';
 import { runJobsTick } from './jobs.js';
+import { registerAdminRoutes } from './routes-admin.js';
 import { timingSafeEqual } from 'node:crypto';
 import {
   auditLog,
@@ -113,6 +114,7 @@ function parse(schema: z.ZodTypeAny, body: unknown) {
   return schema.parse(body) as any;
 }
 export async function registerRoutes(app: FastifyInstance) {
+  await registerAdminRoutes(app);
   app.get('/healthz', async () => ({ status: 'ok' }));
   app.get('/api/v1/internal/cron', async (req, reply) => {
     const secret = process.env.CRON_SECRET;
@@ -252,7 +254,12 @@ export async function registerRoutes(app: FastifyInstance) {
       const q = req.query as Record<string, string>;
       return reply.send(
         ok(
-          await listRequests(req.ctx, { mine: q.mine === '1', status: q.status, search: q.search }),
+          await listRequests(req.ctx, {
+            mine: q.mine === '1',
+            view: (['mine', 'approvals', 'all'] as const).find((v) => v === q.view),
+            status: q.status,
+            search: q.search,
+          }),
           req.ctx.requestId,
         ),
       );

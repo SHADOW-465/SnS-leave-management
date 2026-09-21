@@ -1,27 +1,48 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, ErrorState, Skeleton } from '@sns/ui';
+import { Button, ErrorState, Select, Skeleton } from '@sns/ui';
 import { api, ApiError, can, type Me } from '../api.js';
 
 type Holiday = { date: string; name: string; kind: HolidayKind };
 type HolidayKind = 'public' | 'optional' | 'declared_working';
 type CalendarData = { holidays: Holiday[]; calendarId: string | null };
+type BulkResult = {
+  changed: string[];
+  skipped: { date: string; reason: string }[];
+  message: string;
+};
 
 const KIND_LABEL: Record<HolidayKind, string> = {
   public: 'Public holiday',
   optional: 'Optional holiday',
   declared_working: 'Working day',
 };
+const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DOW_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const NTH = [
+  { value: 'every', label: 'Every' },
+  { value: '1', label: '1st' },
+  { value: '2', label: '2nd' },
+  { value: '3', label: '3rd' },
+  { value: '4', label: '4th' },
+  { value: '5', label: '5th' },
+  { value: 'last', label: 'Last' },
+];
 
 export function CalendarPage({ me }: { me: Me }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [anchor, setAnchor] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [nth, setNth] = useState('2');
+  const [dow, setDow] = useState('5'); // Saturday, Monday-first index
+  const [multi, setMulti] = useState(false);
+  const [span, setSpan] = useState<'month' | 'rest' | 'year'>('year');
   const qc = useQueryClient();
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -36,76 +57,93 @@ export function CalendarPage({ me }: { me: Me }) {
     year: 'numeric',
     timeZone: 'UTC',
   });
-  const holidayFor = (date: string) => q.data?.holidays.find((h) => h.date === date);
-  const selectedHoliday = selected ? holidayFor(selected) : undefined;
+  const byDate = useMemo(() => new Map((q.data?.holidays ?? []).map((h) => [h.date, h])), [q.data]);
+  const pickedSet = useMemo(() => new Set(picked), [picked]);
+  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+  const monthHolidays = (q.data?.holidays ?? [])
+    .filter((h) => h.date.startsWith(monthKey))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const single = picked.length === 1 ? picked[0]! : null;
+  const singleHoliday = single ? byDate.get(single) : undefined;
 
-  // Selecting a *different* day loads that day's name so editing does not silently
-  // blank it. Deliberately keyed on `selected` alone: re-running when the saved name
-  // changes would wipe the confirmation message the moment a save succeeded.
-  useEffect(() => {
-    setName(selected ? (q.data?.holidays.find((h) => h.date === selected)?.name ?? '') : '');
+  function select(dates: string[], mode: 'replace' | 'add' | 'toggle') {
     setError(null);
     setStatus(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
+    setPicked((prev) => {
+      if (mode === 'replace') return [...new Set(dates)].sort();
+      const set = new Set(prev);
+      if (mode === 'add') dates.forEach((d) => set.add(d));
+      else dates.forEach((d) => (set.has(d) ? set.delete(d) : set.add(d)));
+      return [...set].sort();
+    });
+    // A single day's existing name is the natural starting point for editing it.
+    if (dates.length === 1 && mode === 'replace') setName(byDate.get(dates[0]!)?.name ?? '');
+  }
 
-  const monthHolidays = (q.data?.holidays ?? [])
-    .filter((h) => h.date.startsWith(`${year}-${String(month).padStart(2, '0')}`))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  // A plain click edits one day. Shift-click adds a range, Ctrl/Cmd-click or
+  // "Select several" toggles days in and out, so viewing one day stays one click.
+  function onDayClick(date: string, e: React.MouseEvent) {
+    if (canEdit && e.shiftKey && anchor) {
+      setMulti(true);
+      select(rangeBetween(anchor, date), 'add');
+    } else if (canEdit && (multi || e.ctrlKey || e.metaKey)) {
+      setMulti(true);
+      select([date], 'toggle');
+    } else {
+      select([date], 'replace');
+    }
+    setAnchor(date);
+  }
 
-  async function mark(kind: HolidayKind) {
-    if (!selected) return;
+  function quickPick() {
+    const months =
+      span === 'month'
+        ? [month]
+        : span === 'rest'
+          ? Array.from({ length: 12 - month + 1 }, (_, i) => month + i)
+          : Array.from({ length: 12 }, (_, i) => i + 1);
+    const wd = (Number(dow) + 1) % 7; // Monday-first index → getUTCDay
+    const dates: string[] = [];
+    for (const m of months) {
+      const all = daysOfMonth(year, m).filter((d) => new Date(`${d}T00:00:00Z`).getUTCDay() === wd);
+      if (nth === 'every') dates.push(...all);
+      else if (nth === 'last') dates.push(all[all.length - 1]!);
+      else if (all[Number(nth) - 1]) dates.push(all[Number(nth) - 1]!);
+    }
+    setMulti(true);
+    select(dates, 'add');
+  }
+
+  async function apply(kind: HolidayKind | null) {
+    if (!picked.length) return;
     const trimmed = name.trim();
-    if (trimmed.length < 2) {
-      setError('Give this day a name of at least two characters, for example "Republic Day".');
+    if ((kind === 'public' || kind === 'optional') && trimmed.length < 2) {
+      setError('Give these days a name, for example "Second Saturday" or "Republic Day".');
       return;
     }
     setBusy(true);
     setError(null);
     setStatus(null);
     try {
-      await api('/api/v1/holidays', {
+      const r = await api<BulkResult>('/api/v1/holidays/bulk', {
         method: 'POST',
         body: JSON.stringify({
-          date: selected,
-          name: trimmed,
+          dates: picked,
           kind,
+          ...(trimmed ? { name: trimmed } : {}),
           ...(q.data?.calendarId ? { calendarId: q.data.calendarId } : {}),
         }),
       });
-      await qc.invalidateQueries({ queryKey: ['cal'] });
-      // Working-day counts, requests, dashboard, and availability change with the calendar.
-      await qc.invalidateQueries({ queryKey: ['home'] });
-      await qc.invalidateQueries({ queryKey: ['reqs'] });
-      await qc.invalidateQueries({ queryKey: ['req'] });
-      await qc.invalidateQueries({ queryKey: ['dash'] });
-      await qc.invalidateQueries({ queryKey: ['availability'] });
-      setStatus(`${formatDate(selected)} saved as ${KIND_LABEL[kind].toLowerCase()}.`);
+      // Working-day counts, requests, balances and availability all follow the calendar.
+      await qc.invalidateQueries();
+      const skippedNote = r.skipped.length ? ` Skipped: ${summariseSkips(r.skipped)}.` : '';
+      setStatus(r.message.replace(/ \d+ skipped\.$/, '') + skippedNote);
+      if (r.changed.length) {
+        setPicked([]);
+        setMulti(false);
+      }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not save this day.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function clearDay() {
-    if (!selected) return;
-    setBusy(true);
-    setError(null);
-    setStatus(null);
-    try {
-      const query = new URLSearchParams({ date: selected });
-      if (q.data?.calendarId) query.set('calendarId', q.data.calendarId);
-      await api(`/api/v1/holidays?${query.toString()}`, { method: 'DELETE' });
-      await qc.invalidateQueries({ queryKey: ['cal'] });
-      await qc.invalidateQueries({ queryKey: ['home'] });
-      await qc.invalidateQueries({ queryKey: ['reqs'] });
-      await qc.invalidateQueries({ queryKey: ['req'] });
-      await qc.invalidateQueries({ queryKey: ['dash'] });
-      await qc.invalidateQueries({ queryKey: ['availability'] });
-      setStatus(`${formatDate(selected)} is back to a normal day.`);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not clear this day.');
+      setError(err instanceof ApiError ? err.message : 'Could not save these days.');
     } finally {
       setBusy(false);
     }
@@ -117,23 +155,14 @@ export function CalendarPage({ me }: { me: Me }) {
     setMonth(d.getUTCMonth() + 1);
   }
 
-  // Arrow keys move between days, as a date grid should.
+  // Arrow keys move focus between days; Enter or Space picks, as a date grid should.
   function onGridKeyDown(e: React.KeyboardEvent) {
-    const step =
-      e.key === 'ArrowRight'
-        ? 1
-        : e.key === 'ArrowLeft'
-          ? -1
-          : e.key === 'ArrowDown'
-            ? 7
-            : e.key === 'ArrowUp'
-              ? -7
-              : 0;
-    if (!step || !selected) return;
+    const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 7, ArrowUp: -7 }[e.key] ?? 0;
+    const current = (document.activeElement as HTMLElement | null)?.dataset.date;
+    if (!step || !current) return;
     e.preventDefault();
-    const next = addDays(selected, step);
-    setSelected(next);
-    if (!next.startsWith(`${year}-${String(month).padStart(2, '0')}`)) {
+    const next = addDays(current, step);
+    if (!next.startsWith(monthKey)) {
       const [y, m] = next.split('-').map(Number) as [number, number];
       setYear(y);
       setMonth(m);
@@ -152,6 +181,8 @@ export function CalendarPage({ me }: { me: Me }) {
       />
     );
   }
+
+  const summary = describeSelection(picked, byDate);
 
   return (
     <div className="cal-layout">
@@ -176,6 +207,12 @@ export function CalendarPage({ me }: { me: Me }) {
             </Button>
           </div>
         </div>
+        {canEdit ? (
+          <p className="note cal-hint">
+            Click a day to edit it. Turn on <strong>Select several</strong>, Shift-click for a
+            range, or click a weekday heading to pick every one in the month.
+          </p>
+        ) : null}
         <p className="sr-only" role="status">
           Showing {monthLabel}
         </p>
@@ -186,14 +223,37 @@ export function CalendarPage({ me }: { me: Me }) {
             ref={gridRef}
             role="grid"
             aria-label={`Calendar for ${monthLabel}`}
+            aria-multiselectable={canEdit}
             className="cal-grid"
             onKeyDown={onGridKeyDown}
           >
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-              <div key={d} role="columnheader" className="cal-dow">
-                {d}
-              </div>
-            ))}
+            {DOW.map((d, i) =>
+              canEdit ? (
+                <button
+                  key={d}
+                  type="button"
+                  role="columnheader"
+                  className="cal-dow cal-dow-btn"
+                  title={`Select every ${DOW_LONG[i]} in ${monthLabel}`}
+                  onClick={() => {
+                    setMulti(true);
+                    const wd = (i + 1) % 7;
+                    select(
+                      daysOfMonth(year, month).filter(
+                        (x) => new Date(`${x}T00:00:00Z`).getUTCDay() === wd,
+                      ),
+                      'toggle',
+                    );
+                  }}
+                >
+                  {d}
+                </button>
+              ) : (
+                <div key={d} role="columnheader" className="cal-dow">
+                  {d}
+                </div>
+              ),
+            )}
             {weeks.flat().map((cell, i) =>
               cell === null ? (
                 <div key={`pad-${i}`} aria-hidden className="cal-pad" />
@@ -203,15 +263,21 @@ export function CalendarPage({ me }: { me: Me }) {
                   type="button"
                   role="gridcell"
                   data-date={cell}
-                  aria-selected={selected === cell}
-                  aria-label={dayAriaLabel(cell, holidayFor(cell), isWeekend(cell))}
-                  tabIndex={selected === cell || (!selected && cell.endsWith('-01')) ? 0 : -1}
-                  onClick={() => setSelected(cell)}
-                  className={cellClass(holidayFor(cell)?.kind, isWeekend(cell), selected === cell)}
+                  aria-selected={pickedSet.has(cell)}
+                  aria-label={dayAriaLabel(cell, byDate.get(cell), isWeekend(cell))}
+                  tabIndex={
+                    pickedSet.has(cell) || (!picked.length && cell.endsWith('-01')) ? 0 : -1
+                  }
+                  onClick={(e) => onDayClick(cell, e)}
+                  className={cellClass(
+                    byDate.get(cell)?.kind,
+                    isWeekend(cell),
+                    pickedSet.has(cell),
+                  )}
                 >
                   <span className="cal-num">{Number(cell.slice(8))}</span>
-                  {holidayFor(cell) ? (
-                    <span className="cal-tag">{holidayFor(cell)!.name}</span>
+                  {byDate.get(cell) ? (
+                    <span className="cal-tag">{byDate.get(cell)!.name}</span>
                   ) : null}
                 </button>
               ),
@@ -223,29 +289,99 @@ export function CalendarPage({ me }: { me: Me }) {
             <span className="swatch is-public" aria-hidden /> Public holiday — not a working day
           </li>
           <li>
-            <span className="swatch is-optional" aria-hidden /> Optional holiday — still counts as a
-            working day
+            <span className="swatch is-optional" aria-hidden /> Optional holiday — still a working
+            day
           </li>
           <li>
-            <span className="swatch is-working" aria-hidden /> Working day declared on a weekend
+            <span className="swatch is-working" aria-hidden /> Weekend made a working day
           </li>
         </ul>
       </section>
 
       <aside className="card">
-        <p className="kicker">Selected day</p>
-        <p className="cal-selected">{selected ? formatDate(selected) : 'Pick a date'}</p>
-        {selected ? (
-          <p className="note" style={{ marginTop: 0 }}>
-            {selectedHoliday
-              ? `Currently ${KIND_LABEL[selectedHoliday.kind].toLowerCase()}: ${selectedHoliday.name}`
-              : isWeekend(selected)
-                ? 'Currently a weekend — not a working day.'
-                : 'Currently a normal working day.'}
-          </p>
+        {canEdit ? (
+          <>
+            <div className="cal-mode">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={multi}
+                  onChange={(e) => {
+                    setMulti(e.target.checked);
+                    if (!e.target.checked && picked.length > 1) setPicked(picked.slice(0, 1));
+                  }}
+                />{' '}
+                Select several days
+              </label>
+            </div>
+
+            <p className="kicker" style={{ marginTop: 14 }}>
+              Quick select
+            </p>
+            <div className="cal-quick">
+              <Select size="sm" aria-label="Which" value={nth} options={NTH} onChange={setNth} />
+              <Select
+                size="sm"
+                aria-label="Weekday"
+                value={dow}
+                options={DOW_LONG.map((d, i) => ({ value: String(i), label: d }))}
+                onChange={setDow}
+              />
+              <Select
+                size="sm"
+                aria-label="Over"
+                value={span}
+                options={[
+                  { value: 'month', label: `in ${monthLabel}` },
+                  { value: 'rest', label: `from ${monthLabel.split(' ')[0]} to December` },
+                  { value: 'year', label: `of every month in ${year}` },
+                ]}
+                onChange={(v) => setSpan(v as typeof span)}
+              />
+              <Button size="sm" onClick={quickPick}>
+                Add to selection
+              </Button>
+            </div>
+          </>
         ) : null}
 
-        {canEdit && selected ? (
+        <p className="kicker" style={{ marginTop: 18 }}>
+          {picked.length > 1 ? `${picked.length} days selected` : 'Selected day'}
+        </p>
+        {picked.length === 0 ? (
+          <p className="cal-selected">Pick a date</p>
+        ) : single ? (
+          <>
+            <p className="cal-selected">{formatDate(single)}</p>
+            <p className="note" style={{ marginTop: 0 }}>
+              {singleHoliday
+                ? `Currently ${KIND_LABEL[singleHoliday.kind].toLowerCase()}: ${singleHoliday.name}`
+                : isWeekend(single)
+                  ? 'Currently a weekend — not a working day.'
+                  : 'Currently a normal working day.'}
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="cal-chips">
+              {picked.slice(0, 12).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  className="cal-chip"
+                  title="Remove from selection"
+                  onClick={() => select([d], 'toggle')}
+                >
+                  {shortDate(d)} ×
+                </button>
+              ))}
+              {picked.length > 12 ? <span className="note">+{picked.length - 12} more</span> : null}
+            </div>
+            <p className="note">{summary}</p>
+          </>
+        )}
+
+        {canEdit && picked.length ? (
           <div className="cal-editor">
             <label className="field-row">
               <span className="field-label">Name</span>
@@ -253,7 +389,7 @@ export function CalendarPage({ me }: { me: Me }) {
                 className="input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Republic Day"
+                placeholder={picked.length > 1 ? 'Second Saturday' : 'Republic Day'}
                 maxLength={120}
               />
             </label>
@@ -262,28 +398,44 @@ export function CalendarPage({ me }: { me: Me }) {
                 {error}
               </p>
             ) : null}
-            {status ? (
-              <p role="status" className="form-ok">
-                {status}
-              </p>
-            ) : null}
-            <Button variant="primary" disabled={busy} onClick={() => void mark('public')}>
-              Public holiday
+            <Button variant="primary" disabled={busy} onClick={() => void apply('public')}>
+              Mark as holiday
             </Button>
-            <Button disabled={busy} onClick={() => void mark('optional')}>
-              Optional holiday
+            <Button disabled={busy} onClick={() => void apply('optional')}>
+              Mark as optional holiday
             </Button>
-            <Button disabled={busy} onClick={() => void mark('declared_working')}>
-              Declare a working day
+            <Button
+              disabled={busy || !picked.some((d) => isWeekend(d) || byDate.has(d))}
+              title="Only weekends or existing holidays can change"
+              onClick={() => void apply('declared_working')}
+            >
+              Make working day{picked.length > 1 ? 's' : ''}
             </Button>
-            {selectedHoliday ? (
-              <Button variant="danger" disabled={busy} onClick={() => void clearDay()}>
-                Clear this day
-              </Button>
-            ) : null}
+            <Button
+              variant="danger"
+              disabled={busy || !picked.some((d) => byDate.has(d))}
+              onClick={() => void apply(null)}
+            >
+              Back to normal
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setPicked([]);
+                setMulti(false);
+              }}
+            >
+              Clear selection
+            </Button>
           </div>
-        ) : selected ? (
+        ) : !canEdit && picked.length ? (
           <p className="note">You can view the calendar. Changing it needs holiday permission.</p>
+        ) : null}
+        {status ? (
+          <p role="status" className="form-ok">
+            {status}
+          </p>
         ) : null}
 
         <p className="kicker" style={{ marginTop: 22 }}>
@@ -292,13 +444,17 @@ export function CalendarPage({ me }: { me: Me }) {
         {monthHolidays.length === 0 ? (
           <p className="note">
             Nothing set this month.{' '}
-            {canEdit ? 'Select a date to add a holiday.' : 'Weekends are still non-working.'}
+            {canEdit ? 'Select dates to add holidays.' : 'Weekends are still non-working.'}
           </p>
         ) : (
           <ul className="cal-list">
             {monthHolidays.map((h) => (
               <li key={h.date}>
-                <button type="button" className="cal-list-btn" onClick={() => setSelected(h.date)}>
+                <button
+                  type="button"
+                  className="cal-list-btn"
+                  onClick={() => select([h.date], 'replace')}
+                >
                   <span className="mono cal-list-day">{h.date.slice(8)}</span>
                   <span>
                     <strong>{h.name}</strong>
@@ -312,6 +468,32 @@ export function CalendarPage({ me }: { me: Me }) {
       </aside>
     </div>
   );
+}
+
+function describeSelection(dates: string[], byDate: Map<string, Holiday>): string {
+  if (dates.length < 2) return '';
+  let weekend = 0;
+  let holiday = 0;
+  let working = 0;
+  for (const d of dates) {
+    const h = byDate.get(d);
+    if (h?.kind === 'public' || h?.kind === 'optional') holiday++;
+    else if (h?.kind === 'declared_working' || !isWeekend(d)) working++;
+    else weekend++;
+  }
+  return [
+    working && `${working} working`,
+    weekend && `${weekend} weekend`,
+    holiday && `${holiday} already holidays`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function summariseSkips(skips: { date: string; reason: string }[]): string {
+  const by = new Map<string, number>();
+  for (const s of skips) by.set(s.reason, (by.get(s.reason) ?? 0) + 1);
+  return [...by].map(([r, n]) => `${n} — ${r.replace(/\.$/, '').toLowerCase()}`).join('; ');
 }
 
 function cellClass(kind: HolidayKind | undefined, weekend: boolean, selected: boolean): string {
@@ -341,19 +523,42 @@ function formatDate(iso: string): string {
   });
 }
 
+function shortDate(iso: string): string {
+  return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
 function addDays(iso: string, n: number): string {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
+function rangeBetween(a: string, b: string): string[] {
+  const [from, to] = a <= b ? [a, b] : [b, a];
+  const out: string[] = [];
+  // ponytail: capped at a year so a stray shift-click cannot select thousands of days
+  for (let d = from; d <= to && out.length < 366; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+
+function daysOfMonth(year: number, month: number): string[] {
+  const dim = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return Array.from(
+    { length: dim },
+    (_, i) => `${year}-${String(month).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`,
+  );
+}
+
 function buildWeeks(year: number, month: number): (string | null)[][] {
   const first = new Date(Date.UTC(year, month - 1, 1));
   const startPad = (first.getUTCDay() + 6) % 7; // weeks start Monday
-  const dim = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const cells: (string | null)[] = [...(Array(startPad).fill(null) as null[])];
-  for (let d = 1; d <= dim; d++) {
-    cells.push(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
-  }
+  const cells: (string | null)[] = [
+    ...(Array(startPad).fill(null) as null[]),
+    ...daysOfMonth(year, month),
+  ];
   while (cells.length % 7) cells.push(null);
   const weeks: (string | null)[][] = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));

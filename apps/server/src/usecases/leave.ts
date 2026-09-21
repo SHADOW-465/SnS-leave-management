@@ -198,6 +198,12 @@ async function describeRouteFor(
     if (routing.selfApproved) {
       return `You (${role.toLowerCase()}) — recorded as a self-approval, because nobody is above you`;
     }
+    if (routing.delegatedFromEmployeeId) {
+      const from = (await ctx.sqlite
+        .prepare(`SELECT first_name || ' ' || last_name AS name FROM employee WHERE id = ?`)
+        .get(routing.delegatedFromEmployeeId)) as { name: string } | undefined;
+      return `${who?.name ?? role} — covering for ${from?.name ?? 'your usual approver'}`;
+    }
     if (routing.escalation) {
       return `${label} — escalated because ${describeEscalation(routing.escalation)}`;
     }
@@ -210,7 +216,10 @@ async function describeRouteFor(
 }
 
 /** Where this person sits in the chain: team lead, department head, HR, admin, or member. */
-async function requesterKindOf(ctx: RequestContext, employeeId: string): Promise<RequesterKind> {
+export async function requesterKindOf(
+  ctx: RequestContext,
+  employeeId: string,
+): Promise<RequesterKind> {
   const roles = (
     (await ctx.sqlite
       .prepare(
@@ -374,10 +383,16 @@ export async function submitLeave(
       );
     await ctx.sqlite
       .prepare(
-        `INSERT INTO approval_step_instance (id, leave_request_id, step_no, approver_user_id, approver_employee_id, status)
-         VALUES (?, ?, 1, ?, ?, 'pending')`,
+        `INSERT INTO approval_step_instance (id, leave_request_id, step_no, approver_user_id, approver_employee_id, status, delegated_from)
+         VALUES (?, ?, 1, ?, ?, 'pending', ?)`,
       )
-      .run(newId(), id, routing.approverUserId, routing.approverEmployeeId);
+      .run(
+        newId(),
+        id,
+        routing.approverUserId,
+        routing.approverEmployeeId,
+        routing.delegatedFromEmployeeId,
+      );
     if (onBehalf && empAccount) {
       await notify(
         ctx,
@@ -456,7 +471,7 @@ async function pickWorkflow(ctx: RequestContext, kind: string) {
  * approver is the person asking, or their account is disabled or they are on leave — and
  * the reason is recorded on the request so the escalation is explainable.
  */
-async function resolveApprover(
+export async function resolveApprover(
   ctx: RequestContext,
   requesterEmployeeId: string,
   requesterUserId: string,
@@ -495,11 +510,53 @@ async function resolveApprover(
     );
   }
 
+  // An administrator's named approver for this person, if one is set.
+  const overrideRows = await candidatesFor(
+    ctx,
+    `SELECT ua.id AS "userId", ua.employee_id AS "employeeId", ua.is_disabled AS "isDisabled"
+       FROM approval_override o
+       JOIN employee a ON a.id = o.approver_employee_id
+       JOIN user_account ua ON ua.employee_id = a.id
+      WHERE o.employee_id = ? AND a.status != 'exited'`,
+    [requesterEmployeeId],
+  );
+
+  // Cover that is active today, keyed by the approver who handed over.
+  const coverRows = (await ctx.sqlite
+    .prepare(
+      `SELECT dl.approver_employee_id AS "fromEmployeeId", ua.id AS "userId",
+              ua.employee_id AS "employeeId", ua.is_disabled AS "isDisabled"
+         FROM approval_delegation dl
+         JOIN employee d ON d.id = dl.delegate_employee_id
+         JOIN user_account ua ON ua.employee_id = d.id
+        WHERE dl.starts_on <= ? AND dl.ends_on >= ? AND d.status != 'exited'
+        ORDER BY dl.created_at DESC`,
+    )
+    .all(ctx.today, ctx.today)) as {
+    fromEmployeeId: string;
+    userId: string;
+    employeeId: string | null;
+    isDisabled: number;
+  }[];
+  const delegations: Record<string, ApproverCandidate> = {};
+  for (const row of coverRows) {
+    // Most recent delegation wins if two overlap.
+    if (delegations[row.fromEmployeeId]) continue;
+    delegations[row.fromEmployeeId] = {
+      userId: row.userId,
+      employeeId: row.employeeId,
+      isDisabled: Number(row.isDisabled) === 1,
+      onLeave: await assignedOnLeave(ctx, row.employeeId),
+    };
+  }
+
   try {
     return resolveApproverChain({
       requesterUserId,
       requesterKind,
       candidatesByKind: { team_lead: teamLead, department_head: departmentHead, roles },
+      override: overrideRows[0] ?? null,
+      delegations,
     });
   } catch (err) {
     if (err instanceof NoApproverError) {
@@ -1197,4 +1254,11 @@ async function audit(
       ctx.userAgent,
     );
 }
-export { audit, ForbiddenErrorSilent, holidaysForEmployee, currentPolicy, availableHalfDays };
+export {
+  audit,
+  notify,
+  ForbiddenErrorSilent,
+  holidaysForEmployee,
+  currentPolicy,
+  availableHalfDays,
+};

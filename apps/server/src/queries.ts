@@ -194,17 +194,34 @@ export async function myHome(ctx: RequestContext) {
 export async function listRequests(
   ctx: RequestContext,
   opts: {
+    /** @deprecated use view: 'mine' */
     mine?: boolean;
+    /**
+     * `mine` — the caller's own requests.
+     * `approvals` — requests the caller decides: those routed to them, plus everyone else's
+     *   for HR and administrators, who can override. Never includes the caller's own.
+     * `all` — everything the caller may see.
+     */
+    view?: 'mine' | 'approvals' | 'all';
     status?: string;
     search?: string;
   },
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'leave.request.read', p.employeeId);
+  const view = opts.view ?? (opts.mine ? 'mine' : 'all');
   const graph = await graphFor(ctx.sqlite, p.employeeId);
   const rows = (await ctx.sqlite
     .prepare(
-      `SELECT r.*, t.name AS type_name, e.first_name || ' ' || e.last_name AS employee_name, d.name AS dept
+      `SELECT r.*, t.name AS type_name, e.first_name || ' ' || e.last_name AS employee_name,
+              d.name AS dept,
+              (SELECT ae.first_name || ' ' || ae.last_name FROM approval_step_instance s
+                 JOIN employee ae ON ae.id = s.approver_employee_id
+                WHERE s.leave_request_id = r.id AND s.status = 'pending'
+                ORDER BY s.step_no LIMIT 1) AS waiting_on,
+              (SELECT s.approver_user_id FROM approval_step_instance s
+                WHERE s.leave_request_id = r.id AND s.status = 'pending'
+                ORDER BY s.step_no LIMIT 1) AS pending_approver_user_id
        FROM leave_request r
        JOIN leave_type t ON t.id = r.leave_type_id
        JOIN employee e ON e.id = r.employee_id
@@ -213,7 +230,9 @@ export async function listRequests(
     )
     .all()) as Record<string, unknown>[];
   const canCompany = p.permissions.includes('leave.request.read:company');
-  // Requests routed to this person, so a team lead's approvals queue is populated by the
+  const canOverride = p.permissions.includes('leave.request.approve:company');
+  const isAdmin = p.roles.includes('admin');
+  // Requests routed to this person, so a team lead's approvals are populated by the
   // hierarchy rather than by company-wide read rights they should not have.
   const assignedToMe = new Set(
     (
@@ -224,25 +243,38 @@ export async function listRequests(
         .all(p.userId)) as { id: string }[]
     ).map((r) => r.id),
   );
-  return rows.filter((r) => {
+
+  const out = [];
+  for (const r of rows) {
     const empId = String(r.employee_id);
-    if (opts.mine) return empId === p.employeeId;
-    if (
-      !canCompany &&
-      empId !== p.employeeId &&
-      !graph.recursiveReports.has(empId) &&
-      !assignedToMe.has(String(r.id))
-    ) {
-      return false;
+    const own = empId === p.employeeId;
+    const assigned = assignedToMe.has(String(r.id));
+
+    if (view === 'mine' && !own) continue;
+    if (view === 'approvals' && (own || !(assigned || canOverride))) continue;
+    if (view === 'all' && !canCompany && !own && !graph.recursiveReports.has(empId) && !assigned) {
+      continue;
     }
-    if (opts.status && opts.status !== 'all' && r.status !== opts.status) return false;
+    if (opts.status && opts.status !== 'all' && r.status !== opts.status) continue;
     if (opts.search) {
-      const s = opts.search.toLowerCase();
+      const needle = opts.search.toLowerCase();
       const blob = `${r.employee_name} ${r.type_name} ${r.reason}`.toLowerCase();
-      if (!blob.includes(s)) return false;
+      if (!blob.includes(needle)) continue;
     }
-    return true;
-  });
+
+    const pendingWithMe = r.pending_approver_user_id === p.userId;
+    out.push({
+      ...r,
+      // Who the request is waiting on, so nobody has to ask where their leave went.
+      waiting_on: r.status === 'pending_approval' ? (r.waiting_on ?? null) : null,
+      // Whether *this* person can approve or reject it from the list.
+      can_decide:
+        r.status === 'pending_approval' && (pendingWithMe || canOverride) && (!own || isAdmin),
+      // True when it was routed to them, as opposed to visible through an HR override.
+      routed_to_me: pendingWithMe,
+    });
+  }
+  return out;
 }
 export async function queue(
   ctx: RequestContext,

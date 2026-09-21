@@ -77,6 +77,10 @@ export type Me = {
   mustChangePassword: boolean;
   companyName: string;
   timezone: string;
+  /** Leads a team, heads a department, covers for someone, or has an HR/admin override. */
+  approvesLeave: boolean;
+  /** Requests currently waiting for this person's decision. */
+  pendingApprovals: number;
 };
 
 export function can(me: Me | null, prefix: string): boolean {

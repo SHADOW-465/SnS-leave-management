@@ -354,3 +354,190 @@ describe('hosted Postgres: demo hierarchy backfill is idempotent', () => {
     expect(res.statusCode).toBe(200);
   });
 });
+
+describe('hosted Postgres: administrator controls', () => {
+  let admin: Session;
+  const emp = async (email: string) =>
+    ((await pg.query<{ id: string }>(`SELECT id FROM employee WHERE work_email = $1`, [email]))
+      .rows[0]?.id ?? '') as string;
+  const user = async (email: string) =>
+    ((await pg.query<{ id: string }>(`SELECT id FROM user_account WHERE email = $1`, [email]))
+      .rows[0]?.id ?? '') as string;
+  const put = (s: Session, url: string, payload: object) =>
+    app.inject({ method: 'PUT', url, headers: auth(s), payload });
+  const post = (s: Session, url: string, payload: object = {}) =>
+    app.inject({ method: 'POST', url, headers: auth(s), payload });
+
+  beforeAll(async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'admin@example.invalid', password: 'ChangeMe_admin_1' },
+    });
+    expect(res.statusCode).toBe(200);
+    admin = sessionFrom(res);
+  });
+
+  it('builds the approval map', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approval-map',
+      headers: { cookie: admin.cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const data = (res.json() as { data: { people: unknown[]; teams: { memberCount: number }[] } })
+      .data;
+    expect(data.people.length).toBeGreaterThan(0);
+    // COUNT(*) is a bigint on Postgres; it must still arrive as a number.
+    expect(typeof data.teams[0]?.memberCount).toBe('number');
+  });
+
+  it('sets and clears an override', async () => {
+    const amina = await emp('amina@example.invalid');
+    const sofia = await emp('sofia@example.invalid');
+    expect(
+      (await put(admin, `/api/v1/admin/overrides/${amina}`, { approverEmployeeId: sofia }))
+        .statusCode,
+    ).toBe(200);
+    // Setting it again exercises the ON CONFLICT upsert.
+    expect(
+      (await put(admin, `/api/v1/admin/overrides/${amina}`, { approverEmployeeId: sofia }))
+        .statusCode,
+    ).toBe(200);
+    expect(
+      (await put(admin, `/api/v1/admin/overrides/${amina}`, { approverEmployeeId: null }))
+        .statusCode,
+    ).toBe(200);
+  });
+
+  it('creates and removes cover, and routes to the cover meanwhile', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const created = await post(admin, '/api/v1/admin/delegations', {
+      approverEmployeeId: await emp('ravi@example.invalid'),
+      delegateEmployeeId: await emp('paul@example.invalid'),
+      startsOn: today,
+      endsOn: '2099-12-31',
+    });
+    expect(created.statusCode).toBe(200);
+    const preview = await app.inject({
+      method: 'GET',
+      url: `/api/v1/leave/preview?leaveTypeId=${clTypeId}&startDate=2026-12-07&endDate=2026-12-08`,
+      headers: { cookie: employee.cookie },
+    });
+    expect((preview.json() as { data: { approver: string } }).data.approver).toContain('Paul');
+    const id = (created.json() as { data: { id: string } }).data.id;
+    expect(
+      (
+        await app.inject({
+          method: 'DELETE',
+          url: `/api/v1/admin/delegations/${id}`,
+          headers: auth(admin),
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+
+  it('reassigns a pending request', async () => {
+    const submitted = await post(employee, '/api/v1/leave-requests', {
+      leaveTypeId: clTypeId,
+      startDate: '2026-12-14',
+      endDate: '2026-12-15',
+      reason: 'Hosted reassignment check.',
+    });
+    expect(submitted.statusCode).toBe(201);
+    const id = (submitted.json() as { data: { id: string } }).data.id;
+    const res = await post(admin, `/api/v1/leave-requests/${id}/reassign`, {
+      approverEmployeeId: await emp('sofia@example.invalid'),
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('lists users, changes roles, disables, releases a workstation, and signs out', async () => {
+    const list = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users',
+      headers: { cookie: admin.cookie },
+    });
+    expect(list.statusCode).toBe(200);
+    const paul = await user('paul@example.invalid');
+    expect(
+      (await put(admin, `/api/v1/admin/users/${paul}/roles`, { roles: ['payroll_officer'] }))
+        .statusCode,
+    ).toBe(200);
+    expect((await post(admin, `/api/v1/admin/users/${paul}/release-workstation`)).statusCode).toBe(
+      200,
+    );
+    expect((await post(admin, `/api/v1/admin/users/${paul}/sign-out-everywhere`)).statusCode).toBe(
+      200,
+    );
+    expect(
+      (await put(admin, `/api/v1/admin/users/${paul}/disabled`, { disabled: true })).statusCode,
+    ).toBe(200);
+    expect(
+      (await put(admin, `/api/v1/admin/users/${paul}/disabled`, { disabled: false })).statusCode,
+    ).toBe(200);
+  });
+
+  it('tells a team lead they approve leave', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'ravi@example.invalid', password: 'ChangeMe_demo_1' },
+    });
+    const ravi = sessionFrom(res);
+    const me = await app.inject({
+      method: 'GET',
+      url: '/api/v1/me',
+      headers: { cookie: ravi.cookie },
+    });
+    expect(me.statusCode).toBe(200);
+    expect((me.json() as { data: { approvesLeave: boolean } }).data.approvesLeave).toBe(true);
+  });
+
+  it('lists and sets allowances, with numbers not bigints', async () => {
+    const cl = (await pg.query<{ id: string }>(`SELECT id FROM leave_type WHERE code = 'CL'`))
+      .rows[0]!.id;
+    const paul = await emp('paul@example.invalid');
+    const set = await put(admin, '/api/v1/allowances', {
+      employeeIds: [paul],
+      leaveTypeId: cl,
+      allowanceHalfDays: 50,
+      reason: 'Hosted allowance check',
+    });
+    expect(set.statusCode).toBe(200);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/allowances',
+      headers: { cookie: admin.cookie },
+    });
+    const row = (
+      res.json() as {
+        data: { people: { id: string; balances: Record<string, { allowance: unknown }> }[] };
+      }
+    ).data.people.find((p) => p.id === paul)!;
+    expect(row.balances[cl]!.allowance).toBe(50);
+  });
+
+  it('applies holidays in bulk', async () => {
+    const res = await post(admin, '/api/v1/holidays/bulk', {
+      dates: ['2026-12-12', '2026-12-19'],
+      kind: 'declared_working',
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { data: { changed: string[] } }).data.changed).toHaveLength(2);
+    const cleared = await post(admin, '/api/v1/holidays/bulk', {
+      dates: ['2026-12-12', '2026-12-19'],
+      kind: null,
+    });
+    expect((cleared.json() as { data: { changed: string[] } }).data.changed).toHaveLength(2);
+  });
+
+  it('filters the request list by view', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/leave-requests?view=approvals',
+      headers: { cookie: admin.cookie },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+});

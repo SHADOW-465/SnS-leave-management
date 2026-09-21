@@ -170,3 +170,77 @@ describe('resolving an approver', () => {
     expect(r.escalation).toBe('no_team_lead');
   });
 });
+
+describe('administrator controls', () => {
+  const org = {
+    team_lead: [ok('u-ravi')],
+    department_head: [ok('u-sofia')],
+    roles: { hr_officer: [ok('u-helen')], admin: [ok('u-ada')] },
+  };
+
+  it('an override beats the team structure', () => {
+    const r = resolveApproverChain({
+      requesterUserId: 'u-amina',
+      requesterKind: 'employee',
+      candidatesByKind: org,
+      override: ok('u-helen'),
+    });
+    expect(r.approverUserId).toBe('u-helen');
+    expect(r.approverKind).toBe('specific_employee');
+    expect(r.escalation).toBeNull();
+  });
+
+  it('an override who is away falls back to the normal chain and says why', () => {
+    const r = resolveApproverChain({
+      requesterUserId: 'u-amina',
+      requesterKind: 'employee',
+      candidatesByKind: org,
+      override: away('u-helen'),
+    });
+    expect(r.approverUserId).toBe('u-ravi');
+    expect(r.escalation).toBe('approver_on_leave');
+  });
+
+  it('an override pointing at the requester is ignored', () => {
+    const r = resolveApproverChain({
+      requesterUserId: 'u-amina',
+      requesterKind: 'employee',
+      candidatesByKind: org,
+      override: ok('u-amina'),
+    });
+    expect(r.approverUserId).toBe('u-ravi');
+  });
+
+  it('delegation sends a lead’s decisions to their cover instead of skipping up', () => {
+    const r = resolveApproverChain({
+      requesterUserId: 'u-amina',
+      requesterKind: 'employee',
+      candidatesByKind: { ...org, team_lead: [away('u-ravi')] },
+      delegations: { 'emp-u-ravi': ok('u-paul') },
+    });
+    expect(r.approverUserId).toBe('u-paul');
+    expect(r.approverKind).toBe('team_lead');
+    expect(r.delegatedFromEmployeeId).toBe('emp-u-ravi');
+  });
+
+  it('a delegate who is unavailable does not block the normal escalation', () => {
+    const r = resolveApproverChain({
+      requesterUserId: 'u-amina',
+      requesterKind: 'employee',
+      candidatesByKind: { ...org, team_lead: [away('u-ravi')] },
+      delegations: { 'emp-u-ravi': disabled('u-paul') },
+    });
+    expect(r.approverUserId).toBe('u-sofia');
+    expect(r.delegatedFromEmployeeId).toBeNull();
+  });
+
+  it('never delegates a request to the person asking', () => {
+    const r = resolveApproverChain({
+      requesterUserId: 'u-paul',
+      requesterKind: 'employee',
+      candidatesByKind: org,
+      delegations: { 'emp-u-ravi': ok('u-paul') },
+    });
+    expect(r.approverUserId).toBe('u-ravi');
+  });
+});

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Paperclip, X } from 'lucide-react';
 import { Button, EmptyState, ErrorState, Skeleton, StatusPill } from '@sns/ui';
-import { api, can, type Me } from '../api.js';
+import { api, type Me } from '../api.js';
 import {
   daysLabel,
   formatDate,
@@ -34,6 +34,8 @@ type TrailRow = {
 };
 
 type Row = {
+  can_decide?: boolean;
+  waiting_on?: string | null;
   id: string;
   employee_name: string;
   type_name: string;
@@ -95,7 +97,7 @@ type DetailData = Row & {
   leave_history?: LeaveHistory | null;
 };
 
-export function QueuePage({ me }: { me: Me }) {
+export function QueuePage({ me: _me }: { me: Me }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [status, setStatus] = useState('all');
@@ -103,13 +105,14 @@ export function QueuePage({ me }: { me: Me }) {
   const [rejecting, setRejecting] = useState<Row | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const qc = useQueryClient();
-  const mine = !can(me, 'leave.request.approve');
+  const base = useLocation().pathname.startsWith('/approvals') ? '/approvals' : '/requests';
+  const mine = base === '/requests';
 
   const q = useQuery({
-    queryKey: ['reqs', status, search, mine],
+    queryKey: ['reqs', status, search, base],
     queryFn: () =>
       api<Row[]>(
-        `/api/v1/leave-requests?mine=${mine ? '1' : '0'}&status=${status}&search=${encodeURIComponent(search)}`,
+        `/api/v1/leave-requests?view=${mine ? 'mine' : 'approvals'}&status=${status}&search=${encodeURIComponent(search)}`,
       ),
   });
 
@@ -119,7 +122,7 @@ export function QueuePage({ me }: { me: Me }) {
     enabled: Boolean(id),
   });
 
-  const canApprove = can(me, 'leave.request.approve') || can(me, 'leave.request.self_approve');
+  const canDecideDetail = Boolean(q.data?.find((r) => r.id === id)?.can_decide);
 
   useEffect(() => {
     if (!id && !rejecting) return;
@@ -128,13 +131,13 @@ export function QueuePage({ me }: { me: Me }) {
         if (rejecting) {
           setRejecting(null);
         } else if (id) {
-          void navigate('/requests');
+          void navigate(base);
         }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [id, rejecting, navigate]);
+  }, [id, rejecting, navigate, base]);
 
   async function approve(row: { id: string; version: number }) {
     await api(`/api/v1/leave-requests/${row.id}/approve`, {
@@ -221,7 +224,7 @@ export function QueuePage({ me }: { me: Me }) {
                 ? 'Clear the search to see everything you can access.'
                 : mine
                   ? 'When you submit leave, it will appear here with its status.'
-                  : 'Employee and manager requests wait here for HR.'
+                  : 'Requests waiting for your decision appear here.'
             }
             action={
               search ? <Button onClick={() => setSearch('')}>Clear search</Button> : undefined
@@ -250,11 +253,11 @@ export function QueuePage({ me }: { me: Me }) {
                   tabIndex={0}
                   role="button"
                   aria-label={`View details for ${r.employee_name} ${r.type_name}`}
-                  onClick={() => void navigate(`/requests/${r.id}`)}
+                  onClick={() => void navigate(`${base}/${r.id}`)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      void navigate(`/requests/${r.id}`);
+                      void navigate(`${base}/${r.id}`);
                     }
                   }}
                 >
@@ -289,6 +292,11 @@ export function QueuePage({ me }: { me: Me }) {
                   <td className="mono">{daysLabel(r.total_half_days)}</td>
                   <td>
                     <StatusPill status={r.status} />
+                    {r.waiting_on ? (
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        Waiting for {r.waiting_on}
+                      </div>
+                    ) : null}
                     {r.was_self_approved ? (
                       <div className="note" style={{ margin: '4px 0 0' }}>
                         Self-approved
@@ -296,7 +304,7 @@ export function QueuePage({ me }: { me: Me }) {
                     ) : null}
                   </td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {canApprove && r.status === 'pending_approval' ? (
+                    {r.can_decide ? (
                       <>
                         <Button
                           variant="success"
@@ -349,7 +357,7 @@ export function QueuePage({ me }: { me: Me }) {
             type="button"
             className="floating-window-scrim"
             aria-label="Close request details"
-            onClick={() => void navigate('/requests')}
+            onClick={() => void navigate(base)}
           />
           <div
             className="floating-window-card"
@@ -410,7 +418,7 @@ export function QueuePage({ me }: { me: Me }) {
                       className="icon-btn"
                       style={{ width: 32, height: 32, borderRadius: 6 }}
                       aria-label="Close preview"
-                      onClick={() => void navigate('/requests')}
+                      onClick={() => void navigate(base)}
                     >
                       <X size={16} aria-hidden strokeWidth={2} />
                     </button>
@@ -760,7 +768,7 @@ export function QueuePage({ me }: { me: Me }) {
                 </div>
 
                 <div className="drawer-actions">
-                  {canApprove && detail.data.status === 'pending_approval' ? (
+                  {canDecideDetail && detail.data.status === 'pending_approval' ? (
                     <>
                       <Button
                         variant="success"
@@ -788,7 +796,7 @@ export function QueuePage({ me }: { me: Me }) {
                     </Button>
                   ) : null}
 
-                  <Button onClick={() => void navigate('/requests')}>Close</Button>
+                  <Button onClick={() => void navigate(base)}>Close</Button>
                 </div>
               </>
             )}

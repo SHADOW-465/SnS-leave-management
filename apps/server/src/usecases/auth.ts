@@ -337,6 +337,32 @@ export async function currentUserView(ctx: RequestContext) {
           }
         | undefined)
     : undefined;
+  // Whether this person decides anyone's leave. A team lead is an ordinary employee
+  // account, so the navigation cannot infer this from permissions alone.
+  const pending = (await ctx.sqlite
+    .prepare(
+      `SELECT COUNT(*) AS n FROM approval_step_instance s
+         JOIN leave_request r ON r.id = s.leave_request_id
+        WHERE s.approver_user_id = ? AND s.status = 'pending' AND r.status = 'pending_approval'`,
+    )
+    .get(p.userId)) as { n: number };
+  const approvesLeave =
+    p.permissions.includes('leave.request.approve:company') ||
+    Number(pending.n) > 0 ||
+    (p.employeeId
+      ? Boolean(
+          await ctx.sqlite
+            .prepare(
+              `SELECT 1 FROM team WHERE lead_employee_id = ? AND archived_at IS NULL
+               UNION SELECT 1 FROM department WHERE head_employee_id = ? AND archived_at IS NULL
+               UNION SELECT 1 FROM approval_override WHERE approver_employee_id = ?
+               UNION SELECT 1 FROM approval_delegation
+                 WHERE delegate_employee_id = ? AND starts_on <= ? AND ends_on >= ?
+               LIMIT 1`,
+            )
+            .get(p.employeeId, p.employeeId, p.employeeId, p.employeeId, ctx.today, ctx.today),
+        )
+      : false);
   return {
     id: p.userId,
     email: p.email,
@@ -347,6 +373,8 @@ export async function currentUserView(ctx: RequestContext) {
     mustChangePassword: Boolean(account.must_change_password),
     companyName: company?.name ?? 'Leave OS',
     timezone: company?.timezone ?? 'UTC',
+    approvesLeave,
+    pendingApprovals: Number(pending.n),
   };
 }
 export async function changePassword(

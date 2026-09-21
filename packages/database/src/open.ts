@@ -61,6 +61,7 @@ export async function migrate(db: Db): Promise<void> {
     { id: '0002_holiday_one_kind_per_date' },
     { id: '0003_team_lead_approver' },
     { id: '0004_workstation_device_binding' },
+    { id: '0005_approval_controls' },
   ];
   for (const m of files) {
     if (applied.has(m.id)) continue;

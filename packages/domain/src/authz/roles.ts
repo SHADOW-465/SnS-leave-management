@@ -121,10 +121,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, readonly KnownPermission[]> = {
     'user.session.revoke:self',
   ),
   admin: all.filter(
-    (p) =>
-      !p.startsWith('employee.field.payroll') &&
-      !p.startsWith('payroll.export') &&
-      p !== 'leave.balance.adjust:company',
+    (p) => !p.startsWith('employee.field.payroll') && !p.startsWith('payroll.export'),
   ),
   auditor: pick(
     'employee.read:company',

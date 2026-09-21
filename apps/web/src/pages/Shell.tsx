@@ -18,6 +18,10 @@ import {
   Timer,
   Users,
   XCircle,
+  CheckSquare,
+  Scale,
+  GitBranch,
+  KeyRound,
 } from 'lucide-react';
 import { Button } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
@@ -35,25 +39,61 @@ type NotificationItem = {
   read_at: string | null;
 };
 
-const EMPLOYEE_NAV = [
-  { to: '/', label: 'Overview', icon: LayoutDashboard },
-  { to: '/apply', label: 'Apply for leave', icon: PlaneTakeoff },
-  { to: '/requests', label: 'My requests', icon: ClipboardList },
-  { to: '/calendar', label: 'Holiday calendar', icon: CalendarDays },
-  { to: '/team', label: 'Team availability', icon: Grid3x3 },
-];
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  badge?: number;
+  section?: string;
+};
 
-const ADMIN_NAV = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/requests', label: 'Approvals', icon: ClipboardList },
-  { to: '/calendar', label: 'Holiday calendar', icon: CalendarDays },
-  { to: '/team', label: 'Team availability', icon: Grid3x3 },
-  { to: '/people', label: 'Employees', icon: Users },
-  { to: '/attendance', label: 'Attendance', icon: Timer },
-  { to: '/reports', label: 'Reports', icon: FileBarChart },
-  { to: '/audit', label: 'Audit log', icon: ScrollText },
-  { to: '/settings', label: 'Policy settings', icon: Settings },
-];
+/** One nav built from what this person can actually do, grouped so each role sees its jobs. */
+function navFor(me: Me): NavItem[] {
+  const staff = can(me, 'leave.request.approve') || can(me, 'leave.policy.manage');
+  const items: NavItem[] = [
+    { to: '/', label: staff ? 'Dashboard' : 'Overview', icon: LayoutDashboard, section: 'Me' },
+  ];
+  if (me.employeeId) {
+    items.push({ to: '/apply', label: 'Apply for leave', icon: PlaneTakeoff });
+    items.push({ to: '/requests', label: 'My requests', icon: ClipboardList });
+  }
+  if (me.approvesLeave) {
+    items.push({
+      to: '/approvals',
+      label: 'Approvals',
+      icon: CheckSquare,
+      badge: me.pendingApprovals,
+      section: 'Approvals',
+    });
+  }
+  items.push({ to: '/calendar', label: 'Holiday calendar', icon: CalendarDays, section: 'Team' });
+  items.push({ to: '/team', label: 'Team availability', icon: Grid3x3 });
+  if (staff) {
+    items.push({ to: '/people', label: 'Employees', icon: Users, section: 'Manage' });
+    items.push({ to: '/attendance', label: 'Attendance', icon: Timer });
+    items.push({ to: '/reports', label: 'Reports', icon: FileBarChart });
+    items.push({ to: '/audit', label: 'Audit log', icon: ScrollText });
+    items.push({ to: '/settings', label: 'Leave policy', icon: Settings });
+  }
+  if (can(me, 'leave.balance.adjust')) {
+    items.push({
+      to: '/allowances',
+      label: 'Leave allowances',
+      icon: Scale,
+      section: staff ? undefined : 'Manage',
+    });
+  }
+  if (can(me, 'approval.routing.manage')) {
+    items.push({
+      to: '/admin/routing',
+      label: 'Approval routing',
+      icon: GitBranch,
+      section: 'Administration',
+    });
+    items.push({ to: '/admin/users', label: 'Users & access', icon: KeyRound });
+  }
+  return items;
+}
 
 function getNotificationIcon(n: NotificationItem) {
   const kind = n.kind ?? '';
@@ -176,8 +216,7 @@ function getNotificationDestination(n: NotificationItem): string {
 }
 
 export function Shell({ me, children }: { me: Me; children: ReactNode }) {
-  const nav =
-    can(me, 'leave.request.approve') || can(me, 'leave.policy.manage') ? ADMIN_NAV : EMPLOYEE_NAV;
+  const nav = navFor(me);
   const qc = useQueryClient();
   const navigate = useNavigate();
   const loc = useLocation();
@@ -336,7 +375,12 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
         </p>
         {nav.map((item) => {
           const Icon = item.icon;
-          return (
+          return [
+            item.section ? (
+              <p key={`s-${item.section}`} className="nav-section">
+                {item.section}
+              </p>
+            ) : null,
             <NavLink
               key={item.to}
               to={item.to}
@@ -345,8 +389,9 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
             >
               <Icon size={16} strokeWidth={1.75} aria-hidden />
               {item.label}
-            </NavLink>
-          );
+              {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
+            </NavLink>,
+          ];
         })}
         <div className="nav-foot">
           <div>

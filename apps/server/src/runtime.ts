@@ -5,6 +5,7 @@ import { openDatabaseFromEnv, type Db } from '@sns/database';
 import { buildApp } from './app.js';
 import { startJobs } from './jobs.js';
 import { nowIso, todayInTimeZone } from './time.js';
+import { DEMO_ADMIN } from './usecases/demo.js';
 import { completeSetup, ensureDemoHierarchy, setupStatus } from './usecases/setup.js';
 import type { RequestContext } from './ctx.js';
 
@@ -66,14 +67,15 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
         timezone: 'Asia/Kolkata',
         leaveYearStartMonth: 1,
         leaveYearStartDay: 1,
-        adminName: 'Ada Example',
-        adminEmail: 'admin@example.invalid',
-        adminPassword: 'ChangeMe_admin_1',
+        adminName: DEMO_ADMIN.name,
+        adminEmail: DEMO_ADMIN.email,
+        adminPassword: DEMO_ADMIN.password,
         loadSampleData: true,
+        sampleActivity: true,
       });
     } else {
-      // Already bootstrapped (the live preview). Fill in Sofia and the Engineering
-      // org if this database was seeded before hierarchical approval existed.
+      // Already bootstrapped (the live preview): bring older sample data up to the
+      // current sample organisation, in place.
       await ensureDemoHierarchy(ctx);
     }
   }

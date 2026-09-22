@@ -22,6 +22,8 @@ import {
   Scale,
   GitBranch,
   KeyRound,
+  History,
+  UserRound,
 } from 'lucide-react';
 import { Button } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
@@ -48,48 +50,68 @@ type NavItem = {
 };
 
 /** One nav built from what this person can actually do, grouped so each role sees its jobs. */
+/**
+ * One navigation, grouped the way the functional framework describes the three roles:
+ * what everyone does for themselves, what a manager does for their people, and the HR /
+ * administrator menu. Each person sees only the groups they can act in.
+ */
 function navFor(me: Me): NavItem[] {
   const staff = can(me, 'leave.request.approve') || can(me, 'leave.policy.manage');
   const items: NavItem[] = [
-    { to: '/', label: staff ? 'Dashboard' : 'Overview', icon: LayoutDashboard, section: 'Me' },
+    {
+      to: '/',
+      label: staff ? 'Dashboard' : 'My dashboard',
+      icon: LayoutDashboard,
+      section: 'My leave',
+    },
   ];
   if (me.employeeId) {
     items.push({ to: '/apply', label: 'Apply for leave', icon: PlaneTakeoff });
     items.push({ to: '/requests', label: 'My requests', icon: ClipboardList });
+    if (!staff) items.push({ to: '/transactions', label: 'Leave history', icon: History });
   }
+  items.push({
+    to: '/calendar',
+    label: staff ? 'Government holidays' : 'Holiday calendar',
+    icon: CalendarDays,
+  });
   if (me.approvesLeave) {
     items.push({
       to: '/approvals',
-      label: 'Approvals',
+      label: 'Pending requests',
       icon: CheckSquare,
       badge: me.pendingApprovals,
       section: 'Approvals',
     });
   }
-  items.push({ to: '/calendar', label: 'Holiday calendar', icon: CalendarDays, section: 'Team' });
-  items.push({ to: '/team', label: 'Team availability', icon: Grid3x3 });
+  items.push({
+    to: '/team',
+    label: 'Team leave calendar',
+    icon: Grid3x3,
+    ...(me.approvesLeave ? {} : { section: 'Team' }),
+  });
   if (staff) {
-    items.push({ to: '/people', label: 'Employees', icon: Users, section: 'Manage' });
+    items.push({ to: '/people', label: 'Employees', icon: Users, section: 'HR & payroll' });
+    items.push({ to: '/transactions', label: 'Leave transactions', icon: History });
+    if (can(me, 'leave.balance.adjust')) {
+      items.push({ to: '/allowances', label: 'Leave allowances', icon: Scale });
+    }
+    items.push({ to: '/reports', label: 'Payroll & annual reports', icon: FileBarChart });
     items.push({ to: '/attendance', label: 'Attendance', icon: Timer });
-    items.push({ to: '/reports', label: 'Reports', icon: FileBarChart });
     items.push({ to: '/audit', label: 'Audit log', icon: ScrollText });
-    items.push({ to: '/settings', label: 'Leave policy', icon: Settings });
+  } else if (can(me, 'report.leave.view')) {
+    items.push({ to: '/reports', label: 'Reports', icon: FileBarChart, section: 'Reports' });
   }
-  if (can(me, 'leave.balance.adjust')) {
+  if (can(me, 'approval.routing.manage') || can(me, 'leave.policy.manage')) {
     items.push({
-      to: '/allowances',
-      label: 'Leave allowances',
-      icon: Scale,
-      section: staff ? undefined : 'Manage',
+      to: '/settings',
+      label: 'Leave configuration',
+      icon: Settings,
+      section: 'Administration',
     });
   }
   if (can(me, 'approval.routing.manage')) {
-    items.push({
-      to: '/admin/routing',
-      label: 'Approval routing',
-      icon: GitBranch,
-      section: 'Administration',
-    });
+    items.push({ to: '/admin/routing', label: 'Reporting managers', icon: GitBranch });
     items.push({ to: '/admin/users', label: 'Users & access', icon: KeyRound });
   }
   return items;
@@ -178,6 +200,10 @@ function getNotificationDestination(n: NotificationItem): string {
   if (n.entity_type === 'employee') {
     return '/people';
   }
+  // A request waiting for this person's decision opens in their approvals inbox.
+  if (n.kind === 'leave.submitted' || n.kind === 'leave.reassigned') {
+    return n.entity_id ? `/approvals/${n.entity_id}` : '/approvals';
+  }
   if (n.kind?.startsWith('leave.')) {
     return n.entity_id ? `/requests/${n.entity_id}` : '/requests';
   }
@@ -249,18 +275,26 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
   const titles: Record<string, [string, string]> = {
     '/': can(me, 'leave.request.approve')
       ? ['Dashboard', 'What needs a decision today']
-      : ['Overview', 'Your balance, requests, and holidays'],
+      : ['My dashboard', 'Your balance, requests, and holidays'],
     '/apply': ['Apply for leave', 'Working days are calculated before you submit'],
-    '/requests': ['Requests', 'Status, trail, and decisions'],
-    '/calendar': ['Holiday calendar', 'Public, optional, and declared working days'],
-    '/team': ['Team availability', 'Who is in over the next fortnight'],
-    '/people': ['People', 'Directory scoped to what you may see'],
-    '/reports': ['Reports', 'Every chart has a data table underneath'],
+    '/requests': ['My requests', 'Status of everything you have applied for'],
+    '/approvals': ['Pending requests', 'Leave waiting for your decision'],
+    '/calendar': ['Holiday calendar', 'Government holidays and working days'],
+    '/team': ['Team leave calendar', 'Who is in over the next fortnight'],
+    '/people': ['Employees', 'Add and edit employees, departments and teams'],
+    '/transactions': ['Leave transactions', 'Every credit, deduction and adjustment'],
+    '/allowances': ['Leave allowances', 'How much leave each person has this year'],
+    '/reports': ['Reports', 'Monthly payroll, annual leave and utilisation'],
     '/audit': ['Audit log', 'Append-only. Nothing here can be edited.'],
-    '/settings': ['Settings', 'Leave rules, leave year, and notification delivery'],
+    '/settings': ['Leave configuration', 'Leave types, accrual, working week and leave year'],
     '/attendance': ['Attendance', 'Signals, not verdicts. A missing login is not an absence.'],
+    '/admin/routing': ['Reporting managers', 'Who approves whose leave'],
+    '/admin/users': ['Users & access', 'Sign-ins, roles and access'],
+    '/profile': ['My profile', 'Your employee record'],
+    '/password': ['Change password', 'Choose a new password'],
   };
-  const [title, sub] = titles[loc.pathname] ?? ['Leave OS', me.companyName];
+  const base = `/${loc.pathname.split('/')[1] ?? ''}`;
+  const [title, sub] = titles[loc.pathname] ?? titles[base] ?? ['Leave OS', me.companyName];
 
   useEffect(() => {
     if (!open) return;
@@ -394,12 +428,18 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
           ];
         })}
         <div className="nav-foot">
-          <div>
-            <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5 }}>{me.displayName}</p>
-            <p className="note" style={{ margin: 0 }}>
-              {me.email}
-            </p>
-          </div>
+          <NavLink
+            to="/profile"
+            className="nav-profile"
+            title="Your profile"
+            onClick={() => setOpen(false)}
+          >
+            <UserRound size={16} strokeWidth={1.75} aria-hidden />
+            <span>
+              <span className="nav-profile-name">{me.displayName}</span>
+              <span className="note">{me.email}</span>
+            </span>
+          </NavLink>
           <Button size="sm" onClick={signOut} disabled={signingOut} style={{ width: '100%' }}>
             {signingOut ? 'Signing out…' : 'Sign out'}
           </Button>

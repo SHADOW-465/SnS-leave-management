@@ -74,6 +74,8 @@ import {
   updateDepartment,
   updateEmployee,
   updateTeam,
+  createDesignation,
+  createStaffCategory,
 } from './usecases/people.js';
 import { completeSetup, demoAccounts, setupStatus } from './usecases/setup.js';
 import { runJobsTick } from './jobs.js';
@@ -85,7 +87,9 @@ import {
   calendarMonth,
   dashboard,
   leaveTypes,
-  ledger,
+  leaveTransactions,
+  annualReport,
+  myProfile,
   listRequests,
   markNotificationsRead,
   myHome,
@@ -366,7 +370,14 @@ export async function registerRoutes(app: FastifyInstance) {
     try {
       const q = req.query as Record<string, string>;
       return reply.send(
-        ok(await ledger(req.ctx, q.employeeId ?? '', q.leaveTypeId ?? ''), req.ctx.requestId),
+        ok(
+          await leaveTransactions(req.ctx, {
+            employeeId: q.employeeId,
+            leaveTypeId: q.leaveTypeId,
+            periodId: q.periodId,
+          }),
+          req.ctx.requestId,
+        ),
       );
     } catch (err) {
       return sendError(req, reply, err);
@@ -608,6 +619,90 @@ export async function registerRoutes(app: FastifyInstance) {
       );
   }
 
+  app.get('/api/v1/profile', async (req, reply) => {
+    try {
+      return reply.send(ok(await myProfile(req.ctx), req.ctx.requestId));
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.get('/api/v1/reports/annual', async (req, reply) => {
+    try {
+      const q = req.query as Record<string, string>;
+      return reply.send(
+        ok(
+          await annualReport(req.ctx, { periodId: q.periodId, leaveTypeId: q.leaveTypeId }),
+          req.ctx.requestId,
+        ),
+      );
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.get('/api/v1/reports/annual.:format', async (req, reply) => {
+    try {
+      await authorizeAction(req.ctx, 'report.export', null);
+      const q = req.query as Record<string, string>;
+      const { format } = req.params as { format: string };
+      const data = await annualReport(req.ctx, {
+        periodId: q.periodId,
+        leaveTypeId: q.leaveTypeId,
+      });
+      const header = [
+        'Employee ID',
+        'Employee',
+        'Department',
+        'Opening',
+        'Earned',
+        'Adjusted',
+        ...data.months,
+        'Used',
+        'Pending',
+        'Closing',
+      ];
+      const body = data.rows.map((r) => [
+        r.code,
+        r.name,
+        r.department,
+        r.opening,
+        r.earned,
+        r.adjusted,
+        ...r.monthly,
+        r.used,
+        r.pending,
+        r.closing,
+      ]);
+      await recordReportExportAudit(req.ctx);
+      if (format === 'csv') {
+        const esc = (v: unknown) => {
+          const t = typeof v === 'number' ? String(v) : csvSafe(String(v ?? ''));
+          return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+        };
+        const csv = [[`Annual leave report — ${data.label}`], header, ...body]
+          .map((r) => r.map(esc).join(','))
+          .join('\n');
+        return reply
+          .header('content-type', 'text/csv; charset=utf-8')
+          .header('content-disposition', 'attachment; filename="annual-leave-report.csv"')
+          .send(csv);
+      }
+      if (format !== 'xlsx')
+        throw new DomainError('BAD_FORMAT', 'Use xlsx or csv.', { httpStatus: 400 });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.aoa_to_sheet([[`Annual leave report — ${data.label}`], header, ...body]),
+        'Annual report',
+      );
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+      return reply
+        .header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('content-disposition', 'attachment; filename="annual-leave-report.xlsx"')
+        .send(buf);
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
   app.get('/api/v1/reports/export.xlsx', async (req, reply) => {
     try {
       await authorizeAction(req.ctx, 'report.export', null);
@@ -1267,6 +1362,107 @@ export async function registerRoutes(app: FastifyInstance) {
         y -= 15;
       }
 
+      // Payroll sheet: what payroll actually processes for the selected month.
+      page = pdfDoc.addPage([595.28, 841.89]);
+      y = 801.89;
+      page.drawRectangle({
+        x: margin,
+        y: y - 35,
+        width: contentWidth,
+        height: 40,
+        color: primaryColor,
+      });
+      page.drawText('MONTHLY PAYROLL LEAVE REPORT', {
+        x: margin + 14,
+        y: y - 22,
+        size: 13,
+        font: fontBold,
+        color: rgb(1, 1, 1),
+      });
+      page.drawText(data.payroll.label, {
+        x: margin + contentWidth - 120,
+        y: y - 22,
+        size: 9,
+        font: fontBold,
+        color: rgb(0.8, 0.85, 0.92),
+      });
+      y -= 52;
+      const payHeaders = [
+        { label: 'EMP ID', x: margin, right: false },
+        { label: 'EMPLOYEE', x: margin + 55, right: false },
+        { label: 'DEPARTMENT', x: margin + 185, right: false },
+        { label: 'OPENING', x: margin + 300, right: true },
+        { label: 'EARNED', x: margin + 345, right: true },
+        { label: 'USED', x: margin + 390, right: true },
+        { label: 'PENDING', x: margin + 435, right: true },
+        { label: 'CLOSING', x: margin + 485, right: true },
+      ];
+      const drawPayHeader = (p: typeof page, currY: number) => {
+        p.drawRectangle({
+          x: margin,
+          y: currY - 14,
+          width: contentWidth,
+          height: 18,
+          color: bgHeader,
+        });
+        payHeaders.forEach((h) =>
+          p.drawText(h.label, {
+            x: h.x + 3,
+            y: currY - 10,
+            size: 7,
+            font: fontBold,
+            color: textMuted,
+          }),
+        );
+      };
+      drawPayHeader(page, y);
+      y -= 16;
+      if (!data.payroll.rows.length) {
+        page.drawText('No employees in this period.', {
+          x: margin + 4,
+          y: y - 12,
+          size: 8,
+          font,
+          color: textMuted,
+        });
+      }
+      for (const r of data.payroll.rows) {
+        if (y < 55) {
+          page = pdfDoc.addPage([595.28, 841.89]);
+          y = 801.89;
+          drawPayHeader(page, y);
+          y -= 16;
+        }
+        page.drawRectangle({
+          x: margin,
+          y: y - 13,
+          width: contentWidth,
+          height: 15,
+          borderColor: borderColor,
+          borderWidth: 0.5,
+        });
+        const cells = [
+          String(r.employeeCode),
+          String(r.name).slice(0, 24),
+          String(r.department).slice(0, 20),
+          String(r.opening),
+          String(r.earned),
+          String(r.used),
+          String(r.pending),
+          String(r.closing),
+        ];
+        cells.forEach((text, i) =>
+          page.drawText(text, {
+            x: payHeaders[i]!.x + 3,
+            y: y - 10,
+            size: 7.5,
+            font: i === 1 || i === 7 ? fontBold : font,
+            color: textDark,
+          }),
+        );
+        y -= 15;
+      }
+
       const allPages = pdfDoc.getPages();
       allPages.forEach((p, idx) => {
         p.drawText(
@@ -1447,6 +1643,35 @@ export async function registerRoutes(app: FastifyInstance) {
       return sendError(req, reply, err);
     }
   });
+  app.post('/api/v1/staff-categories', async (req, reply) => {
+    try {
+      const b = (req.body ?? {}) as { name?: unknown; code?: unknown };
+      return reply.send(
+        ok(
+          await createStaffCategory(req.ctx, {
+            name: String(b.name ?? '').slice(0, 80),
+            code: b.code ? String(b.code).slice(0, 16) : undefined,
+          }),
+          req.ctx.requestId,
+        ),
+      );
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.post('/api/v1/designations', async (req, reply) => {
+    try {
+      const b = (req.body ?? {}) as { name?: unknown };
+      return reply.send(
+        ok(
+          await createDesignation(req.ctx, { name: String(b.name ?? '').slice(0, 80) }),
+          req.ctx.requestId,
+        ),
+      );
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
   app.get('/api/v1/org', async (req, reply) => {
     try {
       await authorizeAction(req.ctx, 'org.structure.read', null);
@@ -1457,8 +1682,12 @@ export async function registerRoutes(app: FastifyInstance) {
       const teams = await req.ctx.sqlite
         .prepare(`SELECT * FROM team WHERE archived_at IS NULL`)
         .all();
-      const jobTitles = await req.ctx.sqlite.prepare(`SELECT * FROM job_title`).all();
-      const employmentTypes = await req.ctx.sqlite.prepare(`SELECT * FROM employment_type`).all();
+      const jobTitles = await req.ctx.sqlite
+        .prepare(`SELECT * FROM job_title WHERE archived_at IS NULL ORDER BY name`)
+        .all();
+      const employmentTypes = await req.ctx.sqlite
+        .prepare(`SELECT * FROM employment_type ORDER BY name`)
+        .all();
       const company = await req.ctx.sqlite
         .prepare(`SELECT * FROM company WHERE id = 'company'`)
         .get();
@@ -1566,12 +1795,12 @@ export async function registerRoutes(app: FastifyInstance) {
     try {
       requirePrincipal(req.ctx);
       const sample = previewLeaveEmail({
-        to: 'hr@example.invalid',
-        requesterName: 'Amina Example',
+        to: 'anitha@sns.test',
+        requesterName: 'Vijay Anand',
         leaveType: 'Casual leave',
         dates: '12 Mar 2026 – 13 Mar 2026',
         workingDays: '2',
-        link: `${req.ctx.config.publicUrl}/requests/preview`,
+        link: `${req.ctx.config.publicUrl}/approvals/preview`,
       });
       return reply.send(ok(sample, req.ctx.requestId));
     } catch (err) {
@@ -1742,7 +1971,7 @@ export async function registerRoutes(app: FastifyInstance) {
       await authorizeAction(req.ctx, 'import.run', null);
       const csv = [
         'employee_code,first_name,last_name,work_email,joined_on,department_code,manager_code',
-        'E-2001,Sam,Example,sam@example.invalid,2024-03-01,GEN,',
+        'SNS-2001,Meena,Pillai,meena@sns.test,2024-03-01,PRD,',
       ].join('\n');
       return reply.header('content-type', 'text/csv').send(csv);
     } catch (err) {

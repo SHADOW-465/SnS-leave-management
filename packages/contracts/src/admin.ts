@@ -10,11 +10,14 @@ export const setApproverBodySchema = z
   })
   .strict();
 
-export const setOverrideBodySchema = z
+export const assignManagerBodySchema = z
   .object({
-    /** Null removes the override and the person follows their team and department again. */
-    approverEmployeeId: ulid.nullable(),
-    note,
+    employeeIds: z.array(ulid).min(1).max(500),
+    /** Null clears it: their leave then goes to their team lead or department head. */
+    managerEmployeeId: ulid.nullable(),
+    /** Defaults to today. Earlier dates keep the history accurate. */
+    effectiveFrom: isoDate.nullable().optional(),
+    reason: note,
   })
   .strict();
 
@@ -55,6 +58,20 @@ export const setAllowanceBodySchema = z
   })
   .strict();
 
+export const createLoginBodySchema = z
+  .object({
+    employeeId: ulid,
+    email: z.string().trim().email().max(254).nullable().optional(),
+    roles: z
+      .array(z.enum(['employee', 'manager', 'hr_officer', 'payroll_officer', 'admin', 'auditor']))
+      .max(6),
+  })
+  .strict();
+
+export const workWeekBodySchema = z
+  .object({ weekendDays: z.array(z.number().int().min(0).max(6)).max(3) })
+  .strict();
+
 export const bulkHolidayBodySchema = z
   .object({
     dates: z.array(isoDate).min(1).max(400),
@@ -70,6 +87,15 @@ export const importHolidayRowSchema = z
     date: isoDate,
     name: z.string().trim().min(2).max(120),
     kind: z.enum(['public', 'optional', 'declared_working']).default('public'),
+  })
+  .strict();
+
+export const holidayFileBodySchema = z
+  .object({
+    filename: z.string().trim().min(1).max(200),
+    /** The file itself, base64-encoded. Spreadsheets of holidays are tiny. */
+    contentBase64: z.string().min(4).max(3_000_000),
+    calendarId: ulid.optional(),
   })
   .strict();
 

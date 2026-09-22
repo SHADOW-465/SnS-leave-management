@@ -38,7 +38,9 @@ export {
 export {
   DEFAULT_POLICY,
   defaultRulesForCode,
+  parseRules,
   validatePolicyAgainstRequest,
+  type JoinMonthAccrual,
   type LeavePolicyRules,
 } from './leave/policy.js';
 export { leaveRangesOverlap, type LeaveRange } from './leave/overlap.js';
@@ -57,7 +59,9 @@ export {
 export { periodBounds, type LeaveYearBoundary } from './leave/period.js';
 export {
   capAccrual,
+  monthCreditHalfDays,
   monthlyAccrualHalfDays,
+  monthlyRateHalfDays,
   prorateJoinerHalfDays,
   shouldAccrue,
 } from './leave/accrual.js';

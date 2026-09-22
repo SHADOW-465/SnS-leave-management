@@ -1,5 +1,6 @@
 import { loadConfig, loadDotEnv, pathsFor } from '@sns/config';
 import { openDatabaseFromEnv } from '@sns/database';
+import { DEMO_ADMIN, DEMO_PASSWORD } from './usecases/demo.js';
 import { completeSetup, setupStatus } from './usecases/setup.js';
 import type { RequestContext } from './ctx.js';
 import { nowIso, todayInTimeZone } from './time.js';
@@ -27,15 +28,18 @@ if ((await setupStatus(ctx)).needsSetup) {
     timezone: 'Asia/Kolkata',
     leaveYearStartMonth: 1,
     leaveYearStartDay: 1,
-    adminName: 'Ada Example',
-    adminEmail: 'admin@example.invalid',
-    adminPassword: 'ChangeMe_admin_1',
+    adminName: DEMO_ADMIN.name,
+    adminEmail: DEMO_ADMIN.email,
+    adminPassword: DEMO_ADMIN.password,
     loadSampleData: true,
+    sampleActivity: true,
   });
   console.warn('Seeded first-run data.');
-  console.warn('  Administrator : admin@example.invalid / ChangeMe_admin_1');
-  console.warn('  Sample people : amina | ravi | sofia | helen | paul | nora @example.invalid');
-  console.warn('  Their password: ChangeMe_demo_1');
+  console.warn(`  Administrator : ${DEMO_ADMIN.email} / ${DEMO_ADMIN.password}`);
+  console.warn(
+    '  Sample people : vijay, john, david, anitha, ramesh … @sns.test (or their SNS-10xx ID)',
+  );
+  console.warn(`  Their password: ${DEMO_PASSWORD}`);
   console.warn('All of these are also listed on the sign-in screen in development.');
 } else {
   console.warn('Already bootstrapped; not seeding.');

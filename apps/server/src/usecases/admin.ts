@@ -6,6 +6,7 @@
  * and `user.session.revoke` for accounts. HR keeps day-to-day people and structure work;
  * deciding the approval hierarchy is the administrator's.
  */
+import { generateTemporaryPassword, hashPassword } from '@sns/auth';
 import { withTx } from '@sns/database';
 import {
   DomainError,
@@ -29,6 +30,9 @@ type EmployeeRow = {
   department_id: string;
   department_name: string;
   user_id: string | null;
+  manager_id: string | null;
+  joined_on: string;
+  job_title: string | null;
 };
 
 async function activeEmployee(
@@ -86,29 +90,28 @@ export async function approvalMap(ctx: RequestContext) {
   const people = (await ctx.sqlite
     .prepare(
       `SELECT e.id, e.first_name, e.last_name, e.employee_code, e.status, e.team_id,
-              t.name AS team_name, e.department_id, d.name AS department_name, ua.id AS user_id
+              t.name AS team_name, e.department_id, d.name AS department_name, ua.id AS user_id,
+              e.manager_employee_id AS manager_id, e.joined_on, j.name AS job_title
          FROM employee e
          JOIN department d ON d.id = e.department_id
          LEFT JOIN team t ON t.id = e.team_id
+         LEFT JOIN job_title j ON j.id = e.job_title_id
          LEFT JOIN user_account ua ON ua.employee_id = e.id
         WHERE e.status != 'exited'
         ORDER BY d.name, t.name, e.first_name, e.last_name`,
     )
     .all()) as EmployeeRow[];
 
-  const overrides = (await ctx.sqlite
-    .prepare(
-      `SELECT o.employee_id, o.approver_employee_id, o.note,
-              a.first_name || ' ' || a.last_name AS approver_name
-         FROM approval_override o JOIN employee a ON a.id = o.approver_employee_id`,
-    )
-    .all()) as {
-    employee_id: string;
-    approver_employee_id: string;
-    note: string | null;
-    approver_name: string;
-  }[];
-  const overrideFor = new Map(overrides.map((o) => [o.employee_id, o]));
+  const since = new Map(
+    (
+      (await ctx.sqlite
+        .prepare(
+          `SELECT employee_id AS "employeeId", effective_from AS "effectiveFrom"
+             FROM employment_history WHERE effective_to IS NULL`,
+        )
+        .all()) as { employeeId: string; effectiveFrom: string }[]
+    ).map((r) => [r.employeeId, r.effectiveFrom]),
+  );
 
   const nameOf = new Map(people.map((p) => [p.id, `${p.first_name} ${p.last_name}`]));
 
@@ -123,11 +126,12 @@ export async function approvalMap(ctx: RequestContext) {
       departmentId: person.department_id,
       departmentName: person.department_name,
       hasAccount: Boolean(person.user_id),
-      override: overrideFor.get(person.id)
+      jobTitle: person.job_title,
+      reportingManager: person.manager_id
         ? {
-            approverEmployeeId: overrideFor.get(person.id)!.approver_employee_id,
-            approverName: overrideFor.get(person.id)!.approver_name,
-            note: overrideFor.get(person.id)!.note,
+            employeeId: person.manager_id,
+            name: nameOf.get(person.manager_id) ?? 'Former employee',
+            since: since.get(person.id) ?? person.joined_on,
           }
         : null,
     };
@@ -213,16 +217,34 @@ export async function approvalMap(ctx: RequestContext) {
   for (const r of rows.filter((x) => x.problem)) {
     warnings.push({ level: 'problem', text: `${r.name}: ${r.problem}` });
   }
-  for (const t of teams.filter((x) => !x.leadEmployeeId && Number(x.memberCount) > 0)) {
+  const unmanaged = rows.filter((r) => !r.reportingManager && r.position === 'Member');
+  if (unmanaged.length) {
     warnings.push({
       level: 'notice',
-      text: `${t.name} (${t.departmentName}) has no team lead, so its leave goes straight to the department head or HR.`,
+      text: `${unmanaged.length} ${unmanaged.length === 1 ? 'person has' : 'people have'} no reporting manager, so their leave goes to their team lead or department head instead.`,
     });
   }
-  for (const d of departments.filter((x) => !x.headEmployeeId && Number(x.memberCount) > 0)) {
+  // A missing lead or head only matters to people who fall back on it — those with no
+  // reporting manager. Everyone else's leave never reaches that rung.
+  for (const t of teams.filter((x) => !x.leadEmployeeId)) {
+    const affected = rows.filter((r) => r.teamId === t.id && !r.reportingManager);
+    if (!affected.length) continue;
     warnings.push({
       level: 'notice',
-      text: `${d.name} has no department head, so its team leads' leave goes to HR.`,
+      text: `${t.name} has no team lead, so ${affected.map((r) => r.name).join(', ')} — with no reporting manager — go straight to the department head or HR.`,
+    });
+  }
+  for (const d of departments.filter((x) => !x.headEmployeeId)) {
+    const affected = rows.filter(
+      (r) =>
+        r.departmentId === d.id &&
+        !r.reportingManager &&
+        !teams.find((t) => t.id === r.teamId)?.leadEmployeeId,
+    );
+    if (!affected.length) continue;
+    warnings.push({
+      level: 'notice',
+      text: `${d.name} has no department head, so ${affected.map((r) => r.name).join(', ')} — with no reporting manager or team lead — go to HR.`,
     });
   }
   const escalated = rows.filter((r) => r.route?.escalation);
@@ -344,57 +366,215 @@ export async function setDepartmentHead(
 }
 
 // ---------------------------------------------------------------------------------------
-// Overrides: "X's leave always goes to Y"
+// Reporting managers: who approves whose leave, with dated history
 // ---------------------------------------------------------------------------------------
 
-export async function setOverride(
+function dayBefore(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+}
+
+/**
+ * Assigns (or clears) someone's reporting manager from a date. The manager decides their
+ * leave from then on; requests already submitted stay with whoever they were sent to.
+ * Every change is kept in `employment_history`, so "who managed Vijay in March" has an
+ * answer.
+ */
+export async function changeReportingManager(
   ctx: RequestContext,
-  employeeId: string,
-  approverEmployeeId: string | null,
-  note: string | null,
-) {
+  input: {
+    employeeId: string;
+    managerEmployeeId: string | null;
+    effectiveFrom?: string | null;
+    reason?: string | null;
+  },
+): Promise<{ ok: true; changed: boolean; message: string }> {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'approval.routing.manage', null);
-  const person = await activeEmployee(ctx, employeeId, 'Employee');
-  const before = (await ctx.sqlite
-    .prepare(`SELECT approver_employee_id FROM approval_override WHERE employee_id = ?`)
-    .get(employeeId)) as { approver_employee_id: string } | undefined;
-
-  if (!approverEmployeeId) {
-    await withTx(ctx.sqlite, async () => {
-      await ctx.sqlite
-        .prepare(`DELETE FROM approval_override WHERE employee_id = ?`)
-        .run(employeeId);
-      await audit(ctx, 'approval.override.cleared', 'employee', employeeId, before ?? null, null);
-    });
-    return {
-      ok: true,
-      message: `${person.name}'s leave follows their team and department again.`,
-    };
+  const person = (await ctx.sqlite
+    .prepare(
+      `SELECT e.id, e.first_name || ' ' || e.last_name AS name, e.status, e.joined_on AS "joinedOn",
+              e.manager_employee_id AS "managerId", e.department_id AS "departmentId",
+              e.job_title_id AS "jobTitleId", e.employment_type_id AS "employmentTypeId"
+         FROM employee e WHERE e.id = ?`,
+    )
+    .get(input.employeeId)) as
+    | {
+        id: string;
+        name: string;
+        status: string;
+        joinedOn: string;
+        managerId: string | null;
+        departmentId: string;
+        jobTitleId: string | null;
+        employmentTypeId: string | null;
+      }
+    | undefined;
+  if (!person) throw new DomainError('NOT_FOUND', 'Employee not found.', { httpStatus: 404 });
+  const managerId = input.managerEmployeeId ?? null;
+  if (managerId === person.managerId) {
+    return { ok: true, changed: false, message: `${person.name}: no change.` };
   }
-
-  if (approverEmployeeId === employeeId) {
-    throw new DomainError('SELF_APPROVER', 'Nobody can approve their own leave.', {
-      httpStatus: 400,
-    });
+  if (managerId === person.id) {
+    throw new DomainError(
+      'SELF_APPROVER',
+      `${person.name} cannot be their own reporting manager.`,
+      {
+        httpStatus: 400,
+      },
+    );
   }
-  const approver = await requireSignInAccount(ctx, approverEmployeeId, 'The chosen approver');
+  let managerName: string | null = null;
+  if (managerId) {
+    managerName = (await requireSignInAccount(ctx, managerId, 'The reporting manager')).name;
+    // Walk up from the new manager: reaching this person again would be a loop.
+    let cursor: string | null = managerId;
+    for (let hops = 0; cursor && hops < 50; hops++) {
+      if (cursor === person.id) {
+        throw new DomainError(
+          'MANAGER_LOOP',
+          `${managerName} already reports to ${person.name}, directly or through others. Change that first.`,
+          { httpStatus: 409 },
+        );
+      }
+      const up = (await ctx.sqlite
+        .prepare(`SELECT manager_employee_id AS id FROM employee WHERE id = ?`)
+        .get(cursor)) as { id: string | null } | undefined;
+      cursor = up?.id ?? null;
+    }
+  }
+  const from = input.effectiveFrom || ctx.today;
+  if (from > ctx.today) {
+    throw new DomainError('FUTURE_DATE', 'Choose today or an earlier date.', { httpStatus: 400 });
+  }
+  const current = (await ctx.sqlite
+    .prepare(
+      `SELECT id, effective_from AS "effectiveFrom" FROM employment_history
+        WHERE employee_id = ? AND effective_to IS NULL`,
+    )
+    .get(person.id)) as { id: string; effectiveFrom: string } | undefined;
+  const floor = current?.effectiveFrom ?? person.joinedOn;
+  if (from < floor) {
+    throw new DomainError(
+      'DATE_TOO_EARLY',
+      current
+        ? `The previous change took effect on ${current.effectiveFrom}; choose that date or later.`
+        : `${person.name} joined on ${person.joinedOn}; choose that date or later.`,
+      { httpStatus: 400 },
+    );
+  }
+  const reason = input.reason ?? 'Reporting manager changed';
+  const insertRow = async (manager: string | null, start: string, end: string | null) =>
+    ctx.sqlite
+      .prepare(
+        `INSERT INTO employment_history (id, employee_id, job_title_id, employment_type_id, department_id, manager_employee_id, effective_from, effective_to, reason, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        newId(),
+        person.id,
+        person.jobTitleId,
+        person.employmentTypeId,
+        person.departmentId,
+        manager,
+        start,
+        end,
+        end ? 'Arrangement before the first recorded change' : reason,
+        ctx.now,
+        p.userId,
+      );
+
   await withTx(ctx.sqlite, async () => {
+    if (current && current.effectiveFrom === from) {
+      // A same-day correction replaces the open row rather than leaving a one-day stub.
+      await ctx.sqlite
+        .prepare(`UPDATE employment_history SET manager_employee_id = ?, reason = ? WHERE id = ?`)
+        .run(managerId, reason, current.id);
+    } else {
+      if (current) {
+        await ctx.sqlite
+          .prepare(`UPDATE employment_history SET effective_to = ? WHERE id = ?`)
+          .run(dayBefore(from), current.id);
+      } else if (from > person.joinedOn) {
+        // First recorded change: keep the arrangement that held until now.
+        await insertRow(person.managerId, person.joinedOn, dayBefore(from));
+      }
+      await insertRow(managerId, from, null);
+    }
     await ctx.sqlite
       .prepare(
-        `INSERT INTO approval_override (employee_id, approver_employee_id, note, created_at, created_by)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (employee_id)
-         DO UPDATE SET approver_employee_id = excluded.approver_employee_id, note = excluded.note,
-                       created_at = excluded.created_at, created_by = excluded.created_by`,
+        `UPDATE employee SET manager_employee_id = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?`,
       )
-      .run(employeeId, approverEmployeeId, note, ctx.now, p.userId);
-    await audit(ctx, 'approval.override.set', 'employee', employeeId, before ?? null, {
-      approverEmployeeId,
-      note,
-    });
+      .run(managerId, ctx.now, p.userId, person.id);
+    await audit(
+      ctx,
+      'employee.reporting_manager.changed',
+      'employee',
+      person.id,
+      { managerEmployeeId: person.managerId },
+      { managerEmployeeId: managerId, effectiveFrom: from, reason: input.reason ?? null },
+    );
   });
-  return { ok: true, message: `${person.name}'s leave now goes to ${approver.name}.` };
+  return {
+    ok: true,
+    changed: true,
+    message: managerName
+      ? `${person.name} now reports to ${managerName} (from ${from}).`
+      : `${person.name} has no reporting manager; their leave goes to their team lead or department head.`,
+  };
+}
+
+/** Assigns one manager to several people at once, reporting who could not be changed. */
+export async function assignReportingManager(
+  ctx: RequestContext,
+  input: {
+    employeeIds: string[];
+    managerEmployeeId: string | null;
+    effectiveFrom?: string | null;
+    reason?: string | null;
+  },
+) {
+  requirePrincipal(ctx);
+  await authorizeAction(ctx, 'approval.routing.manage', null);
+  let changed = 0;
+  const failed: { employeeId: string; reason: string }[] = [];
+  for (const employeeId of [...new Set(input.employeeIds)]) {
+    try {
+      const r = await changeReportingManager(ctx, { ...input, employeeId });
+      if (r.changed) changed += 1;
+    } catch (err) {
+      failed.push({ employeeId, reason: err instanceof Error ? err.message : 'Could not change' });
+    }
+  }
+  return {
+    changed,
+    failed,
+    message:
+      `${changed} ${changed === 1 ? 'person' : 'people'} updated.` +
+      (failed.length ? ` ${failed.length} could not be changed.` : ''),
+  };
+}
+
+/** Who managed this person, and when. Newest first. */
+export async function reportingManagerHistory(ctx: RequestContext, employeeId: string) {
+  requirePrincipal(ctx);
+  await authorizeAction(ctx, 'employee.read', employeeId);
+  return (await ctx.sqlite
+    .prepare(
+      `SELECT h.effective_from AS "effectiveFrom", h.effective_to AS "effectiveTo", h.reason,
+              h.manager_employee_id AS "managerEmployeeId",
+              m.first_name || ' ' || m.last_name AS "managerName"
+         FROM employment_history h LEFT JOIN employee m ON m.id = h.manager_employee_id
+        WHERE h.employee_id = ?
+        ORDER BY h.effective_from DESC`,
+    )
+    .all(employeeId)) as {
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    reason: string | null;
+    managerEmployeeId: string | null;
+    managerName: string | null;
+  }[];
 }
 
 // ---------------------------------------------------------------------------------------
@@ -598,7 +778,7 @@ export async function listUsers(ctx: RequestContext) {
     .prepare(
       `SELECT ua.id, ua.email, ua.is_disabled AS "isDisabled", ua.last_login_at AS "lastLoginAt",
               ua.must_change_password AS "mustChangePassword",
-              e.id AS "employeeId", e.first_name || ' ' || e.last_name AS name, e.status,
+              e.id AS "employeeId", e.employee_code AS "employeeCode", e.first_name || ' ' || e.last_name AS name, e.status,
               d.name AS "departmentName", t.name AS "teamName",
               (SELECT COUNT(*) FROM session s WHERE s.user_account_id = ua.id
                   AND s.revoked_at IS NULL AND s.expires_at > ?) AS "activeSessions",
@@ -621,6 +801,7 @@ export async function listUsers(ctx: RequestContext) {
     lastLoginAt: string | null;
     mustChangePassword: number;
     employeeId: string | null;
+    employeeCode: string | null;
     name: string | null;
     status: string | null;
     departmentName: string | null;
@@ -647,6 +828,24 @@ export async function listUsers(ctx: RequestContext) {
       roles: rolesFor.get(u.id) ?? [],
     })),
     roles: ROLE_CODES.map((code) => ({ code, ...ROLE_INFO[code] })),
+    // Employees who cannot sign in yet — the admin creates their login from here.
+    withoutAccount: (await ctx.sqlite
+      .prepare(
+        `SELECT e.id AS "employeeId", e.employee_code AS code,
+                e.first_name || ' ' || e.last_name AS name, e.work_email AS email,
+                d.name AS "departmentName"
+           FROM employee e JOIN department d ON d.id = e.department_id
+          WHERE e.status != 'exited'
+            AND NOT EXISTS (SELECT 1 FROM user_account ua WHERE ua.employee_id = e.id)
+          ORDER BY e.first_name, e.last_name`,
+      )
+      .all()) as {
+      employeeId: string;
+      code: string;
+      name: string;
+      email: string;
+      departmentName: string;
+    }[],
   };
 }
 
@@ -874,5 +1073,83 @@ export async function releaseWorkstations(ctx: RequestContext, userId: string) {
   return {
     ok: true,
     message: `${user.email} can now sign in on a different computer. The next one they use becomes theirs.`,
+  };
+}
+
+// ---------------------------------------------------------------------------------------
+// Sign-in accounts
+// ---------------------------------------------------------------------------------------
+
+/**
+ * Creates a sign-in for an employee who has none. The temporary password is returned once
+ * and must be changed at first sign-in. They can sign in with the email or their employee ID.
+ */
+export async function createLogin(
+  ctx: RequestContext,
+  input: { employeeId: string; email?: string | null; roles: RoleCode[] },
+) {
+  const p = requirePrincipal(ctx);
+  await authorizeAction(ctx, 'user.account.create', null);
+  if (input.roles.length) await authorizeAction(ctx, 'role.assign', null);
+  const emp = (await ctx.sqlite
+    .prepare(
+      `SELECT e.id, e.employee_code AS code, e.first_name || ' ' || e.last_name AS name,
+              e.work_email AS email, e.status
+         FROM employee e WHERE e.id = ?`,
+    )
+    .get(input.employeeId)) as
+    { id: string; code: string; name: string; email: string; status: string } | undefined;
+  if (!emp) throw new DomainError('NOT_FOUND', 'Employee not found.', { httpStatus: 404 });
+  if (emp.status === 'exited') {
+    throw new DomainError('INACTIVE', `${emp.name} has left the company.`, { httpStatus: 409 });
+  }
+  const existing = await ctx.sqlite
+    .prepare(`SELECT id FROM user_account WHERE employee_id = ?`)
+    .get(emp.id);
+  if (existing) {
+    throw new DomainError('HAS_ACCOUNT', `${emp.name} already has a sign-in.`, { httpStatus: 409 });
+  }
+  const email = (input.email || emp.email).trim().toLowerCase();
+  const taken = await ctx.sqlite
+    .prepare(`SELECT id FROM user_account WHERE LOWER(email) = ?`)
+    .get(email);
+  if (taken) {
+    throw new DomainError('DUPLICATE', `${email} is already used by another sign-in.`, {
+      httpStatus: 409,
+    });
+  }
+  const roles: RoleCode[] = input.roles.length ? [...new Set(input.roles)] : ['employee'];
+  const temp = generateTemporaryPassword();
+  const hash = await hashPassword(temp);
+  const userId = newId();
+  await withTx(ctx.sqlite, async () => {
+    await ctx.sqlite
+      .prepare(
+        `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
+         VALUES (?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
+      )
+      .run(userId, emp.id, email, hash, ctx.now, p.userId, ctx.now, p.userId);
+    for (const code of roles) {
+      const role = (await ctx.sqlite.prepare(`SELECT id FROM role WHERE code = ?`).get(code)) as
+        { id: string } | undefined;
+      if (!role) continue;
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)`,
+        )
+        .run(userId, role.id, p.userId, ctx.now);
+    }
+    await audit(ctx, 'user.account.created', 'user_account', userId, null, {
+      employeeId: emp.id,
+      email,
+      roles,
+    });
+  });
+  return {
+    userId,
+    email,
+    employeeCode: emp.code,
+    temporaryPassword: temp,
+    message: `${emp.name} can now sign in with ${email} or ${emp.code}. Give them the temporary password; they will choose their own at first sign-in.`,
   };
 }

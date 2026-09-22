@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { EmptyState, ErrorState, Skeleton, StatusPill } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
-import { daysLabel, formatRange, initials } from '../format.js';
+import { dayCount, daysLabel, formatRange, initials } from '../format.js';
 
 type HomeBalance = {
   id: string;
@@ -35,6 +35,7 @@ type HomeData = {
     code: string;
     department: string;
     manager: string | null;
+    leaveGoesTo: string;
     year: string;
   } | null;
   period: { label: string } | null;
@@ -107,7 +108,13 @@ function EmpHome({ me }: { me: Me }) {
             </div>
             <div>
               <dt>Reporting manager</dt>
-              <dd>{data.employee.manager ?? '—'}</dd>
+              <dd>
+                {data.employee.manager ?? 'Not assigned'}
+                {!data.employee.manager ||
+                !data.employee.leaveGoesTo.startsWith(data.employee.manager) ? (
+                  <span className="emp-route">Your leave goes to {data.employee.leaveGoesTo}</span>
+                ) : null}
+              </dd>
             </div>
             <div>
               <dt>Leave year</dt>
@@ -140,7 +147,7 @@ function EmpHome({ me }: { me: Me }) {
                       {r.employee_name ?? 'Employee'} · {r.type_name}
                     </strong>
                     <span className="note">
-                      {formatRange(r.start_date, r.end_date)} · {daysLabel(r.total_half_days)} days
+                      {formatRange(r.start_date, r.end_date)} · {dayCount(r.total_half_days)}
                     </span>
                     <StatusPill status={r.status} />
                   </Link>
@@ -268,8 +275,7 @@ function EmpHome({ me }: { me: Me }) {
                     <Link to={`/requests/${r.id}`}>
                       <strong>{r.type_name}</strong>
                       <span className="note">
-                        {formatRange(r.start_date, r.end_date)} · {daysLabel(r.total_half_days)}{' '}
-                        days
+                        {formatRange(r.start_date, r.end_date)} · {dayCount(r.total_half_days)}
                       </span>
                     </Link>
                   </li>
@@ -391,8 +397,7 @@ function AdminHome() {
                         {r.employee_name} · {r.type_name}
                       </strong>
                       <span className="note" style={{ display: 'block', margin: 0 }}>
-                        {formatRange(r.start_date, r.end_date)} · {daysLabel(r.total_half_days)}{' '}
-                        days
+                        {formatRange(r.start_date, r.end_date)} · {dayCount(r.total_half_days)}
                       </span>
                     </span>
                     <StatusPill status={r.status} />

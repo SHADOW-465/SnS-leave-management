@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Paperclip, X } from 'lucide-react';
-import { Button, EmptyState, ErrorState, Skeleton, StatusPill } from '@sns/ui';
-import { api, type Me } from '../api.js';
+import { Button, EmptyState, ErrorState, Select, Skeleton, StatusPill } from '@sns/ui';
+import { api, ApiError, can, type Me } from '../api.js';
 import {
+  dayCount,
   daysLabel,
   formatDate,
   formatDateTime,
@@ -97,7 +98,7 @@ type DetailData = Row & {
   leave_history?: LeaveHistory | null;
 };
 
-export function QueuePage({ me: _me }: { me: Me }) {
+export function QueuePage({ me }: { me: Me }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [status, setStatus] = useState('all');
@@ -445,9 +446,7 @@ export function QueuePage({ me: _me }: { me: Me }) {
                       <dd>{formatRange(detail.data.start_date, detail.data.end_date)}</dd>
 
                       <dt>Working Days</dt>
-                      <dd className="mono">
-                        {daysLabel(detail.data.total_half_days)} days counted
-                      </dd>
+                      <dd className="mono">{dayCount(detail.data.total_half_days)} counted</dd>
 
                       <dt>Filed on</dt>
                       <dd>{formatDateTime(detail.data.submitted_at || detail.data.created_at)}</dd>
@@ -767,6 +766,10 @@ export function QueuePage({ me: _me }: { me: Me }) {
                   </div>
                 </div>
 
+                {detail.data.status === 'pending_approval' && can(me, 'approval.routing.manage') ? (
+                  <ReassignBox requestId={detail.data.id} />
+                ) : null}
+
                 <div className="drawer-actions">
                   {canDecideDetail && detail.data.status === 'pending_approval' ? (
                     <>
@@ -849,6 +852,60 @@ export function QueuePage({ me: _me }: { me: Me }) {
             </div>
           </div>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Administrator only: send a request that is stuck — the approver is away or has left —
+ * to someone else. The new approver is notified; the change is on the request's trail.
+ */
+function ReassignBox({ requestId }: { requestId: string }) {
+  const qc = useQueryClient();
+  const [to, setTo] = useState('');
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const people = useQuery({
+    queryKey: ['approval-candidates'],
+    queryFn: () =>
+      api<{ candidates: { id: string; name: string }[] }>('/api/v1/admin/approval-map'),
+  });
+  async function send() {
+    setMsg(null);
+    try {
+      const r = await api<{ message?: string }>(`/api/v1/leave-requests/${requestId}/reassign`, {
+        method: 'POST',
+        body: JSON.stringify({ approverEmployeeId: to }),
+      });
+      setMsg({ ok: true, text: r?.message ?? 'Sent to the new approver.' });
+      setTo('');
+      await qc.invalidateQueries();
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof ApiError ? err.message : 'Could not reassign.' });
+    }
+  }
+  return (
+    <div className="reassign-box">
+      <p className="kicker" style={{ margin: 0 }}>
+        Stuck? Send it to someone else
+      </p>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Select
+          size="sm"
+          aria-label="New approver"
+          placeholder="Choose an approver"
+          value={to}
+          onChange={setTo}
+          options={(people.data?.candidates ?? []).map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <Button size="sm" disabled={!to} onClick={() => void send()}>
+          Reassign
+        </Button>
+      </div>
+      {msg ? (
+        <p role="status" className={msg.ok ? 'form-ok' : 'form-error'} style={{ margin: 0 }}>
+          {msg.text}
+        </p>
       ) : null}
     </div>
   );

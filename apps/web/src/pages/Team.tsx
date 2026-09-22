@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import { initials } from '../format.js';
 import { Users, UserCheck, CalendarDays, Clock } from 'lucide-react';
 
-export function TeamPage() {
+export function TeamPage({ weekendDays = [0, 6] }: { weekendDays?: number[] }) {
   const from = new Date().toISOString().slice(0, 10);
   const q = useQuery({
     queryKey: ['avail', from],
@@ -26,7 +26,7 @@ export function TeamPage() {
       const dateObj = new Date(d + 'T00:00:00Z');
       const dow = dateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
       const dayNum = dateObj.getUTCDay();
-      const isWeekend = dayNum === 0 || dayNum === 6;
+      const isWeekend = weekendDays.includes(dayNum);
       const isToday = d === from;
       return {
         iso: d,
@@ -36,7 +36,7 @@ export function TeamPage() {
         isToday,
       };
     });
-  }, [q.data?.dates, from]);
+  }, [q.data?.dates, from, weekendDays]);
 
   const stats = useMemo(() => {
     if (!q.data?.rows || !parsedDates.length) {

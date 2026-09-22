@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -62,6 +63,8 @@ export async function migrate(db: Db): Promise<void> {
     { id: '0003_team_lead_approver' },
     { id: '0004_workstation_device_binding' },
     { id: '0005_approval_controls' },
+    { id: '0006_reporting_manager' },
+    { id: '0007_fix_double_opening_grant' },
   ];
   for (const m of files) {
     if (applied.has(m.id)) continue;
@@ -111,11 +114,23 @@ export async function openDatabaseFromEnv(opts: {
 /** Serialises BEGIN/COMMIT on the single preview Postgres connection (Fluid concurrent requests). */
 let pgTxGate: Promise<void> = Promise.resolve();
 
+/** Which databases the current async call chain already holds a transaction on. */
+const openTx = new AsyncLocalStorage<Set<Db>>();
+
+/**
+ * Runs `fn` in a transaction. A call made from inside another `withTx` on the same database
+ * — in the same call chain — joins the outer transaction instead of starting a second one,
+ * which SQLite rejects and which would deadlock on the Postgres gate below. Concurrent
+ * requests are separate call chains, so they still queue as before.
+ */
 export async function withTx<T>(db: Db, fn: () => Promise<T> | T): Promise<T> {
+  const held = openTx.getStore();
+  if (held?.has(db)) return fn();
+  const inner = () => openTx.run(new Set([...(held ?? []), db]), fn);
   const run = async (): Promise<T> => {
     await db.exec(db.dialect === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
     try {
-      const result = await fn();
+      const result = await inner();
       await db.exec('COMMIT');
       return result;
     } catch (err) {

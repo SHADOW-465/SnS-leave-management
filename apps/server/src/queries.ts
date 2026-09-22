@@ -1,6 +1,11 @@
-import { formatHalfDays } from '@sns/domain';
+import { DomainError, formatHalfDays, monthlyRateHalfDays } from '@sns/domain';
 import { authorizeAction, graphFor, requirePrincipal, type RequestContext } from './ctx.js';
-import { availableHalfDays, currentPolicy, holidaysForEmployee } from './usecases/leave.js';
+import {
+  availableHalfDays,
+  currentPolicy,
+  describeRouteFor,
+  holidaysForEmployee,
+} from './usecases/leave.js';
 import { currentPeriodId } from './usecases/setup.js';
 export async function dashboard(ctx: RequestContext) {
   requirePrincipal(ctx);
@@ -143,6 +148,16 @@ export async function myHome(ctx: RequestContext) {
     .prepare(`SELECT id, label, starts_on, ends_on FROM leave_period WHERE id = ?`)
     .get(periodId)) as
     { id: string; label: string; starts_on: string; ends_on: string } | undefined;
+  const who = (await ctx.sqlite
+    .prepare(
+      `SELECT et.code AS "categoryCode", e.status, e.probation_end_on AS "probationEndOn"
+         FROM employee e LEFT JOIN employment_type et ON et.id = e.employment_type_id
+        WHERE e.id = ?`,
+    )
+    .get(p.employeeId)) as
+    { categoryCode: string | null; status: string; probationEndOn: string | null } | undefined;
+  const onProbation =
+    who?.status === 'probation' || Boolean(who?.probationEndOn && who.probationEndOn > ctx.today);
   const balances = [];
   for (const t of types) {
     let rules;
@@ -190,7 +205,18 @@ export async function myHome(ctx: RequestContext) {
       code: t.code,
       left: formatHalfDays(displayAvailable),
       total: formatHalfDays(granted.n),
-      eligibility: formatHalfDays(rules.entitlementHalfDays),
+      // A monthly type's year is twelve of this person's months (their staff category or
+      // probation rate); a granted type's is what they were granted.
+      eligibility: formatHalfDays(
+        rules.accrualMethod === 'monthly'
+          ? monthlyRateHalfDays(rules, {
+              categoryCode: who?.categoryCode ?? null,
+              onProbation,
+            }) * 12
+          : granted.n > 0
+            ? granted.n
+            : rules.entitlementHalfDays,
+      ),
       taken: formatHalfDays(used.n),
       pending: formatHalfDays(pending.n),
       earnedHalfDays: granted.n,
@@ -249,6 +275,9 @@ export async function myHome(ctx: RequestContext) {
       code: emp.employee_code,
       department: emp.department_name,
       manager: emp.manager_name,
+      // Who decides their leave today — the manager, or whoever stands in when the
+      // manager is away or not set. The same code routes real requests.
+      leaveGoesTo: await describeRouteFor(ctx, p.employeeId, p.userId),
       year: period?.label ?? ctx.today.slice(0, 4),
     },
     period: period
@@ -611,13 +640,145 @@ export async function requestDetail(ctx: RequestContext, id: string) {
 
   return { ...r, trail, days, canAct, leave_history };
 }
-export async function ledger(ctx: RequestContext, employeeId: string, leaveTypeId: string) {
+const ENTRY_LABEL: Record<string, string> = {
+  OPENING: 'Opening balance',
+  MIGRATION_OPENING: 'Opening balance (imported)',
+  ACCRUAL: 'Monthly credit',
+  ENTITLEMENT_GRANT: 'Yearly entitlement',
+  CARRY_FORWARD: 'Carried forward',
+  DEDUCTION: 'Leave taken',
+  CANCELLATION_CREDIT: 'Leave cancelled — days returned',
+  ENCASHMENT: 'Encashed',
+  EXPIRY: 'Expired',
+};
+
+/**
+ * Every movement on someone's leave balance for a leave year, oldest first, with the
+ * balance after each one — the "leave transactions" register. Holds for requests still
+ * awaiting a decision are left out: the balance only moves once a request is approved.
+ */
+export async function leaveTransactions(
+  ctx: RequestContext,
+  opts: { employeeId?: string; leaveTypeId?: string; periodId?: string },
+) {
+  const p = requirePrincipal(ctx);
+  const employeeId = opts.employeeId || p.employeeId;
+  if (!employeeId) {
+    throw new DomainError('NO_EMPLOYEE', 'Choose an employee.', { httpStatus: 400 });
+  }
   await authorizeAction(ctx, 'leave.balance.read', employeeId);
-  return await ctx.sqlite
+  const periods = (await ctx.sqlite
     .prepare(
-      `SELECT * FROM balance_ledger WHERE employee_id = ? AND leave_type_id = ? ORDER BY created_at`,
+      `SELECT id, label, starts_on AS "startsOn", ends_on AS "endsOn" FROM leave_period ORDER BY starts_on DESC`,
     )
-    .all(employeeId, leaveTypeId);
+    .all()) as { id: string; label: string; startsOn: string; endsOn: string }[];
+  const periodId = opts.periodId || (await currentPeriodId(ctx));
+  const employee = (await ctx.sqlite
+    .prepare(
+      `SELECT e.id, e.employee_code AS code, e.first_name || ' ' || e.last_name AS name,
+              d.name AS department
+         FROM employee e JOIN department d ON d.id = e.department_id WHERE e.id = ?`,
+    )
+    .get(employeeId)) as { id: string; code: string; name: string; department: string } | undefined;
+  if (!employee) throw new DomainError('NOT_FOUND', 'Employee not found.', { httpStatus: 404 });
+  const rows = (await ctx.sqlite
+    .prepare(
+      `SELECT l.id, l.leave_type_id AS "leaveTypeId", t.name AS "leaveType", l.entry_type AS "entryType",
+              l.quantity_half_days AS q, l.effective_on AS "effectiveOn", l.created_at AS "createdAt",
+              l.source_type AS "sourceType", l.source_id AS "sourceId", l.reason,
+              r.start_date AS "reqStart", r.end_date AS "reqEnd",
+              COALESCE(ue.first_name || ' ' || ue.last_name, ua.email, l.created_by) AS "by"
+         FROM balance_ledger l
+         JOIN leave_type t ON t.id = l.leave_type_id
+         LEFT JOIN leave_request r ON r.id = l.source_id AND l.source_type = 'leave_request'
+         LEFT JOIN user_account ua ON ua.id = l.created_by
+         LEFT JOIN employee ue ON ue.id = ua.employee_id
+        WHERE l.employee_id = ? AND l.period_id = ?
+          AND l.entry_type NOT IN ('PENDING_HOLD', 'HOLD_RELEASE')
+          ${opts.leaveTypeId ? 'AND l.leave_type_id = ?' : ''}
+        ORDER BY l.effective_on, l.created_at`,
+    )
+    .all(...[employeeId, periodId, ...(opts.leaveTypeId ? [opts.leaveTypeId] : [])])) as {
+    id: string;
+    leaveTypeId: string;
+    leaveType: string;
+    entryType: string;
+    q: number;
+    effectiveOn: string;
+    createdAt: string;
+    sourceType: string | null;
+    sourceId: string | null;
+    reason: string | null;
+    reqStart: string | null;
+    reqEnd: string | null;
+    by: string | null;
+  }[];
+  const running = new Map<string, number>();
+  const entries = rows.map((r) => {
+    const q = Number(r.q);
+    const after = (running.get(r.leaveTypeId) ?? 0) + q;
+    running.set(r.leaveTypeId, after);
+    const label =
+      r.entryType === 'ADJUSTMENT'
+        ? r.sourceType === 'leave_request'
+          ? 'Recounted after a calendar change'
+          : q >= 0
+            ? 'Manual credit'
+            : 'Manual deduction'
+        : (ENTRY_LABEL[r.entryType] ?? r.entryType);
+    return {
+      id: r.id,
+      date: r.effectiveOn,
+      recordedAt: r.createdAt,
+      leaveTypeId: r.leaveTypeId,
+      leaveType: r.leaveType,
+      kind: r.entryType,
+      label,
+      days: q / 2,
+      balanceAfter: after / 2,
+      reference: r.reqStart
+        ? r.reqStart === r.reqEnd
+          ? `Leave on ${r.reqStart}`
+          : `Leave ${r.reqStart} to ${r.reqEnd}`
+        : null,
+      requestId: r.sourceType === 'leave_request' ? r.sourceId : null,
+      reason: r.reason,
+      by: r.by === 'system' ? 'Automatic' : r.by,
+    };
+  });
+  const pending = (await ctx.sqlite
+    .prepare(
+      `SELECT l.leave_type_id AS "leaveTypeId", COALESCE(SUM(-l.quantity_half_days), 0) AS n
+         FROM balance_ledger l
+        WHERE l.employee_id = ? AND l.period_id = ? AND l.entry_type IN ('PENDING_HOLD', 'HOLD_RELEASE')
+        GROUP BY l.leave_type_id`,
+    )
+    .all(employeeId, periodId)) as { leaveTypeId: string; n: number }[];
+  const pendingBy = new Map(pending.map((x) => [x.leaveTypeId, Number(x.n) / 2]));
+  const summary = [...new Set(entries.map((e) => e.leaveTypeId))].map((id) => {
+    const mine = entries.filter((e) => e.leaveTypeId === id);
+    const sum = (kinds: string[]) =>
+      mine.filter((e) => kinds.includes(e.kind)).reduce((a, e) => a + e.days, 0);
+    const manual = mine.filter((e) => e.kind === 'ADJUSTMENT');
+    return {
+      leaveTypeId: id,
+      leaveType: mine[0]!.leaveType,
+      opening: sum(['OPENING', 'MIGRATION_OPENING', 'CARRY_FORWARD']),
+      earned: sum(['ACCRUAL', 'ENTITLEMENT_GRANT']),
+      manualCredit: manual.filter((e) => e.days > 0).reduce((a, e) => a + e.days, 0),
+      manualDeduction: -manual.filter((e) => e.days < 0).reduce((a, e) => a + e.days, 0),
+      used: -sum(['DEDUCTION', 'ENCASHMENT', 'EXPIRY']) - sum(['CANCELLATION_CREDIT']),
+      pending: pendingBy.get(id) ?? 0,
+      closing: (running.get(id) ?? 0) / 2,
+    };
+  });
+  return {
+    employee,
+    periods,
+    periodId,
+    entries: entries.reverse(),
+    summary,
+  };
 }
 export async function calendarMonth(ctx: RequestContext, year: number, month: number) {
   requirePrincipal(ctx);
@@ -1131,4 +1292,155 @@ export async function policies(ctx: RequestContext) {
        ORDER BY t.code, v.version_no DESC`,
     )
     .all();
+}
+
+/**
+ * The annual leave report: for one leave year and leave type, each person's opening
+ * balance, what they earned, manual changes, what they used (and in which month), what is
+ * still waiting for approval, and where they closed. Monthly use comes from the counted
+ * days themselves, so leave from 28 September to 3 October lands in both months.
+ */
+export async function annualReport(
+  ctx: RequestContext,
+  opts: { periodId?: string; leaveTypeId?: string },
+) {
+  requirePrincipal(ctx);
+  await authorizeAction(ctx, 'report.leave.view', null);
+  const periods = (await ctx.sqlite
+    .prepare(
+      `SELECT id, label, starts_on AS "startsOn", ends_on AS "endsOn" FROM leave_period ORDER BY starts_on DESC`,
+    )
+    .all()) as { id: string; label: string; startsOn: string; endsOn: string }[];
+  const periodId = opts.periodId || (await currentPeriodId(ctx));
+  const period = periods.find((x) => x.id === periodId);
+  if (!period) throw new DomainError('NOT_FOUND', 'Leave year not found.', { httpStatus: 404 });
+  const leaveTypes = (await ctx.sqlite
+    .prepare(`SELECT id, code, name FROM leave_type WHERE archived_at IS NULL ORDER BY name`)
+    .all()) as { id: string; code: string; name: string }[];
+  const leaveType =
+    leaveTypes.find((t) => t.id === opts.leaveTypeId) ??
+    leaveTypes.find((t) => t.code === 'EL') ??
+    leaveTypes[0];
+  if (!leaveType) {
+    return {
+      periods,
+      periodId,
+      leaveTypes,
+      leaveTypeId: null,
+      months: [],
+      rows: [],
+      label: period.label,
+    };
+  }
+  const months: { ym: string; label: string }[] = [];
+  for (let d = period.startsOn.slice(0, 7); d <= period.endsOn.slice(0, 7);) {
+    const [y, m] = d.split('-').map(Number) as [number, number];
+    months.push({
+      ym: d,
+      label: new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-GB', {
+        month: 'short',
+        timeZone: 'UTC',
+      }),
+    });
+    d = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+  }
+  const people = (await ctx.sqlite
+    .prepare(
+      `SELECT e.id, e.employee_code AS code, e.first_name || ' ' || e.last_name AS name,
+              d.name AS department
+         FROM employee e JOIN department d ON d.id = e.department_id
+        WHERE e.status != 'exited' OR e.exited_on >= ?
+        ORDER BY d.name, e.first_name, e.last_name`,
+    )
+    .all(period.startsOn)) as { id: string; code: string; name: string; department: string }[];
+  const ledgerRows = (await ctx.sqlite
+    .prepare(
+      `SELECT employee_id AS "employeeId", entry_type AS "entryType", COALESCE(SUM(quantity_half_days), 0) AS n
+         FROM balance_ledger WHERE period_id = ? AND leave_type_id = ?
+        GROUP BY employee_id, entry_type`,
+    )
+    .all(periodId, leaveType.id)) as { employeeId: string; entryType: string; n: number }[];
+  const used = (await ctx.sqlite
+    .prepare(
+      `SELECT r.employee_id AS "employeeId", SUBSTR(d.date, 1, 7) AS ym,
+              SUM(CASE WHEN d.portion = 'full' THEN 2 ELSE 1 END) AS n
+         FROM leave_request r JOIN leave_request_day d ON d.leave_request_id = r.id
+        WHERE r.leave_type_id = ? AND r.status = 'approved' AND d.is_counted = 1
+          AND d.date >= ? AND d.date <= ?
+        GROUP BY r.employee_id, SUBSTR(d.date, 1, 7)`,
+    )
+    .all(leaveType.id, period.startsOn, period.endsOn)) as {
+    employeeId: string;
+    ym: string;
+    n: number;
+  }[];
+  const sum = (id: string, kinds: string[]) =>
+    ledgerRows
+      .filter((r) => r.employeeId === id && kinds.includes(r.entryType))
+      .reduce((a, r) => a + Number(r.n), 0) / 2;
+  const rows = people.map((person) => {
+    const monthly = months.map(
+      (m) =>
+        used
+          .filter((u) => u.employeeId === person.id && u.ym === m.ym)
+          .reduce((a, u) => a + Number(u.n), 0) / 2,
+    );
+    const opening = sum(person.id, ['OPENING', 'MIGRATION_OPENING', 'CARRY_FORWARD']);
+    const earned = sum(person.id, ['ACCRUAL', 'ENTITLEMENT_GRANT']);
+    const adjusted = sum(person.id, ['ADJUSTMENT']);
+    const usedTotal = -sum(person.id, ['DEDUCTION', 'ENCASHMENT', 'EXPIRY', 'CANCELLATION_CREDIT']);
+    const pending = -sum(person.id, ['PENDING_HOLD', 'HOLD_RELEASE']);
+    return {
+      employeeId: person.id,
+      code: person.code,
+      name: person.name,
+      department: person.department,
+      opening,
+      earned,
+      adjusted,
+      used: usedTotal,
+      pending,
+      closing: opening + earned + adjusted - usedTotal,
+      monthly,
+    };
+  });
+  return {
+    periods,
+    periodId,
+    label: `${leaveType.name} — ${period.label}`,
+    leaveTypes,
+    leaveTypeId: leaveType.id,
+    months: months.map((m) => m.label),
+    rows,
+  };
+}
+
+/** The signed-in person's own record, as shown on their Profile page. */
+export async function myProfile(ctx: RequestContext) {
+  const p = requirePrincipal(ctx);
+  if (!p.employeeId) return { employee: null, email: p.email, roles: p.roles };
+  const e = (await ctx.sqlite
+    .prepare(
+      `SELECT e.id, e.employee_code AS code, e.first_name || ' ' || e.last_name AS name,
+              e.work_email AS "workEmail", e.joined_on AS "joinedOn", e.status,
+              e.probation_end_on AS "probationEndOn",
+              d.name AS department, t.name AS team, j.name AS designation,
+              et.name AS category, l.name AS location, c.phone,
+              m.first_name || ' ' || m.last_name AS "reportingManager"
+         FROM employee e
+         JOIN department d ON d.id = e.department_id
+         LEFT JOIN team t ON t.id = e.team_id
+         LEFT JOIN job_title j ON j.id = e.job_title_id
+         LEFT JOIN employment_type et ON et.id = e.employment_type_id
+         LEFT JOIN location l ON l.id = e.location_id
+         LEFT JOIN employee_contact c ON c.employee_id = e.id
+         LEFT JOIN employee m ON m.id = e.manager_employee_id
+        WHERE e.id = ?`,
+    )
+    .get(p.employeeId)) as Record<string, string | null>;
+  return {
+    employee: { ...e, leaveGoesTo: await describeRouteFor(ctx, p.employeeId, p.userId) },
+    email: p.email,
+    roles: p.roles,
+  };
 }

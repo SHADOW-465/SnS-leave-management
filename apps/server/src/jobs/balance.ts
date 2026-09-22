@@ -1,8 +1,11 @@
 import type { Db } from '@sns/database';
 import { withTx } from '@sns/database';
 import {
-  monthlyAccrualHalfDays,
+  capAccrual,
+  monthCreditHalfDays,
+  monthlyRateHalfDays,
   newId,
+  parseRules,
   periodBounds,
   planRollover,
   shouldAccrue,
@@ -44,10 +47,115 @@ async function policyFor(
     .get(leaveTypeId, onDate)) as { rules_json: string } | undefined;
   if (!row) return null;
   try {
-    return JSON.parse(row.rules_json) as LeavePolicyRules;
+    return parseRules(row.rules_json);
   } catch {
     return null;
   }
+}
+
+/**
+ * Credits one month of accrual to one person, exactly once. The amount follows the
+ * policy: their staff category's rate (or the probation rate), the joining-month rule,
+ * and the maximum-balance ceiling. Shared by the monthly job and by the catch-up a new
+ * joiner gets, so the two can never disagree.
+ */
+export async function creditMonth(
+  sqlite: Db,
+  input: {
+    employeeId: string;
+    leaveTypeId: string;
+    periodId: string;
+    month: string;
+    rules: LeavePolicyRules;
+    actor: string;
+    now: string;
+    effectiveOn: string;
+  },
+): Promise<number | null> {
+  const already = (await sqlite
+    .prepare(
+      `SELECT id FROM accrual_run WHERE employee_id = ? AND leave_type_id = ? AND accrual_month = ?`,
+    )
+    .get(input.employeeId, input.leaveTypeId, input.month)) as { id: string } | undefined;
+  if (already) return null;
+  const emp = (await sqlite
+    .prepare(
+      `SELECT e.joined_on AS "joinedOn", e.status, e.probation_end_on AS "probationEndOn",
+              et.code AS "categoryCode"
+         FROM employee e LEFT JOIN employment_type et ON et.id = e.employment_type_id
+        WHERE e.id = ?`,
+    )
+    .get(input.employeeId)) as
+    | {
+        joinedOn: string;
+        status: string;
+        probationEndOn: string | null;
+        categoryCode: string | null;
+      }
+    | undefined;
+  if (!emp) return null;
+  const monthEnd = `${input.month}-31`;
+  const onProbation =
+    emp.status === 'probation' ||
+    Boolean(emp.probationEndOn && emp.probationEndOn > `${input.month}-01`);
+  let quantity = monthCreditHalfDays({
+    rateHalfDays: monthlyRateHalfDays(input.rules, { categoryCode: emp.categoryCode, onProbation }),
+    joinMonthAccrual: input.rules.joinMonthAccrual,
+    joinedOn: emp.joinedOn,
+    monthIso: input.month,
+  });
+  if (emp.joinedOn > monthEnd) quantity = 0;
+  if (quantity > 0 && input.rules.maxBalanceHalfDays > 0) {
+    const bal = (await sqlite
+      .prepare(
+        `SELECT COALESCE(SUM(quantity_half_days), 0) AS n FROM balance_ledger
+          WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?`,
+      )
+      .get(input.employeeId, input.leaveTypeId, input.periodId)) as { n: number };
+    quantity = capAccrual(Number(bal.n), quantity, input.rules.maxBalanceHalfDays);
+  }
+  await withTx(sqlite, async () => {
+    if (quantity > 0) {
+      await sqlite
+        .prepare(
+          `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, reason, created_by, created_at)
+           VALUES (?, ?, ?, ?, 'ACCRUAL', ?, ?, 'job_run', ?, ?, ?)`,
+        )
+        .run(
+          newId(),
+          input.employeeId,
+          input.leaveTypeId,
+          input.periodId,
+          quantity,
+          input.effectiveOn,
+          `Monthly accrual for ${input.month}`,
+          input.actor,
+          input.now,
+        );
+    }
+    await sqlite
+      .prepare(
+        `INSERT INTO accrual_run (id, period_id, employee_id, leave_type_id, accrual_month, ran_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(newId(), input.periodId, input.employeeId, input.leaveTypeId, input.month, input.now);
+    await sqlite
+      .prepare(
+        `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, after_json, request_id, result)
+         VALUES (?, ?, NULL, 'system', 'leave.accrual.credited', 'employee', ?, ?, 'job', 'ok')`,
+      )
+      .run(
+        newId(),
+        input.now,
+        input.employeeId,
+        JSON.stringify({
+          month: input.month,
+          leaveTypeId: input.leaveTypeId,
+          quantityHalfDays: quantity,
+        }),
+      );
+  });
+  return quantity;
 }
 
 async function currentCompany(sqlite: Db): Promise<Company | undefined> {
@@ -259,51 +367,17 @@ export async function runMonthlyAccrual(sqlite: Db): Promise<{ credited: number 
       // Someone who has not joined yet accrues nothing.
       if (employee.joined_on > today) continue;
 
-      const already = (await sqlite
-        .prepare(
-          `SELECT id FROM accrual_run
-            WHERE employee_id = ? AND leave_type_id = ? AND accrual_month = ?`,
-        )
-        .get(employee.id, type.id, month)) as { id: string } | undefined;
-      if (already) continue;
-
-      const quantity = monthlyAccrualHalfDays(rules.entitlementHalfDays);
-      await withTx(sqlite, async () => {
-        if (quantity > 0) {
-          await sqlite
-            .prepare(
-              `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, reason, created_by, created_at)
-               VALUES (?, ?, ?, ?, 'ACCRUAL', ?, ?, 'job_run', ?, 'system', ?)`,
-            )
-            .run(
-              newId(),
-              employee.id,
-              type.id,
-              period.id,
-              quantity,
-              today,
-              `Monthly accrual for ${month}`,
-              now,
-            );
-        }
-        await sqlite
-          .prepare(
-            `INSERT INTO accrual_run (id, period_id, employee_id, leave_type_id, accrual_month, ran_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-          )
-          .run(newId(), period.id, employee.id, type.id, month, now);
-        await sqlite
-          .prepare(
-            `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, after_json, request_id, result)
-             VALUES (?, ?, NULL, 'system', 'leave.accrual.credited', 'employee', ?, ?, 'job', 'ok')`,
-          )
-          .run(
-            newId(),
-            now,
-            employee.id,
-            JSON.stringify({ month, leaveTypeId: type.id, quantityHalfDays: quantity }),
-          );
+      const credit = await creditMonth(sqlite, {
+        employeeId: employee.id,
+        leaveTypeId: type.id,
+        periodId: period.id,
+        month,
+        rules,
+        actor: 'system',
+        now,
+        effectiveOn: today,
       });
+      if (credit === null) continue;
       credited += 1;
     }
   }

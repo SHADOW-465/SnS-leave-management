@@ -1,5 +1,5 @@
 import { daysInMonth, monthIndex } from '../dates.js';
-import type { LeavePolicyRules } from './policy.js';
+import type { JoinMonthAccrual, LeavePolicyRules } from './policy.js';
 
 export function monthlyAccrualHalfDays(entitlementHalfDays: number): number {
   // Nearest half-day of entitlement/12.
@@ -43,4 +43,41 @@ export function capAccrual(
   const room = capHalfDays - currentHalfDays;
   if (room <= 0) return 0;
   return Math.min(grantHalfDays, room);
+}
+
+/**
+ * The monthly credit for one person: the probation rate while on probation (if one is
+ * set), else their staff category's rate (if one is set), else the standard rate.
+ */
+export function monthlyRateHalfDays(
+  rules: LeavePolicyRules,
+  who: { categoryCode: string | null; onProbation: boolean },
+): number {
+  if (who.onProbation && rules.probationMonthlyHalfDays != null) {
+    return rules.probationMonthlyHalfDays;
+  }
+  const byCategory = who.categoryCode
+    ? rules.categoryMonthlyHalfDays?.[who.categoryCode]
+    : undefined;
+  if (byCategory != null) return byCategory;
+  return monthlyAccrualHalfDays(rules.entitlementHalfDays);
+}
+
+/**
+ * What a month is worth to someone: the full rate, except in the month they join, where
+ * the policy decides between the full month, a pro-rated share, or nothing.
+ */
+export function monthCreditHalfDays(input: {
+  rateHalfDays: number;
+  joinMonthAccrual: JoinMonthAccrual;
+  joinedOn: string;
+  monthIso: string;
+}): number {
+  if (input.joinedOn.slice(0, 7) !== input.monthIso) return input.rateHalfDays;
+  if (input.joinMonthAccrual === 'none') return 0;
+  if (input.joinMonthAccrual === 'full') return input.rateHalfDays;
+  const joined = monthIndex(input.joinedOn);
+  const dim = daysInMonth(joined.year, joined.month);
+  const remaining = dim - Number(input.joinedOn.slice(8, 10)) + 1;
+  return Math.round((input.rateHalfDays * remaining) / dim);
 }

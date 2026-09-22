@@ -77,6 +77,8 @@ export type Me = {
   mustChangePassword: boolean;
   companyName: string;
   timezone: string;
+  /** 0 = Sunday … 6 = Saturday. */
+  weekendDays: number[];
   /** Leads a team, heads a department, covers for someone, or has an HR/admin override. */
   approvesLeave: boolean;
   /** Requests currently waiting for this person's decision. */

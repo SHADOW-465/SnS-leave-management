@@ -7,6 +7,9 @@ type DemoAccountItem = {
   email: string;
   name: string;
   roles: string;
+  title?: string | null;
+  code?: string | null;
+  department?: string | null;
   password?: string;
 };
 
@@ -15,50 +18,70 @@ type DemoAccountsResponse = {
   accounts: DemoAccountItem[];
 };
 
+/** Used only if the server list cannot be fetched while developing. */
 const DEFAULT_DEMO_ACCOUNTS: DemoAccountItem[] = [
   {
-    name: 'Ada Example',
-    email: 'admin@example.invalid',
+    name: 'Arjun Das',
+    email: 'admin@sns.test',
     roles: 'admin',
+    title: 'Administrator',
     password: 'ChangeMe_admin_1',
   },
   {
-    name: 'Helen Example',
-    email: 'helen@example.invalid',
+    name: 'Anitha Joseph',
+    email: 'anitha@sns.test',
     roles: 'hr_officer',
-    password: 'ChangeMe_demo_1',
+    title: 'HR Manager',
+    code: 'SNS-1015',
   },
   {
-    name: 'Ravi Example',
-    email: 'ravi@example.invalid',
+    name: 'David Fernandes',
+    email: 'david@sns.test',
     roles: 'manager',
-    password: 'ChangeMe_demo_1',
+    title: 'Production Manager',
+    code: 'SNS-1002',
   },
   {
-    name: 'Sofia Example',
-    email: 'sofia@example.invalid',
+    name: 'John Mathew',
+    email: 'john@sns.test',
     roles: 'manager',
-    password: 'ChangeMe_demo_1',
+    title: 'Printing Supervisor',
+    code: 'SNS-1003',
   },
   {
-    name: 'Amina Example',
-    email: 'amina@example.invalid',
+    name: 'Vijay Anand',
+    email: 'vijay@sns.test',
     roles: 'employee',
-    password: 'ChangeMe_demo_1',
+    title: 'Machine Operator',
+    code: 'SNS-1005',
   },
   {
-    name: 'Paul Example',
-    email: 'paul@example.invalid',
+    name: 'Ramesh Nagarajan',
+    email: 'ramesh@sns.test',
     roles: 'payroll_officer',
-    password: 'ChangeMe_demo_1',
-  },
-  {
-    name: 'Nora Example',
-    email: 'nora@example.invalid',
-    roles: 'auditor',
-    password: 'ChangeMe_demo_1',
+    title: 'Payroll Accountant',
+    code: 'SNS-1016',
   },
 ];
+
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'Administrator',
+  hr_officer: 'HR',
+  manager: 'Manager',
+  employee: 'Employee',
+  payroll_officer: 'Payroll',
+  auditor: 'Auditor',
+};
+
+/** What each demo person is useful for testing, in a few words. */
+function demoHint(a: DemoAccountItem): string {
+  if (a.roles.includes('admin')) return 'Reporting managers, users, leave configuration';
+  if (a.roles.includes('hr_officer')) return 'Employees, holidays, payroll reports';
+  if (a.roles.includes('payroll_officer')) return 'Monthly payroll report and export';
+  if (a.roles.includes('auditor')) return 'Read-only access and the audit log';
+  if (a.roles.includes('manager')) return 'Approves their team’s leave';
+  return 'Applies for leave, sees balance and history';
+}
 
 export function LoginPage() {
   const qc = useQueryClient();
@@ -124,7 +147,8 @@ export function LoginPage() {
               Sign in to Leave OS
             </h1>
             <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
-              Employees apply and track. HR decides. The office LAN is the network.
+              Apply for leave, approve your team’s requests, and run the monthly leave report — all
+              in one place.
             </p>
           </div>
           <form
@@ -137,11 +161,12 @@ export function LoginPage() {
               </p>
             ) : null}
             <div className="field">
-              <label htmlFor="lg-email">Work email</label>
+              <label htmlFor="lg-email">Work email or employee ID</label>
               <input
                 id="lg-email"
                 className="input"
-                type="email"
+                type="text"
+                placeholder="name@company.com or SNS-1005"
                 autoComplete="username"
                 required
                 value={email}
@@ -214,113 +239,47 @@ export function LoginPage() {
               </span>
             </div>
             <p className="note" style={{ margin: 0 }}>
-              Passcodes are revealed for testing. Select any account below to autofill or 1-click
-              login.
+              Simon &amp; Sons, a sample printing and publishing house. Everyone signs in with the
+              password <span className="mono">{demo.data?.password || 'ChangeMe_demo_1'}</span> (the
+              administrator uses <span className="mono">ChangeMe_admin_1</span>), or with their
+              employee ID instead of email.
             </p>
-            <ul className="demo-list">
+            <ul className="demo-list demo-compact">
               {accounts.map((a) => {
                 const accountPassword =
                   a.password ||
                   demo.data?.password ||
                   (a.email.startsWith('admin') ? 'ChangeMe_admin_1' : 'ChangeMe_demo_1');
+                const role = a.roles.split(',')[0]?.trim() ?? 'employee';
                 return (
                   <li key={a.email}>
-                    <div
-                      className="demo-account"
-                      style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+                    <button
+                      type="button"
+                      className="demo-row"
+                      disabled={pending}
+                      title={`Sign in as ${a.name}`}
+                      onClick={() => {
+                        setEmail(a.email);
+                        setPassword(accountPassword);
+                        void performLogin(a.email, accountPassword);
+                      }}
                     >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span className="demo-name" style={{ fontWeight: 600 }}>
-                          {a.name}
+                      <span className="demo-main">
+                        <span className="demo-name">{a.name}</span>
+                        <span className="note">
+                          {[a.title, a.department, a.code].filter(Boolean).join(' · ')}
                         </span>
-                        <span className="mono demo-role">{a.roles}</span>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          fontSize: 12,
-                        }}
-                      >
-                        <span className="note demo-email">{a.email}</span>
-                        <span
-                          className="mono"
-                          style={{
-                            background: '#f8fafc',
-                            border: '1px solid #e2e8f0',
-                            padding: '2px 6px',
-                            borderRadius: 4,
-                            color: '#0f172a',
-                            fontWeight: 600,
-                            fontSize: 12,
-                          }}
-                        >
-                          {accountPassword}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                        <button
-                          type="button"
-                          className="button"
-                          style={{
-                            flex: 1,
-                            height: 30,
-                            fontSize: 12,
-                            padding: '0 8px',
-                            background: 'var(--bg-secondary, #f8fafc)',
-                            border: '1px solid var(--border-default, #e2e8f0)',
-                            borderRadius: 6,
-                            cursor: 'pointer',
-                            fontWeight: 500,
-                          }}
-                          onClick={() => {
-                            setEmail(a.email);
-                            setPassword(accountPassword);
-                            setError(null);
-                          }}
-                        >
-                          Fill Form
-                        </button>
-                        <button
-                          type="button"
-                          className="button"
-                          style={{
-                            flex: 1,
-                            height: 30,
-                            fontSize: 12,
-                            padding: '0 8px',
-                            background: 'var(--text-primary, #0f172a)',
-                            color: '#ffffff',
-                            border: 'none',
-                            borderRadius: 6,
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                          }}
-                          disabled={pending}
-                          onClick={() => {
-                            setEmail(a.email);
-                            setPassword(accountPassword);
-                            void performLogin(a.email, accountPassword);
-                          }}
-                        >
-                          1-Click Login →
-                        </button>
-                      </div>
-                    </div>
+                        <span className="demo-hint">{demoHint(a)}</span>
+                      </span>
+                      <span className={`demo-role role-${role}`}>{ROLE_LABEL[role] ?? role}</span>
+                    </button>
                   </li>
                 );
               })}
             </ul>
             <p className="note" style={{ margin: 0 }}>
-              Each role sees a different application. Sign in as more than one to compare what they
-              can and cannot do.
+              Click a person to sign in as them. Try Vijay (employee) → John (his manager) → Anitha
+              (HR) → Arjun (administrator) to follow a request end to end.
             </p>
           </>
         ) : (

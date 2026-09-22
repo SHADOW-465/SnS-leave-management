@@ -18,7 +18,7 @@ import {
   X,
   ShieldAlert,
   RotateCcw,
-  UserMinus,
+  Archive,
 } from 'lucide-react';
 
 interface EmployeeRecord {
@@ -80,6 +80,10 @@ interface OrgData {
   employmentTypes: { id: string; name: string }[];
 }
 
+// ponytail: the department/team dialogs read this rather than threading a prop through
+// four modals; it is set on every render of the page that opens them.
+let canRouteNow = false;
+
 export function PeoplePage({ me }: { me: Me }) {
   const [tab, setTab] = useState<'employees' | 'departments' | 'teams'>('employees');
 
@@ -119,6 +123,7 @@ export function PeoplePage({ me }: { me: Me }) {
   const [managingTeam, setManagingTeam] = useState<TeamRecord | null>(null);
   const [archivingTeam, setArchivingTeam] = useState<TeamRecord | null>(null);
 
+  canRouteNow = can(me, 'approval.routing.manage');
   const qc = useQueryClient();
 
   const q = useQuery({
@@ -373,8 +378,8 @@ export function PeoplePage({ me }: { me: Me }) {
                     <th>Employee</th>
                     <th>Code</th>
                     <th>Department & Team</th>
-                    <th>Job Title</th>
-                    <th>Manager</th>
+                    <th>Designation</th>
+                    <th>Reporting manager</th>
                     <th>Joined</th>
                     <th>Status</th>
                     {(canUpdate || canArchive) && <th style={{ textAlign: 'right' }}>Actions</th>}
@@ -542,7 +547,7 @@ export function PeoplePage({ me }: { me: Me }) {
                           title="Deactivate department"
                           onClick={() => setArchivingDept(dept)}
                         >
-                          <UserX size={15} />
+                          <Archive size={15} />
                         </button>
                       </div>
                     )}
@@ -671,7 +676,7 @@ export function PeoplePage({ me }: { me: Me }) {
                           title="Deactivate team"
                           onClick={() => setArchivingTeam(team)}
                         >
-                          <UserX size={15} />
+                          <Archive size={15} />
                         </button>
                       </div>
                     )}
@@ -718,6 +723,7 @@ export function PeoplePage({ me }: { me: Me }) {
         <CreateEmployeeModal
           org={org.data}
           employees={employees}
+          canRoute={can(me, 'approval.routing.manage')}
           onClose={() => setCreateOpen(false)}
           onSuccess={() => {
             setCreateOpen(false);
@@ -736,6 +742,7 @@ export function PeoplePage({ me }: { me: Me }) {
           emp={editingEmp}
           org={org.data}
           employees={employees}
+          canRoute={can(me, 'approval.routing.manage')}
           onClose={() => setEditingEmp(null)}
           onSuccess={() => {
             setEditingEmp(null);
@@ -872,9 +879,10 @@ export function PeoplePage({ me }: { me: Me }) {
           employees={employees}
           onClose={() => setManagingTeam(null)}
           onSuccess={() => {
-            setManagingTeam(null);
+            // The dialog stays open so several people can be added in one go.
             void qc.invalidateQueries({ queryKey: ['teams'] });
             void qc.invalidateQueries({ queryKey: ['people'] });
+            void qc.invalidateQueries({ queryKey: ['departments'] });
           }}
         />
       )}
@@ -1404,12 +1412,14 @@ function CreateEmployeeModal({
   onClose,
   onSuccess,
   onTempPassword,
+  canRoute,
 }: {
   org: OrgData;
   employees: EmployeeRecord[];
   onClose: () => void;
   onSuccess: () => void;
   onTempPassword: (info: { name: string; email: string; temp: string }) => void;
+  canRoute: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1454,7 +1464,8 @@ function CreateEmployeeModal({
           locationId,
           departmentId,
           teamId,
-          managerEmployeeId,
+          // Only an administrator decides who approves whose leave.
+          ...(canRoute ? { managerEmployeeId } : {}),
           jobTitleId,
           employmentTypeId,
           phone: phone || undefined,
@@ -1523,7 +1534,7 @@ function CreateEmployeeModal({
                   type="email"
                   required
                   className="form-input"
-                  placeholder="name@example.invalid"
+                  placeholder="firstname@company.com"
                 />
               </div>
             </div>
@@ -1557,7 +1568,7 @@ function CreateEmployeeModal({
 
             <div className="form-grid-2">
               <div className="form-group">
-                <label className="form-label">Job Title *</label>
+                <label className="form-label">Designation *</label>
                 <Select
                   name="jobTitleId"
                   required
@@ -1566,7 +1577,7 @@ function CreateEmployeeModal({
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Employment Type *</label>
+                <label className="form-label">Staff category *</label>
                 <Select
                   name="employmentTypeId"
                   required
@@ -1587,20 +1598,27 @@ function CreateEmployeeModal({
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Manager (Optional)</label>
-                <Select
-                  name="managerEmployeeId"
-                  fullWidth
-                  options={[
-                    { value: '', label: 'None (Top-level)' },
-                    ...employees
-                      .filter((e) => e.status !== 'exited')
-                      .map((e) => ({
-                        value: e.id,
-                        label: `${e.first_name} ${e.last_name} (${e.department_name})`,
-                      })),
-                  ]}
-                />
+                <label className="form-label">Reporting manager (approves their leave)</label>
+                {canRoute ? (
+                  <Select
+                    name="managerEmployeeId"
+                    fullWidth
+                    options={[
+                      { value: '', label: 'Not set — their team lead approves' },
+                      ...employees
+                        .filter((e) => e.status !== 'exited' && e.user_account_id)
+                        .map((e) => ({
+                          value: e.id,
+                          label: `${e.first_name} ${e.last_name} — ${e.job_title_name}`,
+                        })),
+                    ]}
+                  />
+                ) : (
+                  <p className="field-hint" style={{ margin: 0 }}>
+                    An administrator sets this on Reporting managers. Until then their team lead
+                    approves.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1662,12 +1680,14 @@ function EditEmployeeModal({
   employees,
   onClose,
   onSuccess,
+  canRoute,
 }: {
   emp: EmployeeRecord;
   org: OrgData;
   employees: EmployeeRecord[];
   onClose: () => void;
   onSuccess: () => void;
+  canRoute: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1698,6 +1718,7 @@ function EditEmployeeModal({
     const employmentTypeId = String(fd.get('employmentTypeId') ?? '');
     const phone = String(fd.get('phone') ?? '').trim();
     const status = String(fd.get('status') ?? emp.status) as EmployeeRecord['status'];
+    const managerEffectiveFrom = String(fd.get('managerEffectiveFrom') ?? '') || null;
 
     try {
       await api(`/api/v1/employees/${emp.id}`, {
@@ -1712,7 +1733,7 @@ function EditEmployeeModal({
           locationId,
           departmentId,
           teamId,
-          managerEmployeeId,
+          ...(canRoute ? { managerEmployeeId, managerEffectiveFrom } : {}),
           jobTitleId,
           employmentTypeId,
           status,
@@ -1821,7 +1842,7 @@ function EditEmployeeModal({
 
             <div className="form-grid-2">
               <div className="form-group">
-                <label className="form-label">Job Title *</label>
+                <label className="form-label">Designation *</label>
                 <Select
                   name="jobTitleId"
                   defaultValue={emp.job_title_id}
@@ -1831,7 +1852,7 @@ function EditEmployeeModal({
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Employment Type *</label>
+                <label className="form-label">Staff category *</label>
                 <Select
                   name="employmentTypeId"
                   defaultValue={emp.employment_type_id}
@@ -1854,21 +1875,42 @@ function EditEmployeeModal({
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Manager</label>
-                <Select
-                  name="managerEmployeeId"
-                  defaultValue={emp.manager_employee_id ?? ''}
-                  fullWidth
-                  options={[
-                    { value: '', label: 'None (Top-level)' },
-                    ...employees
-                      .filter((e) => e.id !== emp.id && e.status !== 'exited')
-                      .map((e) => ({
-                        value: e.id,
-                        label: `${e.first_name} ${e.last_name} (${e.department_name})`,
-                      })),
-                  ]}
-                />
+                <label className="form-label">Reporting manager (approves their leave)</label>
+                {canRoute ? (
+                  <>
+                    <Select
+                      name="managerEmployeeId"
+                      defaultValue={emp.manager_employee_id ?? ''}
+                      fullWidth
+                      options={[
+                        { value: '', label: 'Not set — their team lead approves' },
+                        ...employees
+                          .filter(
+                            (e) => e.id !== emp.id && e.status !== 'exited' && e.user_account_id,
+                          )
+                          .map((e) => ({
+                            value: e.id,
+                            label: `${e.first_name} ${e.last_name} — ${e.job_title_name}`,
+                          })),
+                      ]}
+                    />
+                    <label className="form-label" style={{ marginTop: 8 }}>
+                      If you change the manager, it applies from
+                    </label>
+                    <input
+                      name="managerEffectiveFrom"
+                      type="date"
+                      className="form-input"
+                      defaultValue={new Date().toISOString().slice(0, 10)}
+                      max={new Date().toISOString().slice(0, 10)}
+                    />
+                  </>
+                ) : (
+                  <p className="field-hint" style={{ margin: 0 }}>
+                    {emp.manager_name ?? 'Not set'} — only an administrator changes this, on
+                    Reporting managers.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -2307,7 +2349,7 @@ function CreateDepartmentModal({
     try {
       await api('/api/v1/departments', {
         method: 'POST',
-        body: JSON.stringify({ name, code, headEmployeeId }),
+        body: JSON.stringify({ name, code, ...(canRouteNow ? { headEmployeeId } : {}) }),
       });
       onSuccess();
     } catch (err: unknown) {
@@ -2358,20 +2400,29 @@ function CreateDepartmentModal({
             </div>
 
             <div className="form-group">
-              <label className="form-label">Department Head (Optional)</label>
-              <Select
-                name="headEmployeeId"
-                fullWidth
-                options={[
-                  { value: '', label: 'None (Unassigned)' },
-                  ...employees
-                    .filter((e) => e.status !== 'exited')
-                    .map((e) => ({
-                      value: e.id,
-                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
-                    })),
-                ]}
-              />
+              <label className="form-label">Department Head</label>
+              {canRouteNow ? (
+                <Select
+                  name="headEmployeeId"
+                  fullWidth
+                  options={[
+                    { value: '', label: 'None (Unassigned)' },
+                    ...employees
+                      .filter((e) => e.status !== 'exited')
+                      .map((e) => ({
+                        value: e.id,
+                        label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                      })),
+                  ]}
+                />
+              ) : (
+                <p className="field-hint" style={{ margin: 0 }}>
+                  An administrator chooses who heads the department, on Reporting managers.
+                </p>
+              )}
+              <span className="field-hint">
+                Approves leave when someone has no reporting manager.
+              </span>
             </div>
           </div>
 
@@ -2417,7 +2468,7 @@ function EditDepartmentModal({
     try {
       await api(`/api/v1/departments/${dept.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ name, code, headEmployeeId }),
+        body: JSON.stringify({ name, code, ...(canRouteNow ? { headEmployeeId } : {}) }),
       });
       onSuccess();
     } catch (err: unknown) {
@@ -2464,20 +2515,29 @@ function EditDepartmentModal({
 
             <div className="form-group">
               <label className="form-label">Department Head</label>
-              <Select
-                name="headEmployeeId"
-                defaultValue={dept.head_employee_id ?? ''}
-                fullWidth
-                options={[
-                  { value: '', label: 'None (Unassigned)' },
-                  ...employees
-                    .filter((e) => e.status !== 'exited')
-                    .map((e) => ({
-                      value: e.id,
-                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
-                    })),
-                ]}
-              />
+              {canRouteNow ? (
+                <Select
+                  name="headEmployeeId"
+                  defaultValue={dept.head_employee_id ?? ''}
+                  fullWidth
+                  options={[
+                    { value: '', label: 'None (Unassigned)' },
+                    ...employees
+                      .filter((e) => e.status !== 'exited')
+                      .map((e) => ({
+                        value: e.id,
+                        label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                      })),
+                  ]}
+                />
+              ) : (
+                <p className="field-hint" style={{ margin: 0 }}>
+                  An administrator chooses who heads the department, on Reporting managers.
+                </p>
+              )}
+              <span className="field-hint">
+                Approves leave when someone has no reporting manager.
+              </span>
             </div>
           </div>
 
@@ -2611,7 +2671,7 @@ function CreateTeamModal({
     try {
       await api('/api/v1/teams', {
         method: 'POST',
-        body: JSON.stringify({ departmentId, name, leadEmployeeId }),
+        body: JSON.stringify({ departmentId, name, ...(canRouteNow ? { leadEmployeeId } : {}) }),
       });
       onSuccess();
     } catch (err: unknown) {
@@ -2663,20 +2723,29 @@ function CreateTeamModal({
             </div>
 
             <div className="form-group">
-              <label className="form-label">Team Lead (Optional)</label>
-              <Select
-                name="leadEmployeeId"
-                fullWidth
-                options={[
-                  { value: '', label: 'None (Unassigned)' },
-                  ...employees
-                    .filter((e) => e.status !== 'exited')
-                    .map((e) => ({
-                      value: e.id,
-                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
-                    })),
-                ]}
-              />
+              <label className="form-label">Team Lead</label>
+              {canRouteNow ? (
+                <Select
+                  name="leadEmployeeId"
+                  fullWidth
+                  options={[
+                    { value: '', label: 'None (Unassigned)' },
+                    ...employees
+                      .filter((e) => e.status !== 'exited')
+                      .map((e) => ({
+                        value: e.id,
+                        label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                      })),
+                  ]}
+                />
+              ) : (
+                <p className="field-hint" style={{ margin: 0 }}>
+                  An administrator chooses who leads the team, on Reporting managers.
+                </p>
+              )}
+              <span className="field-hint">
+                Approves leave when someone has no reporting manager.
+              </span>
             </div>
           </div>
 
@@ -2722,7 +2791,7 @@ function EditTeamModal({
     try {
       await api(`/api/v1/teams/${team.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ departmentId, name, leadEmployeeId }),
+        body: JSON.stringify({ departmentId, name, ...(canRouteNow ? { leadEmployeeId } : {}) }),
       });
       onSuccess();
     } catch (err: unknown) {
@@ -2771,20 +2840,29 @@ function EditTeamModal({
 
             <div className="form-group">
               <label className="form-label">Team Lead</label>
-              <Select
-                name="leadEmployeeId"
-                defaultValue={team.lead_employee_id ?? ''}
-                fullWidth
-                options={[
-                  { value: '', label: 'None (Unassigned)' },
-                  ...employees
-                    .filter((e) => e.status !== 'exited')
-                    .map((e) => ({
-                      value: e.id,
-                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
-                    })),
-                ]}
-              />
+              {canRouteNow ? (
+                <Select
+                  name="leadEmployeeId"
+                  defaultValue={team.lead_employee_id ?? ''}
+                  fullWidth
+                  options={[
+                    { value: '', label: 'None (Unassigned)' },
+                    ...employees
+                      .filter((e) => e.status !== 'exited')
+                      .map((e) => ({
+                        value: e.id,
+                        label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                      })),
+                  ]}
+                />
+              ) : (
+                <p className="field-hint" style={{ margin: 0 }}>
+                  An administrator chooses who leads the team, on Reporting managers.
+                </p>
+              )}
+              <span className="field-hint">
+                Approves leave when someone has no reporting manager.
+              </span>
             </div>
           </div>
 
@@ -2816,6 +2894,7 @@ function ManageTeamMembersModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedToAdd, setSelectedToAdd] = useState<string>('');
+  const [info, setInfo] = useState<string | null>(null);
 
   const currentMembers = useMemo(() => {
     return employees.filter((e) => e.team_id === team.id && e.status !== 'exited');
@@ -2829,11 +2908,23 @@ function ManageTeamMembersModal({
     if (!selectedToAdd) return;
     setLoading(true);
     setError(null);
+    setInfo(null);
     try {
-      await api(`/api/v1/teams/${team.id}/members`, {
+      const person = employees.find((e) => e.id === selectedToAdd);
+      const r = await api<{ notes?: string[] }>(`/api/v1/teams/${team.id}/members`, {
         method: 'POST',
         body: JSON.stringify({ addEmployeeIds: [selectedToAdd] }),
       });
+      setInfo(
+        [
+          person
+            ? `${person.first_name} ${person.last_name} is now in ${team.name}${
+                person.team_name ? ` (moved from ${person.team_name})` : ''
+              }${person.department_id !== team.department_id ? `, ${team.department_name} department` : ''}.`
+            : 'Added.',
+          ...(r?.notes ?? []),
+        ].join(' '),
+      );
       setSelectedToAdd('');
       onSuccess();
     } catch (err: unknown) {
@@ -2851,6 +2942,9 @@ function ManageTeamMembersModal({
         method: 'POST',
         body: JSON.stringify({ removeEmployeeIds: [empId] }),
       });
+      setInfo(
+        'Removed from the team. They stay in their department, with the same reporting manager.',
+      );
       onSuccess();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to remove team member');
@@ -2876,6 +2970,11 @@ function ManageTeamMembersModal({
 
         <div className="modal-body">
           {error && <div className="form-error">{error}</div>}
+          {info && (
+            <div className="form-ok" role="status" style={{ marginBottom: 12 }}>
+              {info}
+            </div>
+          )}
 
           {/* Add member box */}
           <div
@@ -2901,7 +3000,9 @@ function ManageTeamMembersModal({
                   { value: '', label: 'Select an employee to add…' },
                   ...availableToAdd.map((e) => ({
                     value: e.id,
-                    label: `${e.first_name} ${e.last_name} (${e.job_title_name} • ${e.department_name})`,
+                    label: `${e.first_name} ${e.last_name} — ${e.job_title_name}, ${
+                      e.team_name ? `currently in ${e.team_name}` : e.department_name
+                    }`,
                   })),
                 ]}
               />
@@ -2973,17 +3074,17 @@ function ManageTeamMembersModal({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    className="icon-action-btn btn-danger"
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     title="Remove from team"
                     onClick={() => {
                       void handleRemoveMember(emp.id);
                     }}
                     disabled={loading}
                   >
-                    <UserMinus size={14} />
-                  </button>
+                    Remove
+                  </Button>
                 </div>
               ))}
             </div>

@@ -3,7 +3,8 @@ import { email } from './common.js';
 
 export const loginBodySchema = z
   .object({
-    email,
+    /** Work email or employee ID. */
+    email: z.string().trim().min(1).max(254),
     password: z.string().min(1).max(200),
     workstationId: z.string().min(1).max(200).optional(),
   })

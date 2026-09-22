@@ -76,6 +76,38 @@ describe('database', () => {
     await sqlite.close();
   });
 
+  it('joins an outer transaction instead of nesting, and rolls back as one', async () => {
+    const sqlite = await openDatabase(tmpDb());
+    dbs.push(sqlite);
+    const insert = (id: string) =>
+      sqlite
+        .prepare(
+          `INSERT INTO audit_event (id, occurred_at, actor_label, action, entity_type, result)
+           VALUES (?, datetime('now'), 'sys', 'test', 'x', 'ok')`,
+        )
+        .run(id);
+    await expect(
+      withTx(sqlite, async () => {
+        await insert('outer');
+        await withTx(sqlite, async () => insert('inner'));
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    const n = (await sqlite.prepare('SELECT COUNT(*) AS n FROM audit_event').get()) as {
+      n: number;
+    };
+    expect(n.n).toBe(0);
+    await withTx(sqlite, async () => {
+      await insert('a');
+      await withTx(sqlite, async () => insert('b'));
+    });
+    const m = (await sqlite.prepare('SELECT COUNT(*) AS n FROM audit_event').get()) as {
+      n: number;
+    };
+    expect(m.n).toBe(2);
+    await sqlite.close();
+  });
+
   it('rolls back a forced failure inside a transaction', async () => {
     const sqlite = await openDatabase(tmpDb());
     dbs.push(sqlite);

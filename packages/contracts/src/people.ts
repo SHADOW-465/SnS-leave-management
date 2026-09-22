@@ -38,6 +38,7 @@ export const updateEmployeeBodySchema = z
     probationEndOn: isoDate.nullable().optional(),
     status: employeeStatus.optional(),
     phone: z.string().trim().max(20).nullable().optional(),
+    managerEffectiveFrom: isoDate.nullable().optional(),
     expectedVersion: z.number().int().positive(),
   })
   .strict();

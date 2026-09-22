@@ -29,7 +29,12 @@ const NTH = [
   { value: 'last', label: 'Last' },
 ];
 
+// ponytail: one calendar is on screen at a time, so the company weekend is read from here
+// by the small date helpers below rather than threaded through every call.
+let weekendDays: number[] = [0, 6];
+
 export function CalendarPage({ me }: { me: Me }) {
+  weekendDays = me.weekendDays ?? [0, 6];
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -156,32 +161,50 @@ export function CalendarPage({ me }: { me: Me }) {
     setError(null);
     setStatus(null);
     try {
-      if (/\.xlsx?$/i.test(file.name) && !/\.csv$/i.test(file.name)) {
+      if (file.size > 2_000_000) {
         setError(
-          'Save the workbook as CSV with columns date, name, and kind, then import that file.',
+          'That file is larger than a holiday list should be (2 MB). Check it is the right file.',
         );
         return;
       }
-      const text = await file.text();
-      const rows = parseHolidayCsv(text);
-      if (!rows.length) {
-        setError('No holiday rows found. Use columns date, name, and optional kind.');
-        return;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       }
-      const r = await api<BulkResult>('/api/v1/holidays/import', {
+      const r = await api<BulkResult & { problems?: string[] }>('/api/v1/holidays/import-file', {
         method: 'POST',
         body: JSON.stringify({
-          rows,
+          filename: file.name,
+          contentBase64: btoa(binary),
           ...(q.data?.calendarId ? { calendarId: q.data.calendarId } : {}),
         }),
       });
       await qc.invalidateQueries();
-      setStatus(r.message);
+      setStatus(r.message + (r.problems?.length ? ` First problem: ${r.problems[0]}` : ''));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not import that file.');
     } finally {
       setBusy(false);
       setImporting(false);
+    }
+  }
+
+  async function loadStandard() {
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const r = await api<BulkResult>('/api/v1/holidays/load-standard', {
+        method: 'POST',
+        body: JSON.stringify({ year }),
+      });
+      await qc.invalidateQueries();
+      setStatus(r.message);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not load the holidays.');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -221,312 +244,551 @@ export function CalendarPage({ me }: { me: Me }) {
   const summary = describeSelection(picked, byDate);
 
   return (
-    <div className="cal-layout">
-      <section className="card card-flush">
-        <div className="cal-head">
-          <h2>{monthLabel}</h2>
-          <div className="cal-nav">
-            <Button size="sm" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
-              ←
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                setYear(now.getFullYear());
-                setMonth(now.getMonth() + 1);
-              }}
-            >
-              Today
-            </Button>
-            <Button size="sm" aria-label="Next month" onClick={() => shiftMonth(1)}>
-              →
-            </Button>
-          </div>
-        </div>
-        {canEdit ? (
-          <p className="note cal-hint">
-            Click a day to edit it. Turn on <strong>Select several</strong>, Shift-click for a
-            range, or click a weekday heading to pick every one in the month.
-          </p>
-        ) : null}
-        <p className="sr-only" role="status">
-          Showing {monthLabel}
-        </p>
-        {q.isPending ? (
-          <Skeleton />
-        ) : (
-          <div
-            ref={gridRef}
-            role="grid"
-            aria-label={`Calendar for ${monthLabel}`}
-            aria-multiselectable={canEdit}
-            className="cal-grid"
-            onKeyDown={onGridKeyDown}
-          >
-            {DOW.map((d, i) =>
-              canEdit ? (
-                <button
-                  key={d}
-                  type="button"
-                  role="columnheader"
-                  className="cal-dow cal-dow-btn"
-                  title={`Select every ${DOW_LONG[i]} in ${monthLabel}`}
-                  onClick={() => {
-                    setMulti(true);
-                    const wd = (i + 1) % 7;
-                    select(
-                      daysOfMonth(year, month).filter(
-                        (x) => new Date(`${x}T00:00:00Z`).getUTCDay() === wd,
-                      ),
-                      'toggle',
-                    );
-                  }}
-                >
-                  {d}
-                </button>
-              ) : (
-                <div key={d} role="columnheader" className="cal-dow">
-                  {d}
-                </div>
-              ),
-            )}
-            {weeks.flat().map((cell, i) =>
-              cell === null ? (
-                <div key={`pad-${i}`} aria-hidden className="cal-pad" />
-              ) : (
-                <button
-                  key={cell}
-                  type="button"
-                  role="gridcell"
-                  data-date={cell}
-                  aria-selected={pickedSet.has(cell)}
-                  aria-label={dayAriaLabel(cell, byDate.get(cell), isWeekend(cell))}
-                  tabIndex={
-                    pickedSet.has(cell) || (!picked.length && cell.endsWith('-01')) ? 0 : -1
-                  }
-                  onClick={(e) => onDayClick(cell, e)}
-                  className={cellClass(
-                    byDate.get(cell)?.kind,
-                    isWeekend(cell),
-                    pickedSet.has(cell),
-                  )}
-                >
-                  <span className="cal-num">{Number(cell.slice(8))}</span>
-                  {byDate.get(cell) ? (
-                    <span className="cal-tag">{byDate.get(cell)!.name}</span>
-                  ) : null}
-                </button>
-              ),
-            )}
-          </div>
-        )}
-        <ul className="cal-legend">
-          <li>
-            <span className="swatch is-public" aria-hidden /> Public holiday — not a working day
-          </li>
-          <li>
-            <span className="swatch is-optional" aria-hidden /> Optional holiday — still a working
-            day
-          </li>
-          <li>
-            <span className="swatch is-working" aria-hidden /> Weekend made a working day
-          </li>
-        </ul>
-      </section>
-
-      <aside className="card">
-        {canEdit ? (
-          <>
-            <div className="cal-mode">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={multi}
-                  onChange={(e) => {
-                    setMulti(e.target.checked);
-                    if (!e.target.checked && picked.length > 1) setPicked(picked.slice(0, 1));
-                  }}
-                />{' '}
-                Select several days
-              </label>
-            </div>
-
-            <p className="kicker" style={{ marginTop: 14 }}>
-              Quick select
-            </p>
-            <div className="cal-quick">
-              <Select size="sm" aria-label="Which" value={nth} options={NTH} onChange={setNth} />
-              <Select
+    <>
+      <div className="cal-layout">
+        <section className="card card-flush">
+          <div className="cal-head">
+            <h2>{monthLabel}</h2>
+            <div className="cal-nav">
+              <Button size="sm" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
+                ←
+              </Button>
+              <Button
                 size="sm"
-                aria-label="Weekday"
-                value={dow}
-                options={DOW_LONG.map((d, i) => ({ value: String(i), label: d }))}
-                onChange={setDow}
-              />
-              <Select
-                size="sm"
-                aria-label="Over"
-                value={span}
-                options={[
-                  { value: 'month', label: `in ${monthLabel}` },
-                  { value: 'rest', label: `from ${monthLabel.split(' ')[0]} to December` },
-                  { value: 'year', label: `of every month in ${year}` },
-                ]}
-                onChange={(v) => setSpan(v as typeof span)}
-              />
-              <Button size="sm" onClick={quickPick}>
-                Add to selection
+                onClick={() => {
+                  setYear(now.getFullYear());
+                  setMonth(now.getMonth() + 1);
+                }}
+              >
+                Today
+              </Button>
+              <Button size="sm" aria-label="Next month" onClick={() => shiftMonth(1)}>
+                →
               </Button>
             </div>
-          </>
-        ) : null}
-
-        <p className="kicker" style={{ marginTop: 18 }}>
-          {picked.length > 1 ? `${picked.length} days selected` : 'Selected day'}
-        </p>
-        {picked.length === 0 ? (
-          <p className="cal-selected">Pick a date</p>
-        ) : single ? (
-          <>
-            <p className="cal-selected">{formatDate(single)}</p>
-            <p className="note" style={{ marginTop: 0 }}>
-              {singleHoliday
-                ? `Currently ${KIND_LABEL[singleHoliday.kind].toLowerCase()}: ${singleHoliday.name}`
-                : isWeekend(single)
-                  ? 'Currently a weekend — not a working day.'
-                  : 'Currently a normal working day.'}
+          </div>
+          {canEdit ? (
+            <p className="note cal-hint">
+              Click a day to edit it. Turn on <strong>Select several</strong>, Shift-click for a
+              range, or click a weekday heading to pick every one in the month.
             </p>
-          </>
-        ) : (
-          <>
-            <div className="cal-chips">
-              {picked.slice(0, 12).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  className="cal-chip"
-                  title="Remove from selection"
-                  onClick={() => select([d], 'toggle')}
-                >
-                  {shortDate(d)} ×
-                </button>
-              ))}
-              {picked.length > 12 ? <span className="note">+{picked.length - 12} more</span> : null}
+          ) : null}
+          <p className="sr-only" role="status">
+            Showing {monthLabel}
+          </p>
+          {q.isPending ? (
+            <Skeleton />
+          ) : (
+            <div
+              ref={gridRef}
+              role="grid"
+              aria-label={`Calendar for ${monthLabel}`}
+              aria-multiselectable={canEdit}
+              className="cal-grid"
+              onKeyDown={onGridKeyDown}
+            >
+              {DOW.map((d, i) =>
+                canEdit ? (
+                  <button
+                    key={d}
+                    type="button"
+                    role="columnheader"
+                    className="cal-dow cal-dow-btn"
+                    title={`Select every ${DOW_LONG[i]} in ${monthLabel}`}
+                    onClick={() => {
+                      setMulti(true);
+                      const wd = (i + 1) % 7;
+                      select(
+                        daysOfMonth(year, month).filter(
+                          (x) => new Date(`${x}T00:00:00Z`).getUTCDay() === wd,
+                        ),
+                        'toggle',
+                      );
+                    }}
+                  >
+                    {d}
+                  </button>
+                ) : (
+                  <div key={d} role="columnheader" className="cal-dow">
+                    {d}
+                  </div>
+                ),
+              )}
+              {weeks.flat().map((cell, i) =>
+                cell === null ? (
+                  <div key={`pad-${i}`} aria-hidden className="cal-pad" />
+                ) : (
+                  <button
+                    key={cell}
+                    type="button"
+                    role="gridcell"
+                    data-date={cell}
+                    aria-selected={pickedSet.has(cell)}
+                    aria-label={dayAriaLabel(cell, byDate.get(cell), isWeekend(cell))}
+                    tabIndex={
+                      pickedSet.has(cell) || (!picked.length && cell.endsWith('-01')) ? 0 : -1
+                    }
+                    onClick={(e) => onDayClick(cell, e)}
+                    className={cellClass(
+                      byDate.get(cell)?.kind,
+                      isWeekend(cell),
+                      pickedSet.has(cell),
+                    )}
+                  >
+                    <span className="cal-num">{Number(cell.slice(8))}</span>
+                    {byDate.get(cell) ? (
+                      <span className="cal-tag">{byDate.get(cell)!.name}</span>
+                    ) : null}
+                  </button>
+                ),
+              )}
             </div>
-            <p className="note">{summary}</p>
-          </>
-        )}
-
-        {canEdit && picked.length ? (
-          <div className="cal-editor">
-            <label className="field-row">
-              <span className="field-label">Name</span>
-              <input
-                className="input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={picked.length > 1 ? 'Second Saturday' : 'Republic Day'}
-                maxLength={120}
-              />
-            </label>
-            {error ? (
-              <p role="alert" className="form-error">
-                {error}
-              </p>
-            ) : null}
-            <Button variant="primary" disabled={busy} onClick={() => void apply('public')}>
-              Mark as holiday
-            </Button>
-            <Button disabled={busy} onClick={() => void apply('optional')}>
-              Mark as optional holiday
-            </Button>
-            <Button
-              disabled={busy || !picked.some((d) => isWeekend(d) || byDate.has(d))}
-              title="Only weekends or existing holidays can change"
-              onClick={() => void apply('declared_working')}
-            >
-              Make working day{picked.length > 1 ? 's' : ''}
-            </Button>
-            <Button
-              variant="danger"
-              disabled={busy || !picked.some((d) => byDate.has(d))}
-              onClick={() => void apply(null)}
-            >
-              Back to normal
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setPicked([]);
-                setMulti(false);
-              }}
-            >
-              Clear selection
-            </Button>
-          </div>
-        ) : !canEdit && picked.length ? (
-          <p className="note">You can view the calendar. Changing it needs holiday permission.</p>
-        ) : null}
-        {status ? (
-          <p role="status" className="form-ok">
-            {status}
-          </p>
-        ) : null}
-
-        <p className="kicker" style={{ marginTop: 22 }}>
-          {monthLabel}
-        </p>
-        {canEdit ? (
-          <div className="cal-import">
-            <p className="kicker" style={{ margin: 0 }}>
-              Import from Excel
-            </p>
-            <p className="note" style={{ margin: 0 }}>
-              CSV or Excel with columns <code>date</code>, <code>name</code>, and optional{' '}
-              <code>kind</code> (public, optional, declared_working).
-            </p>
-            <input
-              type="file"
-              accept=".csv,.xlsx,.xls,text/csv"
-              disabled={importing}
-              aria-label="Import holidays spreadsheet"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = '';
-                if (file) void importFile(file);
-              }}
-            />
-            <a href="/api/v1/holidays/template.csv">Download template</a>
-          </div>
-        ) : null}
-
-        {monthHolidays.length === 0 ? (
-          <p className="note">
-            Nothing set this month.{' '}
-            {canEdit ? 'Select dates to add holidays.' : 'Weekends are still non-working.'}
-          </p>
-        ) : (
-          <ul className="cal-list">
-            {monthHolidays.map((h) => (
-              <li key={h.date}>
-                <button
-                  type="button"
-                  className="cal-list-btn"
-                  onClick={() => select([h.date], 'replace')}
-                >
-                  <span className="mono cal-list-day">{h.date.slice(8)}</span>
-                  <span>
-                    <strong>{h.name}</strong>
-                    <span className="note cal-list-kind">{KIND_LABEL[h.kind]}</span>
-                  </span>
-                </button>
-              </li>
-            ))}
+          )}
+          <ul className="cal-legend">
+            <li>
+              <span className="swatch is-public" aria-hidden /> Public holiday — not a working day
+            </li>
+            <li>
+              <span className="swatch is-optional" aria-hidden /> Optional holiday — still a working
+              day
+            </li>
+            <li>
+              <span className="swatch is-working" aria-hidden /> Weekend made a working day
+            </li>
           </ul>
-        )}
-      </aside>
-    </div>
+        </section>
+
+        <aside className="card">
+          {canEdit ? (
+            <>
+              <div className="cal-mode">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={multi}
+                    onChange={(e) => {
+                      setMulti(e.target.checked);
+                      if (!e.target.checked && picked.length > 1) setPicked(picked.slice(0, 1));
+                    }}
+                  />{' '}
+                  Select several days
+                </label>
+              </div>
+
+              <p className="kicker" style={{ marginTop: 14 }}>
+                Quick select
+              </p>
+              <div className="cal-quick">
+                <Select size="sm" aria-label="Which" value={nth} options={NTH} onChange={setNth} />
+                <Select
+                  size="sm"
+                  aria-label="Weekday"
+                  value={dow}
+                  options={DOW_LONG.map((d, i) => ({ value: String(i), label: d }))}
+                  onChange={setDow}
+                />
+                <Select
+                  size="sm"
+                  aria-label="Over"
+                  value={span}
+                  options={[
+                    { value: 'month', label: `in ${monthLabel}` },
+                    { value: 'rest', label: `from ${monthLabel.split(' ')[0]} to December` },
+                    { value: 'year', label: `of every month in ${year}` },
+                  ]}
+                  onChange={(v) => setSpan(v as typeof span)}
+                />
+                <Button size="sm" onClick={quickPick}>
+                  Add to selection
+                </Button>
+              </div>
+            </>
+          ) : null}
+
+          <p className="kicker" style={{ marginTop: 18 }}>
+            {picked.length > 1 ? `${picked.length} days selected` : 'Selected day'}
+          </p>
+          {picked.length === 0 ? (
+            <p className="cal-selected">Pick a date</p>
+          ) : single ? (
+            <>
+              <p className="cal-selected">{formatDate(single)}</p>
+              <p className="note" style={{ marginTop: 0 }}>
+                {singleHoliday
+                  ? `Currently ${KIND_LABEL[singleHoliday.kind].toLowerCase()}: ${singleHoliday.name}`
+                  : isWeekend(single)
+                    ? 'Currently a weekend — not a working day.'
+                    : 'Currently a normal working day.'}
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="cal-chips">
+                {picked.slice(0, 12).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    className="cal-chip"
+                    title="Remove from selection"
+                    onClick={() => select([d], 'toggle')}
+                  >
+                    {shortDate(d)} ×
+                  </button>
+                ))}
+                {picked.length > 12 ? (
+                  <span className="note">+{picked.length - 12} more</span>
+                ) : null}
+              </div>
+              <p className="note">{summary}</p>
+            </>
+          )}
+
+          {canEdit && picked.length ? (
+            <div className="cal-editor">
+              <label className="field-row">
+                <span className="field-label">Name</span>
+                <input
+                  className="input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={picked.length > 1 ? 'Second Saturday' : 'Republic Day'}
+                  maxLength={120}
+                />
+              </label>
+              {error ? (
+                <p role="alert" className="form-error">
+                  {error}
+                </p>
+              ) : null}
+              <Button variant="primary" disabled={busy} onClick={() => void apply('public')}>
+                Mark as holiday
+              </Button>
+              <Button disabled={busy} onClick={() => void apply('optional')}>
+                Mark as optional holiday
+              </Button>
+              <Button
+                disabled={busy || !picked.some((d) => isWeekend(d) || byDate.has(d))}
+                title="Only weekends or existing holidays can change"
+                onClick={() => void apply('declared_working')}
+              >
+                Make working day{picked.length > 1 ? 's' : ''}
+              </Button>
+              <Button
+                variant="danger"
+                disabled={busy || !picked.some((d) => byDate.has(d))}
+                onClick={() => void apply(null)}
+              >
+                Back to normal
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setPicked([]);
+                  setMulti(false);
+                }}
+              >
+                Clear selection
+              </Button>
+            </div>
+          ) : !canEdit && picked.length ? (
+            <p className="note">You can view the calendar. Changing it needs holiday permission.</p>
+          ) : null}
+          {status ? (
+            <p role="status" className="form-ok">
+              {status}
+            </p>
+          ) : null}
+
+          <p className="kicker" style={{ marginTop: 22 }}>
+            {monthLabel}
+          </p>
+          {canEdit ? (
+            <div className="cal-import">
+              <p className="kicker" style={{ margin: 0 }}>
+                Import the government list
+              </p>
+              <p className="note" style={{ margin: 0 }}>
+                An Excel or CSV file with a <code>Date</code> column and a <code>Holiday</code>{' '}
+                column — the layout of the government notification works as it is. Dates like
+                01-Jan-2026, 26/01/2026 or 2026-01-26 are all fine.
+              </p>
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls,text/csv"
+                disabled={importing}
+                aria-label="Import holidays spreadsheet"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) void importFile(file);
+                }}
+              />
+              <a href="/api/v1/holidays/template.csv">Download a template</a>
+              <Button size="sm" disabled={busy} onClick={() => void loadStandard()}>
+                Load standard {year} holidays
+              </Button>
+              <p className="note" style={{ margin: 0 }}>
+                Adds the fixed-date national holidays (Republic Day, Independence Day…). Festivals
+                whose dates change each year come from the official list.
+              </p>
+            </div>
+          ) : null}
+
+          {monthHolidays.length === 0 ? (
+            <p className="note">
+              Nothing set this month.{' '}
+              {canEdit ? 'Select dates to add holidays.' : 'Weekends are still non-working.'}
+            </p>
+          ) : (
+            <ul className="cal-list">
+              {monthHolidays.map((h) => (
+                <li key={h.date}>
+                  <button
+                    type="button"
+                    className="cal-list-btn"
+                    onClick={() => select([h.date], 'replace')}
+                  >
+                    <span className="mono cal-list-day">{h.date.slice(8)}</span>
+                    <span>
+                      <strong>{h.name}</strong>
+                      <span className="note cal-list-kind">{KIND_LABEL[h.kind]}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
+      </div>
+      <YearHolidays
+        year={year}
+        holidays={q.data?.holidays ?? []}
+        canEdit={canEdit}
+        calendarId={q.data?.calendarId ?? null}
+        onYear={(y) => setYear(y)}
+      />
+    </>
+  );
+}
+
+const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** The government-holiday list for one year, as HR keeps it: date, day, holiday. */
+function YearHolidays({
+  year,
+  holidays,
+  canEdit,
+  calendarId,
+  onYear,
+}: {
+  year: number;
+  holidays: Holiday[];
+  canEdit: boolean;
+  calendarId: string | null;
+  onYear: (y: number) => void;
+}) {
+  const qc = useQueryClient();
+  const rows = holidays
+    .filter((h) => h.date.startsWith(`${year}-`) && h.kind !== 'declared_working')
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const working = holidays.filter(
+    (h) => h.date.startsWith(`${year}-`) && h.kind === 'declared_working',
+  );
+  const [editing, setEditing] = useState<{ date: string; name: string } | null>(null);
+  const [draft, setDraft] = useState({ date: '', name: '', kind: 'public' as HolidayKind });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function save(dates: string[], kind: HolidayKind | null, name?: string) {
+    setMsg(null);
+    try {
+      const r = await api<BulkResult>('/api/v1/holidays/bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          dates,
+          kind,
+          ...(name ? { name } : {}),
+          ...(calendarId ? { calendarId } : {}),
+        }),
+      });
+      await qc.invalidateQueries();
+      setMsg({ ok: true, text: r.message });
+      return true;
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof ApiError ? err.message : 'Could not save.' });
+      return false;
+    }
+  }
+
+  return (
+    <section className="card year-list">
+      <div className="year-head">
+        <h2>Government holidays {year}</h2>
+        <div className="cal-nav">
+          <Button size="sm" aria-label="Previous year" onClick={() => onYear(year - 1)}>
+            ← {year - 1}
+          </Button>
+          <Button size="sm" aria-label="Next year" onClick={() => onYear(year + 1)}>
+            {year + 1} →
+          </Button>
+        </div>
+      </div>
+      {msg ? (
+        <p role="status" className={msg.ok ? 'form-ok' : 'form-error'}>
+          {msg.text}
+        </p>
+      ) : null}
+      {canEdit ? (
+        <form
+          className="year-add"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save([draft.date], draft.kind, draft.name.trim()).then((ok) => {
+              if (ok) setDraft({ date: '', name: '', kind: 'public' });
+            });
+          }}
+        >
+          <input
+            className="input"
+            type="date"
+            aria-label="Date"
+            required
+            value={draft.date}
+            onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+          />
+          <input
+            className="input grow"
+            aria-label="Holiday name"
+            placeholder="Holiday name, e.g. Pongal"
+            required
+            minLength={2}
+            maxLength={120}
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          />
+          <Select
+            size="sm"
+            aria-label="Kind"
+            value={draft.kind}
+            onChange={(v) => setDraft({ ...draft, kind: v as HolidayKind })}
+            options={[
+              { value: 'public', label: 'Public holiday' },
+              { value: 'optional', label: 'Optional holiday' },
+            ]}
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            disabled={!draft.date || draft.name.trim().length < 2}
+          >
+            Add holiday
+          </Button>
+        </form>
+      ) : null}
+      {rows.length === 0 ? (
+        <p className="note">
+          No holidays for {year} yet.
+          {canEdit ? ' Add them above, import the government list, or load the standard ones.' : ''}
+        </p>
+      ) : (
+        <div className="table-wrap">
+          <table className="year-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Day</th>
+                <th>Holiday</th>
+                <th>Type</th>
+                {canEdit ? <th /> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((h) => (
+                <tr key={h.date}>
+                  <td className="mono">{formatDate(h.date).replace(/^\w+,? /, '')}</td>
+                  <td>{WEEKDAY[new Date(`${h.date}T00:00:00Z`).getUTCDay()]}</td>
+                  <td>
+                    {editing?.date === h.date ? (
+                      <input
+                        className="input"
+                        aria-label={`New name for ${h.name}`}
+                        value={editing.name}
+                        autoFocus
+                        onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setEditing(null);
+                          if (e.key === 'Enter' && editing.name.trim().length >= 2) {
+                            void save([h.date], h.kind, editing.name.trim()).then(() =>
+                              setEditing(null),
+                            );
+                          }
+                        }}
+                      />
+                    ) : (
+                      h.name
+                    )}
+                  </td>
+                  <td>{KIND_LABEL[h.kind]}</td>
+                  {canEdit ? (
+                    <td className="year-actions">
+                      {editing?.date === h.date ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            disabled={editing.name.trim().length < 2}
+                            onClick={() =>
+                              void save([h.date], h.kind, editing.name.trim()).then(() =>
+                                setEditing(null),
+                              )
+                            }
+                          >
+                            Save
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => setEditing({ date: h.date, name: h.name })}
+                          >
+                            Rename
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Remove ${h.name} on ${h.date}? Leave over that day is recounted.`,
+                                )
+                              ) {
+                                void save([h.date], null);
+                              }
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </>
+                      )}
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {working.length ? (
+        <p className="note">
+          Weekends made working days in {year}: {working.map((w) => w.date.slice(5)).join(', ')}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -548,63 +810,6 @@ function describeSelection(dates: string[], byDate: Map<string, Holiday>): strin
   ]
     .filter(Boolean)
     .join(' · ');
-}
-
-function parseHolidayCsv(text: string): { date: string; name: string; kind: HolidayKind }[] {
-  const lines = text
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (lines.length < 2) return [];
-  const header = splitCsvLine(lines[0]!).map((h) => h.toLowerCase());
-  const dateIdx = header.findIndex((h) => h === 'date' || h === 'holiday_date');
-  const nameIdx = header.findIndex((h) => h === 'name' || h === 'holiday' || h === 'holiday_name');
-  const kindIdx = header.findIndex((h) => h === 'kind' || h === 'type');
-  if (dateIdx < 0 || nameIdx < 0) return [];
-  const out: { date: string; name: string; kind: HolidayKind }[] = [];
-  for (const line of lines.slice(1)) {
-    const cols = splitCsvLine(line);
-    const date = normaliseHolidayDate(cols[dateIdx] ?? '');
-    const name = (cols[nameIdx] ?? '').trim();
-    const rawKind = (kindIdx >= 0 ? cols[kindIdx] : 'public')?.trim().toLowerCase();
-    const kind: HolidayKind =
-      rawKind === 'optional' || rawKind === 'declared_working' ? rawKind : 'public';
-    if (date && name.length >= 2) out.push({ date, name, kind });
-  }
-  return out;
-}
-
-function splitCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (quoted && line[i + 1] === '"') {
-        cur += '"';
-        i += 1;
-      } else quoted = !quoted;
-    } else if ((ch === ',' || ch === '\t') && !quoted) {
-      out.push(cur.trim());
-      cur = '';
-    } else cur += ch;
-  }
-  out.push(cur.trim());
-  return out;
-}
-
-function normaliseHolidayDate(raw: string): string | null {
-  const v = raw.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-  const dmy = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/.exec(v);
-  if (dmy) {
-    return `${dmy[3]}-${dmy[2]!.padStart(2, '0')}-${dmy[1]!.padStart(2, '0')}`;
-  }
-  const named = Date.parse(v);
-  if (!Number.isNaN(named)) return new Date(named).toISOString().slice(0, 10);
-  return null;
 }
 
 function summariseSkips(skips: { date: string; reason: string }[]): string {
@@ -683,6 +888,5 @@ function buildWeeks(year: number, month: number): (string | null)[][] {
 }
 
 function isWeekend(iso: string): boolean {
-  const day = new Date(iso + 'T00:00:00Z').getUTCDay();
-  return day === 0 || day === 6;
+  return weekendDays.includes(new Date(iso + 'T00:00:00Z').getUTCDay());
 }

@@ -7,7 +7,12 @@
 import { withTx } from '@sns/database';
 import { DomainError, newId } from '@sns/domain';
 import { authorizeAction, requirePrincipal, type RequestContext } from '../ctx.js';
-import { audit, recalculateLeaveRequestsForDate } from './leave.js';
+import {
+  audit,
+  recalculateLeaveRequestsForDate,
+  recalculateUpcomingRequests,
+  weekendDaysFor,
+} from './leave.js';
 import { currentPeriodId } from './setup.js';
 
 const GRANT_TYPES = `('OPENING','ACCRUAL','ENTITLEMENT_GRANT','CARRY_FORWARD','MIGRATION_OPENING','ADJUSTMENT')`;
@@ -182,11 +187,6 @@ const DEFAULT_NAME: Record<Kind, string> = {
   declared_working: 'Working day',
 };
 
-function isWeekend(iso: string): boolean {
-  const d = new Date(`${iso}T00:00:00Z`).getUTCDay();
-  return d === 0 || d === 6;
-}
-
 /**
  * Marks many days at once — or returns them to normal when `kind` is null. Days where the
  * change would mean nothing (a weekday "declared working", clearing an ordinary day) are
@@ -215,6 +215,8 @@ export async function applyHolidays(
     });
   }
   const dates = [...new Set(input.dates)].filter((d) => !Number.isNaN(Date.parse(d))).sort();
+  const weekend = await weekendDaysFor(ctx);
+  const isWeekend = (iso: string) => weekend.includes(new Date(`${iso}T00:00:00Z`).getUTCDay());
 
   const changed: string[] = [];
   const skipped: { date: string; reason: string }[] = [];
@@ -330,5 +332,64 @@ export async function importHolidays(
         ? 'Nothing imported — every row was already on the calendar.'
         : `${changed.length} ${changed.length === 1 ? 'holiday' : 'holidays'} imported.` +
           (skipped.length ? ` ${skipped.length} skipped.` : ''),
+  };
+}
+
+// ---------------------------------------------------------------------------------------
+// Working week
+// ---------------------------------------------------------------------------------------
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+export async function workWeek(ctx: RequestContext) {
+  requirePrincipal(ctx);
+  return { weekendDays: await weekendDaysFor(ctx) };
+}
+
+/**
+ * Sets which days are the weekend. Leave already requested for dates still to come is
+ * recounted straight away, so nobody is charged for a day that is no longer a working day.
+ */
+export async function setWorkWeek(ctx: RequestContext, weekendDays: number[]) {
+  const p = requirePrincipal(ctx);
+  await authorizeAction(ctx, 'leave.policy.manage', null);
+  const days = [...new Set(weekendDays)].filter((d) => d >= 0 && d <= 6).sort();
+  if (days.length > 3) {
+    throw new DomainError('TOO_MANY_WEEKEND_DAYS', 'A weekend can be at most three days.', {
+      httpStatus: 400,
+    });
+  }
+  const before = await weekendDaysFor(ctx);
+  await withTx(ctx.sqlite, async () => {
+    const exists = await ctx.sqlite
+      .prepare(`SELECT key FROM app_setting WHERE key = 'calendar.weekend_days'`)
+      .get();
+    await ctx.sqlite
+      .prepare(
+        exists
+          ? `UPDATE app_setting SET value_json = ?, updated_by = ?, updated_at = ? WHERE key = 'calendar.weekend_days'`
+          : `INSERT INTO app_setting (value_json, updated_by, updated_at, key) VALUES (?, ?, ?, 'calendar.weekend_days')`,
+      )
+      .run(JSON.stringify(days), p.userId, ctx.now);
+    await audit(
+      ctx,
+      'calendar.work_week.changed',
+      'company',
+      'company',
+      { weekendDays: before },
+      {
+        weekendDays: days,
+      },
+    );
+    await recalculateUpcomingRequests(ctx, 'work_week_change');
+  });
+  return {
+    weekendDays: days,
+    message: days.length
+      ? `Weekend is now ${[...days]
+          .sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7))
+          .map((d) => DAY_NAMES[d])
+          .join(' and ')}. Upcoming leave has been recounted.`
+      : 'Every day is now a working day. Upcoming leave has been recounted.',
   };
 }

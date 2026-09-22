@@ -164,7 +164,7 @@ export function SetupPage() {
             checked={form.loadSampleData}
             onChange={(e) => setForm({ ...form, loadSampleData: e.target.checked })}
           />
-          Load synthetic sample people (@example.invalid)
+          Load the Simon &amp; Sons sample organisation (17 people, @sns.test)
         </label>
         <Button variant="primary" type="submit" disabled={pending}>
           {pending ? 'Creating…' : 'Create administrator'}

@@ -93,7 +93,7 @@ type ReportsResponse = {
   };
 };
 
-type ActiveTab = 'overview' | 'departments' | 'leaveTypes' | 'balances' | 'payroll';
+type ActiveTab = 'overview' | 'departments' | 'leaveTypes' | 'balances' | 'payroll' | 'annual';
 
 export function ReportsPage() {
   const now = new Date();
@@ -366,6 +366,15 @@ export function ReportsPage() {
           <FileSpreadsheet size={16} />
           <span>Monthly Payroll</span>
           <span className="reports-tab-badge">{data.payroll.rows.length}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`reports-tab-btn ${activeTab === 'annual' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('annual')}
+        >
+          <FileSpreadsheet size={16} />
+          <span>Annual Leave Report</span>
         </button>
       </div>
 
@@ -1285,6 +1294,133 @@ export function ReportsPage() {
           </div>
         </div>
       )}
+      {activeTab === 'annual' ? <AnnualReport /> : null}
+    </div>
+  );
+}
+
+type Annual = {
+  periods: { id: string; label: string }[];
+  periodId: string;
+  label: string;
+  leaveTypes: { id: string; code: string; name: string }[];
+  leaveTypeId: string | null;
+  months: string[];
+  rows: {
+    employeeId: string;
+    code: string;
+    name: string;
+    department: string;
+    opening: number;
+    earned: number;
+    adjusted: number;
+    used: number;
+    pending: number;
+    closing: number;
+    monthly: number[];
+  }[];
+};
+
+/**
+ * The annual leave report: each person's year for one leave type — opening, earned,
+ * adjustments, days used in each month, pending and closing.
+ */
+function AnnualReport() {
+  const [periodId, setPeriodId] = useState('');
+  const [typeId, setTypeId] = useState('');
+  const qs = new URLSearchParams({
+    ...(periodId ? { periodId } : {}),
+    ...(typeId ? { leaveTypeId: typeId } : {}),
+  }).toString();
+  const q = useQuery({
+    queryKey: ['annual-report', periodId, typeId],
+    queryFn: () => api<Annual>(`/api/v1/reports/annual?${qs}`),
+  });
+  if (q.isLoading) return <div className="card">Loading…</div>;
+  if (q.isError || !q.data) return <div className="card">Could not load the annual report.</div>;
+  const d = q.data;
+  const fmt = (x: number) => (x === 0 ? '—' : Number.isInteger(x) ? String(x) : x.toFixed(1));
+  return (
+    <div className="card">
+      <div
+        className="card-head"
+        style={{ borderBottom: 'none', padding: '0 0 12px 0', flexWrap: 'wrap', gap: 8 }}
+      >
+        <div>
+          <h2 style={{ fontSize: '16px', margin: 0 }}>Annual leave report — {d.label}</h2>
+          <p className="dim" style={{ fontSize: '13px', margin: '2px 0 0 0' }}>
+            Days used are counted in the month they fall in, so leave across two months is split.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Select
+            size="sm"
+            aria-label="Leave type"
+            value={typeId || d.leaveTypeId || ''}
+            onChange={setTypeId}
+            options={d.leaveTypes.map((t) => ({ value: t.id, label: t.name }))}
+          />
+          <Select
+            size="sm"
+            aria-label="Leave year"
+            value={periodId || d.periodId}
+            onChange={setPeriodId}
+            options={d.periods.map((p) => ({ value: p.id, label: p.label }))}
+          />
+          <a className="reports-export-btn" href={`/api/v1/reports/annual.xlsx?${qs}`} download>
+            Excel
+          </a>
+          <a
+            className="reports-export-btn reports-export-csv"
+            href={`/api/v1/reports/annual.csv?${qs}`}
+            download
+          >
+            CSV
+          </a>
+        </div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="table" style={{ minWidth: 1100 }}>
+          <thead>
+            <tr>
+              <th>Emp ID</th>
+              <th>Employee</th>
+              <th>Department</th>
+              <th>Opening</th>
+              <th>Earned</th>
+              <th>Adjusted</th>
+              {d.months.map((m) => (
+                <th key={m}>{m}</th>
+              ))}
+              <th>Used</th>
+              <th>Pending</th>
+              <th>Closing</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.rows.map((r) => (
+              <tr key={r.employeeId}>
+                <td className="mono">{r.code}</td>
+                <td>{r.name}</td>
+                <td>{r.department}</td>
+                <td className="mono">{fmt(r.opening)}</td>
+                <td className="mono">{fmt(r.earned)}</td>
+                <td className="mono">{fmt(r.adjusted)}</td>
+                {r.monthly.map((m, i) => (
+                  <td key={i} className="mono">
+                    {fmt(m)}
+                  </td>
+                ))}
+                <td className="mono">{fmt(r.used)}</td>
+                <td className="mono">{fmt(r.pending)}</td>
+                <td className="mono">
+                  <strong>{r.closing}</strong>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

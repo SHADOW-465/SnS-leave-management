@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-09-21** (Leave Tracker functional framework: employee dashboard, payroll columns, holiday import, overlap, monthly earned-leave default).
+Last reviewed: **2026-09-22** (rest of the Leave Tracker framework: reporting managers, leave configuration, transactions, annual report, payroll PDF, government holidays, profile and sign-in, Simon & Sons sample organisation).
 Next review: at the next scheduled release milestone.
 
 ---
@@ -168,6 +168,21 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 | DW-73 | Overlapping own leave blocked                                      | DONE 2026-09-21 | `leave.test.ts` `LEAVE_OVERLAP`; complementary AM/PM on the same day still allowed         |
 | DW-74 | Default earned leave 2 days/month, 24/year                         | DONE 2026-09-21 | `defaultRulesForCode('EL')`; `grantOpeningBalances` writes `ACCRUAL` + `accrual_run`       |
 | DW-75 | Employee mobile number                                             | DONE 2026-09-21 | `framework.test.ts` stores phone on `employee_contact`                                     |
+
+---
+
+## 4f. Resolved against the rest of the Leave Tracker framework — 2026-09-22
+
+| ID    | Item                                                                                          | Status          | Evidence                                                                                                      |
+| ----- | --------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------- |
+| DW-76 | Reporting manager approves leave, with dated history                                         | DONE 2026-09-22 | Migration `0006_reporting_manager.sql`; `packages/domain/src/leave/routing.ts`                                |
+| DW-77 | Leave configuration: monthly credit, staff category, joining month, weekends and holidays    | DONE 2026-09-22 | `doc-requirements.test.ts` working week and accrual; Settings leave rules                                     |
+| DW-78 | Leave transactions with manual credit and deduction                                          | DONE 2026-09-22 | `doc-requirements.test.ts` leave transactions; `Transactions.tsx`                                             |
+| DW-79 | Annual leave report and monthly payroll sheet in the PDF                                     | DONE 2026-09-22 | `doc-requirements.test.ts` reports                                                                            |
+| DW-80 | Government holiday year list, Excel import, and fixed-date national holidays                 | DONE 2026-09-22 | `doc-requirements.test.ts` government holidays; `holiday-sheet.ts`                                            |
+| DW-81 | Profile, in-app password change, and sign-in with employee ID                                | DONE 2026-09-22 | `Profile.tsx`; `usecases/auth.ts`                                                                             |
+| DW-82 | Duplicate casual and sick opening grant reversed on existing databases                       | DONE 2026-09-22 | Migration `0007_fix_double_opening_grant.sql`; `doc-requirements.test.ts` yearly entitlement is credited once |
+| DW-83 | Simon & Sons sample organisation (17 people, designations, managers, holidays, sample leave) | DONE 2026-09-22 | `doc-requirements.test.ts` sample organisation; `usecases/demo.ts`                                            |
 
 ---
 

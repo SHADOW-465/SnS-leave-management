@@ -9,6 +9,7 @@ import {
   holdQuantity,
   leaveRangesOverlap,
   newId,
+  parseRules,
   releaseQuantity,
   NoApproverError,
   describeApprover,
@@ -70,6 +71,29 @@ async function holidaysForEmployee(ctx: RequestContext, employeeId: string): Pro
     .prepare(`SELECT date, kind, name FROM holiday WHERE holiday_calendar_id = ?`)
     .all(cid)) as Holiday[];
 }
+/** The company's weekend, 0 = Sunday … 6 = Saturday. Saturday and Sunday unless changed. */
+export async function weekendDaysFor(ctx: RequestContext): Promise<number[]> {
+  const row = (await ctx.sqlite
+    .prepare(`SELECT value_json FROM app_setting WHERE key = 'calendar.weekend_days'`)
+    .get()) as { value_json: string } | undefined;
+  if (!row) return [0, 6];
+  try {
+    const days = JSON.parse(row.value_json) as unknown;
+    return Array.isArray(days) ? days.filter((d): d is number => Number.isInteger(d)) : [0, 6];
+  } catch {
+    return [0, 6];
+  }
+}
+
+/** How a leave type counts days: the company weekend, and whether weekends and holidays count. */
+async function countingFor(ctx: RequestContext, rules: LeavePolicyRules) {
+  return {
+    weekendDays: await weekendDaysFor(ctx),
+    excludeWeekends: rules.excludeWeekends,
+    excludeHolidays: rules.excludeHolidays,
+  };
+}
+
 async function currentPolicy(
   ctx: RequestContext,
   leaveTypeId: string,
@@ -91,7 +115,7 @@ async function currentPolicy(
     | undefined;
   if (!row)
     throw new DomainError('LEAVE_NO_POLICY', 'No published policy exists for this leave type.');
-  return { id: row.id, rules: JSON.parse(row.rules_json) as LeavePolicyRules };
+  return { id: row.id, rules: parseRules(row.rules_json) };
 }
 async function hasOwnOverlappingLeave(
   ctx: RequestContext,
@@ -173,12 +197,16 @@ export async function previewLeave(
   if (!employeeId)
     throw new DomainError('NO_EMPLOYEE', 'This account is not linked to an employee.');
   await authorizeAction(ctx, 'leave.request.create', employeeId);
+  const previewRules = await currentPolicy(ctx, input.leaveTypeId)
+    .then((x) => x.rules)
+    .catch(() => parseRules({}));
   const days = classifyRequestDays({
     startDate: input.startDate,
     endDate: input.endDate,
     holidays: await holidaysForEmployee(ctx, employeeId),
     halfDayStart: input.halfDayStart ?? null,
     halfDayEnd: input.halfDayEnd ?? null,
+    options: await countingFor(ctx, previewRules),
   });
   const counted = totalCountedHalfDays(days);
   const periodId = await currentPeriodId(ctx);
@@ -233,7 +261,7 @@ export async function previewLeave(
  * Plain-English description of who will decide a request, shown before it is submitted so
  * nobody has to guess where their leave went.
  */
-async function describeRouteFor(
+export async function describeRouteFor(
   ctx: RequestContext,
   employeeId: string,
   requesterUserId: string,
@@ -342,6 +370,7 @@ export async function submitLeave(
     holidays: await holidaysForEmployee(ctx, employeeId),
     halfDayStart: input.halfDayStart ?? null,
     halfDayEnd: input.halfDayEnd ?? null,
+    options: await countingFor(ctx, policy.rules),
   });
   const counted = totalCountedHalfDays(days);
   const periodId = await currentPeriodId(ctx);
@@ -475,12 +504,11 @@ export async function submitLeave(
         id,
       );
     }
-    const submitTitle = onBehalf
-      ? `Leave request submitted on behalf of ${emp.first_name} ${emp.last_name}`
-      : 'Leave request awaiting a decision';
+    const when = spokenRange(input.startDate, input.endDate);
+    const submitTitle = 'New leave request';
     const submitBody = onBehalf
-      ? `${p.email} submitted a leave request on behalf of ${emp.first_name} ${emp.last_name}.`
-      : `${emp.first_name} ${emp.last_name} submitted a request.`;
+      ? `New leave request submitted on behalf of ${emp.first_name} ${emp.last_name} for ${when} (${formatHalfDays(counted)} working days).`
+      : `New leave request submitted by ${emp.first_name} ${emp.last_name} for ${when} (${formatHalfDays(counted)} working days).`;
     await notify(
       ctx,
       routing.approverUserId,
@@ -536,7 +564,8 @@ async function pickWorkflow(ctx: RequestContext, kind: string) {
 /**
  * Walks the approval hierarchy for one requester and returns the first usable approver.
  *
- * Ordinary staff are decided by their team lead, so routine leave never reaches HR. A
+ * The reporting manager decides first. Without one, ordinary staff go to their team lead,
+ * so routine leave never reaches HR. A
  * team lead goes to their department head, a department head to HR, and HR to an
  * administrator. Each rung is skipped only for a real gap — nobody appointed, the
  * approver is the person asking, or their account is disabled or they are on leave — and
@@ -581,14 +610,14 @@ export async function resolveApprover(
     );
   }
 
-  // An administrator's named approver for this person, if one is set.
-  const overrideRows = await candidatesFor(
+  // The reporting manager an administrator assigned to this person, if any.
+  const managerRows = await candidatesFor(
     ctx,
     `SELECT ua.id AS "userId", ua.employee_id AS "employeeId", ua.is_disabled AS "isDisabled"
-       FROM approval_override o
-       JOIN employee a ON a.id = o.approver_employee_id
-       JOIN user_account ua ON ua.employee_id = a.id
-      WHERE o.employee_id = ? AND a.status != 'exited'`,
+       FROM employee me
+       JOIN employee m ON m.id = me.manager_employee_id
+       JOIN user_account ua ON ua.employee_id = m.id
+      WHERE me.id = ? AND m.status != 'exited'`,
     [requesterEmployeeId],
   );
 
@@ -626,7 +655,7 @@ export async function resolveApprover(
       requesterUserId,
       requesterKind,
       candidatesByKind: { team_lead: teamLead, department_head: departmentHead, roles },
-      override: overrideRows[0] ?? null,
+      reportingManager: managerRows[0] ?? null,
       delegations,
     });
   } catch (err) {
@@ -814,14 +843,29 @@ export async function decideLeave(
         }
       | undefined;
     if (owner) {
+      const when = spokenRange(req.start_date, req.end_date);
+      const remark = (
+        input.decision === 'approve' ? input.note : (input.reason ?? input.note)
+      )?.trim();
+      const body =
+        input.decision === 'approve'
+          ? `Your leave request for ${when} has been approved.${remark ? ` Note: ${remark}` : ''}`
+          : `Your leave request for ${when} has been rejected. Reason: ${remark || 'not given'}.`;
       await notify(
         ctx,
         owner.id,
         input.decision === 'approve' ? 'leave.approved' : 'leave.rejected',
         input.decision === 'approve' ? 'Leave approved' : 'Leave rejected',
-        input.note ?? input.reason ?? 'A decision was recorded.',
+        body,
         'leave_request',
         req.id,
+      );
+      await queueMail(
+        ctx,
+        owner.id,
+        input.decision === 'approve' ? 'leave.approved' : 'leave.rejected',
+        input.decision === 'approve' ? `Leave approved: ${when}` : `Leave rejected: ${when}`,
+        `${body}\n\nSee your requests: ${ctx.config.publicUrl}/requests/${req.id}`,
       );
     }
 
@@ -1127,6 +1171,50 @@ async function notify(
     )
     .run(newId(), userId, kind, title, body, entityType, entityId, ctx.now);
 }
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/** "12–14 September", "28 September – 3 October", "12 September" — as people say it. */
+export function spokenRange(start: string, end: string): string {
+  const [, sm, sd] = start.split('-').map(Number) as [number, number, number];
+  const [, em, ed] = end.split('-').map(Number) as [number, number, number];
+  if (start === end) return `${sd} ${MONTH_NAMES[sm - 1]}`;
+  if (sm === em) return `${sd}–${ed} ${MONTH_NAMES[sm - 1]}`;
+  return `${sd} ${MONTH_NAMES[sm - 1]} – ${ed} ${MONTH_NAMES[em - 1]}`;
+}
+
+/** Queues a plain email to one account. Delivery happens only if email is configured. */
+async function queueMail(
+  ctx: RequestContext,
+  userId: string,
+  kind: string,
+  subject: string,
+  text: string,
+) {
+  const user = (await ctx.sqlite
+    .prepare(`SELECT email FROM user_account WHERE id = ? AND is_disabled = 0`)
+    .get(userId)) as { email: string } | undefined;
+  if (!user?.email) return;
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO outbox_message (id, kind, payload_json, status, next_attempt_at, created_at)
+       VALUES (?, ?, ?, 'pending', ?, ?)`,
+    )
+    .run(newId(), kind, JSON.stringify({ to: user.email, subject, text }), ctx.now, ctx.now);
+}
+
 async function queueEmail(
   ctx: RequestContext,
   approverUserId: string,
@@ -1162,7 +1250,7 @@ async function queueEmail(
     leaveType: type?.name ?? '',
     dates: `${formatDisplayDate(input.startDate)} – ${formatDisplayDate(input.endDate)}`,
     workingDays: formatHalfDays(counted),
-    link: `${ctx.config.publicUrl}/requests/${requestId}`,
+    link: `${ctx.config.publicUrl}/approvals/${requestId}`,
   });
   await ctx.sqlite
     .prepare(
@@ -1174,7 +1262,7 @@ async function queueEmail(
       JSON.stringify({
         to: preview.to,
         subject: preview.subject,
-        text: `${preview.body}\n\nOpen: ${ctx.config.publicUrl}/requests/${requestId}\n(The link does not approve anything. You must sign in.)`,
+        text: `${preview.body}\n\nOpen: ${ctx.config.publicUrl}/approvals/${requestId}\n(The link does not approve anything. You must sign in.)`,
       }),
       ctx.now,
       ctx.now,
@@ -1190,8 +1278,33 @@ export async function recalculateLeaveRequestsForDate(
        AND r.status IN ('pending_approval', 'approved', 'draft')`;
 
   const rows = (await ctx.sqlite.prepare(query).all(date, date)) as LeaveRow[];
+  for (const req of rows) await recalculateRequest(ctx, req, { reason: 'calendar_change', date });
+}
 
-  for (const req of rows) {
+/**
+ * Recounts every request that has not finished yet — after the working week changes, a
+ * pending or upcoming request must reflect the new weekend.
+ */
+export async function recalculateUpcomingRequests(ctx: RequestContext, reason: string) {
+  const rows = (await ctx.sqlite
+    .prepare(
+      `SELECT r.* FROM leave_request r
+        WHERE r.end_date >= ? AND r.status IN ('pending_approval', 'approved', 'draft')`,
+    )
+    .all(ctx.today)) as LeaveRow[];
+  for (const req of rows) await recalculateRequest(ctx, req, { reason });
+}
+
+async function recalculateRequest(
+  ctx: RequestContext,
+  req: LeaveRow,
+  why: { reason: string; date?: string },
+) {
+  {
+    const version = (await ctx.sqlite
+      .prepare(`SELECT rules_json FROM leave_policy_version WHERE id = ?`)
+      .get(req.policy_version_id)) as { rules_json: string } | undefined;
+    const rules = version ? parseRules(version.rules_json) : parseRules({});
     const holidays = await holidaysForEmployee(ctx, req.employee_id);
     const days = classifyRequestDays({
       startDate: req.start_date,
@@ -1199,6 +1312,7 @@ export async function recalculateLeaveRequestsForDate(
       holidays,
       halfDayStart: req.half_day_start,
       halfDayEnd: req.half_day_end,
+      options: await countingFor(ctx, rules),
     });
     const counted = totalCountedHalfDays(days);
 
@@ -1291,7 +1405,7 @@ export async function recalculateLeaveRequestsForDate(
         'leave_request',
         req.id,
         { total_half_days: prevCounted },
-        { total_half_days: counted, reason: 'calendar_change', date },
+        { total_half_days: counted, ...why },
       );
     }
   }

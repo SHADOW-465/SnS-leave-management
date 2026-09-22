@@ -22,7 +22,12 @@ export function periodBounds(
   const ends = parseIsoDate(endExclusive);
   ends.setUTCDate(ends.getUTCDate() - 1);
   const endsOn = formatIsoDate(ends);
-  return { startsOn, endsOn, label: `${startYear}–${endYear}` };
+  // A calendar-year leave year is simply "2026"; one that straddles two years is "2026–27".
+  const label =
+    boundary.startMonth === 1 && boundary.startDay === 1
+      ? String(startYear)
+      : `${startYear}–${String(endYear).slice(2)}`;
+  return { startsOn, endsOn, label };
 }
 
 function clampDate(year: number, month: number, day: number): string {

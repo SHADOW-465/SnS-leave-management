@@ -66,7 +66,7 @@ describe('functional framework', () => {
   it('credits monthly earned leave as ACCRUAL, not a January lump sum', async () => {
     const { app, sqlite } = await boot();
     const amina = (await sqlite
-      .prepare(`SELECT id FROM employee WHERE work_email = 'amina@example.invalid'`)
+      .prepare(`SELECT id FROM employee WHERE work_email = 'vijay@sns.test'`)
       .get()) as { id: string };
     const el = (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'EL'`).get()) as {
       id: string;
@@ -108,9 +108,7 @@ describe('functional framework', () => {
       }
     ).data.payroll;
     expect(payroll.label).toMatch(/January/);
-    const amina = payroll.rows.find(
-      (r) => r.employeeCode === 'E-1001' || r.employeeCode.startsWith('E-'),
-    );
+    const amina = payroll.rows.find((r) => r.employeeCode === 'SNS-1005');
     expect(amina).toBeDefined();
     expect(amina!.closing).toBe(amina!.opening + amina!.earned);
     await app.close();

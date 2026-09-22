@@ -1,11 +1,11 @@
 /**
- * Leave follows the organisation chart. A team member's request is decided by their team
- * lead so routine leave never lands on HR; a team lead goes to their department head, a
- * department head to HR, and HR to an administrator. These tests drive the real API.
+ * Leave follows the organisation chart. Everyone's request goes to their reporting
+ * manager; when there is none, or they cannot decide, it walks the ladder — team lead,
+ * department head, HR, administrator. These tests drive the real API.
  *
- * The seeded sample org is: Engineering (head: Sofia) containing the Platform team
- * (lead: Ravi, member: Amina) and Customer Support (member: Paul). Helen is HR, Ada is
- * the administrator.
+ * The sample org (Simon & Sons): Production (head: David, reports to Rajesh the MD)
+ * contains the Printing team (lead: John, member: Vijay). Ramesh (payroll) and Anitha (HR)
+ * report to Rajesh. The administrator is set up by the test.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -111,27 +111,38 @@ afterEach(async () => {
 
 describe('routing follows the organisation chart', () => {
   it('sends a team member to their team lead, not to HR', async () => {
-    const id = await apply(await signIn('amina@example.invalid'), '2026-10-05', '2026-10-07');
-    expect(await approverEmailFor(id)).toBe('ravi@example.invalid');
+    const id = await apply(await signIn('vijay@sns.test'), '2026-10-05', '2026-10-07');
+    expect(await approverEmailFor(id)).toBe('john@sns.test');
   });
 
   it('sends a team lead to their department head', async () => {
-    const id = await apply(await signIn('ravi@example.invalid'), '2026-10-12', '2026-10-13');
-    expect(await approverEmailFor(id)).toBe('sofia@example.invalid');
+    const id = await apply(await signIn('john@sns.test'), '2026-10-12', '2026-10-13');
+    expect(await approverEmailFor(id)).toBe('david@sns.test');
   });
 
-  it('sends a department head to HR', async () => {
-    const id = await apply(await signIn('sofia@example.invalid'), '2026-10-19', '2026-10-20');
-    expect(await approverEmailFor(id)).toBe('helen@example.invalid');
+  it('sends a department head to their reporting manager, the MD', async () => {
+    const id = await apply(await signIn('david@sns.test'), '2026-10-19', '2026-10-20');
+    expect(await approverEmailFor(id)).toBe('rajesh@sns.test');
   });
 
-  it('sends HR to an administrator', async () => {
-    const id = await apply(await signIn('helen@example.invalid'), '2026-10-26', '2026-10-27');
+  it('sends a department head with no reporting manager to HR', async () => {
+    await sqlite.exec(
+      `UPDATE employee SET manager_employee_id = NULL WHERE work_email = 'david@sns.test'`,
+    );
+    const id = await apply(await signIn('david@sns.test'), '2026-10-19', '2026-10-20');
+    expect(await approverEmailFor(id)).toBe('anitha@sns.test');
+  });
+
+  it('sends HR with no reporting manager to an administrator', async () => {
+    await sqlite.exec(
+      `UPDATE employee SET manager_employee_id = NULL WHERE work_email = 'anitha@sns.test'`,
+    );
+    const id = await apply(await signIn('anitha@sns.test'), '2026-10-26', '2026-10-27');
     expect(await approverEmailFor(id)).toBe('admin@example.invalid');
   });
 
   it('records which rung decided, so an escalation is explainable', async () => {
-    const id = await apply(await signIn('amina@example.invalid'), '2026-11-02', '2026-11-03');
+    const id = await apply(await signIn('vijay@sns.test'), '2026-11-02', '2026-11-03');
     const row = (await sqlite
       .prepare(`SELECT escalation_reason FROM leave_request WHERE id = ?`)
       .get(id)) as { escalation_reason: string | null };
@@ -142,8 +153,8 @@ describe('routing follows the organisation chart', () => {
 
 describe('the team lead can actually decide', () => {
   it('approves their own team member without company-wide rights', async () => {
-    const amina = await signIn('amina@example.invalid');
-    const ravi = await signIn('ravi@example.invalid');
+    const amina = await signIn('vijay@sns.test');
+    const ravi = await signIn('john@sns.test');
     const id = await apply(amina, '2026-10-05', '2026-10-07');
 
     const detail = await app.inject({
@@ -170,8 +181,8 @@ describe('the team lead can actually decide', () => {
 
   it('cannot decide a request routed to someone else', async () => {
     // Paul is in a different team; Ravi is not his approver.
-    const paul = await signIn('paul@example.invalid');
-    const ravi = await signIn('ravi@example.invalid');
+    const paul = await signIn('ramesh@sns.test');
+    const ravi = await signIn('john@sns.test');
     const id = await apply(paul, '2026-10-05', '2026-10-06');
     const res = await app.inject({
       method: 'POST',
@@ -183,7 +194,7 @@ describe('the team lead can actually decide', () => {
   });
 
   it('cannot decide their own request', async () => {
-    const ravi = await signIn('ravi@example.invalid');
+    const ravi = await signIn('john@sns.test');
     const id = await apply(ravi, '2026-10-12', '2026-10-13');
     const res = await app.inject({
       method: 'POST',
@@ -196,10 +207,20 @@ describe('the team lead can actually decide', () => {
 });
 
 describe('escalation when a rung is unavailable', () => {
+  // With no reporting managers assigned, requests fall back to the ladder.
+  beforeEach(async () => {
+    await sqlite.exec(`UPDATE employee SET manager_employee_id = NULL`);
+  });
+
+  it('goes to the team lead when no reporting manager is assigned', async () => {
+    const id = await apply(await signIn('vijay@sns.test'), '2026-10-05', '2026-10-07');
+    expect(await approverEmailFor(id)).toBe('john@sns.test');
+  });
+
   it('goes to the department head when the team has no lead', async () => {
-    await sqlite.exec(`UPDATE team SET lead_employee_id = NULL WHERE name = 'Platform'`);
-    const id = await apply(await signIn('amina@example.invalid'), '2026-10-05', '2026-10-07');
-    expect(await approverEmailFor(id)).toBe('sofia@example.invalid');
+    await sqlite.exec(`UPDATE team SET lead_employee_id = NULL WHERE name = 'Printing'`);
+    const id = await apply(await signIn('vijay@sns.test'), '2026-10-05', '2026-10-07');
+    expect(await approverEmailFor(id)).toBe('david@sns.test');
     const row = (await sqlite
       .prepare(`SELECT escalation_reason FROM leave_request WHERE id = ?`)
       .get(id)) as { escalation_reason: string | null };
@@ -207,18 +228,16 @@ describe('escalation when a rung is unavailable', () => {
   });
 
   it('goes to HR when neither the lead nor the head is available', async () => {
-    await sqlite.exec(`UPDATE team SET lead_employee_id = NULL WHERE name = 'Platform'`);
-    await sqlite.exec(`UPDATE department SET head_employee_id = NULL WHERE code = 'ENG'`);
-    const id = await apply(await signIn('amina@example.invalid'), '2026-10-05', '2026-10-07');
-    expect(await approverEmailFor(id)).toBe('helen@example.invalid');
+    await sqlite.exec(`UPDATE team SET lead_employee_id = NULL WHERE name = 'Printing'`);
+    await sqlite.exec(`UPDATE department SET head_employee_id = NULL WHERE code = 'PRD'`);
+    const id = await apply(await signIn('vijay@sns.test'), '2026-10-05', '2026-10-07');
+    expect(await approverEmailFor(id)).toBe('anitha@sns.test');
   });
 
   it('skips a lead whose account is disabled', async () => {
-    await sqlite.exec(
-      `UPDATE user_account SET is_disabled = 1 WHERE email = 'ravi@example.invalid'`,
-    );
-    const id = await apply(await signIn('amina@example.invalid'), '2026-10-05', '2026-10-07');
-    expect(await approverEmailFor(id)).toBe('sofia@example.invalid');
+    await sqlite.exec(`UPDATE user_account SET is_disabled = 1 WHERE email = 'john@sns.test'`);
+    const id = await apply(await signIn('vijay@sns.test'), '2026-10-05', '2026-10-07');
+    expect(await approverEmailFor(id)).toBe('david@sns.test');
   });
 
   it('refuses clearly when nobody can approve, rather than failing obscurely', async () => {
@@ -229,7 +248,7 @@ describe('escalation when a rung is unavailable', () => {
         WHERE id IN (SELECT ur.user_account_id FROM user_role ur
                      JOIN role r ON r.id = ur.role_id WHERE r.code IN ('hr_officer','admin'))`,
     );
-    const amina = await signIn('amina@example.invalid');
+    const amina = await signIn('vijay@sns.test');
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
@@ -250,8 +269,8 @@ describe('escalation when a rung is unavailable', () => {
 
 describe('HR and administrators keep their override', () => {
   it('lets HR decide a request routed to a team lead', async () => {
-    const amina = await signIn('amina@example.invalid');
-    const helen = await signIn('helen@example.invalid');
+    const amina = await signIn('vijay@sns.test');
+    const helen = await signIn('anitha@sns.test');
     const id = await apply(amina, '2026-10-05', '2026-10-07');
     const res = await app.inject({
       method: 'POST',
@@ -263,8 +282,8 @@ describe('HR and administrators keep their override', () => {
   });
 
   it('still refuses an ordinary employee', async () => {
-    const amina = await signIn('amina@example.invalid');
-    const paul = await signIn('paul@example.invalid');
+    const amina = await signIn('vijay@sns.test');
+    const paul = await signIn('ramesh@sns.test');
     const id = await apply(amina, '2026-10-05', '2026-10-07');
     const res = await app.inject({
       method: 'POST',
@@ -278,17 +297,17 @@ describe('HR and administrators keep their override', () => {
 
 describe('Downstream higher-up notifications and on-behalf leave', () => {
   it('notifies Dept Head and HR when Team Lead approves leave, but notifies NO higher-up on rejection', async () => {
-    const amina = await signIn('amina@example.invalid');
-    const ravi = await signIn('ravi@example.invalid');
+    const amina = await signIn('vijay@sns.test');
+    const ravi = await signIn('john@sns.test');
 
     const sofiaUser = (await sqlite
-      .prepare(`SELECT id FROM user_account WHERE email = 'sofia@example.invalid'`)
+      .prepare(`SELECT id FROM user_account WHERE email = 'david@sns.test'`)
       .get()) as { id: string };
     const helenUser = (await sqlite
-      .prepare(`SELECT id FROM user_account WHERE email = 'helen@example.invalid'`)
+      .prepare(`SELECT id FROM user_account WHERE email = 'anitha@sns.test'`)
       .get()) as { id: string };
     const aminaUser = (await sqlite
-      .prepare(`SELECT id FROM user_account WHERE email = 'amina@example.invalid'`)
+      .prepare(`SELECT id FROM user_account WHERE email = 'vijay@sns.test'`)
       .get()) as { id: string };
 
     // 1. Amina applies for leave
@@ -350,12 +369,12 @@ describe('Downstream higher-up notifications and on-behalf leave', () => {
   });
 
   it('allows Team Lead to submit sudden leave on behalf of absent team member with audit and notification', async () => {
-    const ravi = await signIn('ravi@example.invalid');
+    const ravi = await signIn('john@sns.test');
     const aminaEmp = (await sqlite
-      .prepare(`SELECT id FROM employee WHERE first_name = 'Amina'`)
+      .prepare(`SELECT id FROM employee WHERE work_email = 'vijay@sns.test'`)
       .get()) as { id: string };
     const aminaUser = (await sqlite
-      .prepare(`SELECT id FROM user_account WHERE email = 'amina@example.invalid'`)
+      .prepare(`SELECT id FROM user_account WHERE email = 'vijay@sns.test'`)
       .get()) as { id: string };
 
     const res = await app.inject({
@@ -421,7 +440,7 @@ describe('Office Security: Workstation Binding & Network Perimeter', () => {
       method: 'POST',
       url: '/api/v1/auth/login',
       payload: {
-        email: 'amina@example.invalid',
+        email: 'vijay@sns.test',
         password: 'ChangeMe_demo_1',
         workstationId: 'ws-terminal-101',
       },
@@ -440,7 +459,7 @@ describe('Office Security: Workstation Binding & Network Perimeter', () => {
       method: 'POST',
       url: '/api/v1/auth/login',
       payload: {
-        email: 'paul@example.invalid',
+        email: 'ramesh@sns.test',
         password: 'ChangeMe_demo_1',
         workstationId: 'ws-terminal-101',
       },
@@ -460,7 +479,7 @@ describe('Office Security: Workstation Binding & Network Perimeter', () => {
       method: 'POST',
       url: '/api/v1/auth/login',
       payload: {
-        email: 'amina@example.invalid',
+        email: 'vijay@sns.test',
         password: 'ChangeMe_demo_1',
         workstationId: 'ws-terminal-101',
       },
@@ -475,7 +494,7 @@ describe('Office Security: Workstation Binding & Network Perimeter', () => {
       method: 'POST',
       url: '/api/v1/auth/login',
       payload: {
-        email: 'amina@example.invalid',
+        email: 'vijay@sns.test',
         password: 'ChangeMe_demo_1',
         workstationId: 'ws-terminal-dev',
       },
@@ -487,7 +506,7 @@ describe('Office Security: Workstation Binding & Network Perimeter', () => {
       method: 'POST',
       url: '/api/v1/auth/login',
       payload: {
-        email: 'paul@example.invalid',
+        email: 'ramesh@sns.test',
         password: 'ChangeMe_demo_1',
         workstationId: 'ws-terminal-dev',
       },
@@ -497,7 +516,7 @@ describe('Office Security: Workstation Binding & Network Perimeter', () => {
 
   it('suppresses attendance signals for offsite remote IPs', async () => {
     const aminaEmp = (await sqlite
-      .prepare(`SELECT id FROM employee WHERE first_name = 'Amina'`)
+      .prepare(`SELECT id FROM employee WHERE work_email = 'vijay@sns.test'`)
       .get()) as { id: string };
 
     // Offsite IP login (e.g. 203.0.113.88)
@@ -506,7 +525,7 @@ describe('Office Security: Workstation Binding & Network Perimeter', () => {
       url: '/api/v1/auth/login',
       remoteAddress: '203.0.113.88',
       payload: {
-        email: 'amina@example.invalid',
+        email: 'vijay@sns.test',
         password: 'ChangeMe_demo_1',
       },
     });

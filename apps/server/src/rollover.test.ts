@@ -52,7 +52,7 @@ afterEach(async () => {
 
 async function amina(sqlite: Db): Promise<string> {
   const row = (await sqlite
-    .prepare(`SELECT id FROM employee WHERE work_email = 'amina@example.invalid'`)
+    .prepare(`SELECT id FROM employee WHERE work_email = 'vijay@sns.test'`)
     .get()) as { id: string };
   return row.id;
 }

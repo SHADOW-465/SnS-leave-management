@@ -125,8 +125,8 @@ beforeAll(async () => {
   });
   app = await buildApp(config, db);
   await app.ready();
-  employee = await signIn('amina@example.invalid');
-  hr = await signIn('helen@example.invalid');
+  employee = await signIn('vijay@sns.test');
+  hr = await signIn('anitha@sns.test');
   const types = await app.inject({
     method: 'GET',
     url: '/api/v1/leave-types',
@@ -343,13 +343,13 @@ describe('hosted Postgres: demo hierarchy backfill is idempotent', () => {
     await ensureDemoHierarchy(ctx);
     await ensureDemoHierarchy(ctx);
     const n = (await db
-      .prepare(`SELECT COUNT(*) AS n FROM user_account WHERE email = 'sofia@example.invalid'`)
+      .prepare(`SELECT COUNT(*) AS n FROM user_account WHERE email = 'david@sns.test'`)
       .get()) as { n: number };
     expect(Number(n.n)).toBe(1);
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'sofia@example.invalid', password: 'ChangeMe_demo_1' },
+      payload: { email: 'david@sns.test', password: 'ChangeMe_demo_1' },
     });
     expect(res.statusCode).toBe(200);
   });
@@ -392,29 +392,45 @@ describe('hosted Postgres: administrator controls', () => {
     expect(typeof data.teams[0]?.memberCount).toBe('number');
   });
 
-  it('sets and clears an override', async () => {
-    const amina = await emp('amina@example.invalid');
-    const sofia = await emp('sofia@example.invalid');
+  it('assigns reporting managers with dated history', async () => {
+    const vijay = await emp('vijay@sns.test');
+    const david = await emp('david@sns.test');
+    const assign = (managerEmployeeId: string | null) =>
+      put(admin, '/api/v1/admin/reporting-managers', { employeeIds: [vijay], managerEmployeeId });
+    const first = await assign(david);
+    expect(first.statusCode).toBe(200);
+    expect((first.json() as { data: { changed: number } }).data.changed).toBe(1);
+    // A same-day correction updates the open history row rather than adding another.
+    expect((await assign(null)).statusCode).toBe(200);
+    const history = await app.inject({
+      method: 'GET',
+      url: `/api/v1/employees/${vijay}/manager-history`,
+      headers: { cookie: admin.cookie },
+    });
+    expect(history.statusCode).toBe(200);
+    expect((history.json() as { data: unknown[] }).data.length).toBeGreaterThan(0);
+  });
+
+  it('works through the transactions register, annual report and working week', async () => {
+    const vijay = await emp('vijay@sns.test');
+    const get = (url: string) =>
+      app.inject({ method: 'GET', url, headers: { cookie: admin.cookie } });
+    expect((await get(`/api/v1/ledger?employeeId=${vijay}`)).statusCode).toBe(200);
+    const annual = await get('/api/v1/reports/annual');
+    expect(annual.statusCode).toBe(200);
+    expect((annual.json() as { data: { rows: unknown[] } }).data.rows.length).toBeGreaterThan(0);
     expect(
-      (await put(admin, `/api/v1/admin/overrides/${amina}`, { approverEmployeeId: sofia }))
-        .statusCode,
+      (await put(admin, '/api/v1/settings/work-week', { weekendDays: [0, 6] })).statusCode,
     ).toBe(200);
-    // Setting it again exercises the ON CONFLICT upsert.
-    expect(
-      (await put(admin, `/api/v1/admin/overrides/${amina}`, { approverEmployeeId: sofia }))
-        .statusCode,
-    ).toBe(200);
-    expect(
-      (await put(admin, `/api/v1/admin/overrides/${amina}`, { approverEmployeeId: null }))
-        .statusCode,
-    ).toBe(200);
+    expect((await get('/api/v1/admin/users')).statusCode).toBe(200);
+    expect((await get('/api/v1/profile')).statusCode).toBe(200);
   });
 
   it('creates and removes cover, and routes to the cover meanwhile', async () => {
     const today = new Date().toISOString().slice(0, 10);
     const created = await post(admin, '/api/v1/admin/delegations', {
-      approverEmployeeId: await emp('ravi@example.invalid'),
-      delegateEmployeeId: await emp('paul@example.invalid'),
+      approverEmployeeId: await emp('john@sns.test'),
+      delegateEmployeeId: await emp('ramesh@sns.test'),
       startsOn: today,
       endsOn: '2099-12-31',
     });
@@ -424,7 +440,7 @@ describe('hosted Postgres: administrator controls', () => {
       url: `/api/v1/leave/preview?leaveTypeId=${clTypeId}&startDate=2026-12-07&endDate=2026-12-08`,
       headers: { cookie: employee.cookie },
     });
-    expect((preview.json() as { data: { approver: string } }).data.approver).toContain('Paul');
+    expect((preview.json() as { data: { approver: string } }).data.approver).toContain('Ramesh');
     const id = (created.json() as { data: { id: string } }).data.id;
     expect(
       (
@@ -447,7 +463,7 @@ describe('hosted Postgres: administrator controls', () => {
     expect(submitted.statusCode).toBe(201);
     const id = (submitted.json() as { data: { id: string } }).data.id;
     const res = await post(admin, `/api/v1/leave-requests/${id}/reassign`, {
-      approverEmployeeId: await emp('sofia@example.invalid'),
+      approverEmployeeId: await emp('david@sns.test'),
     });
     expect(res.statusCode).toBe(200);
   });
@@ -459,7 +475,7 @@ describe('hosted Postgres: administrator controls', () => {
       headers: { cookie: admin.cookie },
     });
     expect(list.statusCode).toBe(200);
-    const paul = await user('paul@example.invalid');
+    const paul = await user('ramesh@sns.test');
     expect(
       (await put(admin, `/api/v1/admin/users/${paul}/roles`, { roles: ['payroll_officer'] }))
         .statusCode,
@@ -482,7 +498,7 @@ describe('hosted Postgres: administrator controls', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'ravi@example.invalid', password: 'ChangeMe_demo_1' },
+      payload: { email: 'john@sns.test', password: 'ChangeMe_demo_1' },
     });
     const ravi = sessionFrom(res);
     const me = await app.inject({
@@ -497,7 +513,7 @@ describe('hosted Postgres: administrator controls', () => {
   it('lists and sets allowances, with numbers not bigints', async () => {
     const cl = (await pg.query<{ id: string }>(`SELECT id FROM leave_type WHERE code = 'CL'`))
       .rows[0]!.id;
-    const paul = await emp('paul@example.invalid');
+    const paul = await emp('ramesh@sns.test');
     const set = await put(admin, '/api/v1/allowances', {
       employeeIds: [paul],
       leaveTypeId: cl,

@@ -178,35 +178,35 @@ describe('administrator controls', () => {
     roles: { hr_officer: [ok('u-helen')], admin: [ok('u-ada')] },
   };
 
-  it('an override beats the team structure', () => {
+  it('the reporting manager beats the team structure', () => {
     const r = resolveApproverChain({
       requesterUserId: 'u-amina',
       requesterKind: 'employee',
       candidatesByKind: org,
-      override: ok('u-helen'),
+      reportingManager: ok('u-helen'),
     });
     expect(r.approverUserId).toBe('u-helen');
-    expect(r.approverKind).toBe('specific_employee');
+    expect(r.approverKind).toBe('reporting_manager');
     expect(r.escalation).toBeNull();
   });
 
-  it('an override who is away falls back to the normal chain and says why', () => {
+  it('a reporting manager who is away falls back to the normal chain and says why', () => {
     const r = resolveApproverChain({
       requesterUserId: 'u-amina',
       requesterKind: 'employee',
       candidatesByKind: org,
-      override: away('u-helen'),
+      reportingManager: away('u-helen'),
     });
     expect(r.approverUserId).toBe('u-ravi');
     expect(r.escalation).toBe('approver_on_leave');
   });
 
-  it('an override pointing at the requester is ignored', () => {
+  it('a reporting manager who is the requester is ignored', () => {
     const r = resolveApproverChain({
       requesterUserId: 'u-amina',
       requesterKind: 'employee',
       candidatesByKind: org,
-      override: ok('u-amina'),
+      reportingManager: ok('u-amina'),
     });
     expect(r.approverUserId).toBe('u-ravi');
   });

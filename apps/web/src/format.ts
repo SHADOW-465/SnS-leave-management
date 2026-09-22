@@ -18,6 +18,11 @@ export function daysLabel(halfDays: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
+/** "1 day", "0.5 day", "2 days" — never "1 days". */
+export function dayCount(halfDays: number): string {
+  return `${daysLabel(halfDays)} ${halfDays === 2 || halfDays === 1 ? 'day' : 'days'}`;
+}
+
 export function initials(name: string): string {
   return name
     .split(' ')

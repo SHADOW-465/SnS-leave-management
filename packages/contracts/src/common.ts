@@ -38,5 +38,13 @@ export const policyRulesSchema = z
     maxConsecutiveDays: z.number().int().min(1).max(365),
     negativeBalanceAllowed: z.boolean(),
     attachmentRequiredAfterHalfDays: z.number().int().min(0).max(400).nullable(),
+    excludeWeekends: z.boolean().default(true),
+    excludeHolidays: z.boolean().default(true),
+    joinMonthAccrual: z.enum(['full', 'prorated', 'none']).default('prorated'),
+    categoryMonthlyHalfDays: z
+      .record(z.string().regex(/^[A-Z0-9_]{1,16}$/), z.number().int().min(0).max(62))
+      .default({}),
+    probationMonthlyHalfDays: z.number().int().min(0).max(62).nullable().default(null),
+    maxBalanceHalfDays: z.number().int().min(0).max(800).default(0),
   })
   .strict();

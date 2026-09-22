@@ -2,6 +2,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import {
   bulkHolidayBodySchema,
+  createLoginBodySchema,
+  holidayFileBodySchema,
+  workWeekBodySchema,
   importHolidaysBodySchema,
   createDelegationBodySchema,
   setAllowanceBodySchema,
@@ -9,14 +12,16 @@ import {
   reassignRequestBodySchema,
   setApproverBodySchema,
   setDisabledBodySchema,
-  setOverrideBodySchema,
+  assignManagerBodySchema,
   setRolesBodySchema,
 } from '@sns/contracts';
-import type { RoleCode } from '@sns/domain';
+import { DomainError, type RoleCode } from '@sns/domain';
 import { authorizeAction } from './ctx.js';
 import { sendError } from './http.js';
+import { readHolidaySheet, standardHolidays } from './holiday-sheet.js';
 import {
   approvalMap,
+  createLogin,
   createDelegation,
   deleteDelegation,
   listUsers,
@@ -25,7 +30,8 @@ import {
   revokeUserSessions,
   setAccountDisabled,
   setDepartmentHead,
-  setOverride,
+  assignReportingManager,
+  reportingManagerHistory,
   setTeamLead,
   setUserRoles,
 } from './usecases/admin.js';
@@ -34,6 +40,8 @@ import {
   importHolidays,
   listAllowances,
   setAllowances,
+  setWorkWeek,
+  workWeek,
 } from './usecases/allowances.js';
 
 /** Wraps a handler so every administrator route answers with the same envelope. */
@@ -80,11 +88,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     ),
   );
   app.put(
-    '/api/v1/admin/overrides/:employeeId',
-    handle((req) => {
-      const b = body(setOverrideBodySchema, req);
-      return setOverride(req.ctx, param(req, 'employeeId'), b.approverEmployeeId, b.note ?? null);
-    }),
+    '/api/v1/admin/reporting-managers',
+    handle((req) => assignReportingManager(req.ctx, body(assignManagerBodySchema, req))),
+  );
+  app.get(
+    '/api/v1/employees/:id/manager-history',
+    handle((req) => reportingManagerHistory(req.ctx, param(req, 'id'))),
   );
   app.post(
     '/api/v1/admin/delegations',
@@ -109,6 +118,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get(
     '/api/v1/admin/users',
     handle((req) => listUsers(req.ctx)),
+  );
+  app.post(
+    '/api/v1/admin/users',
+    handle((req) => {
+      const b = body(createLoginBodySchema, req);
+      return createLogin(req.ctx, { ...b, roles: b.roles as RoleCode[] });
+    }),
   );
   app.put(
     '/api/v1/admin/users/:id/roles',
@@ -140,9 +156,61 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     '/api/v1/allowances',
     handle((req) => setAllowances(req.ctx, body(setAllowanceBodySchema, req))),
   );
+  app.get(
+    '/api/v1/settings/work-week',
+    handle((req) => workWeek(req.ctx)),
+  );
+  app.put(
+    '/api/v1/settings/work-week',
+    handle((req) => setWorkWeek(req.ctx, body(workWeekBodySchema, req).weekendDays)),
+  );
   app.post(
     '/api/v1/holidays/bulk',
     handle((req) => applyHolidays(req.ctx, body(bulkHolidayBodySchema, req))),
+  );
+  app.post(
+    '/api/v1/holidays/import-file',
+    handle(async (req) => {
+      await authorizeAction(req.ctx, 'holiday.calendar.manage', null);
+      const b = body(holidayFileBodySchema, req);
+      const { rows, problems } = readHolidaySheet(Buffer.from(b.contentBase64, 'base64'));
+      if (!rows.length) {
+        throw new DomainError(
+          'NOTHING_TO_IMPORT',
+          problems[0] ?? 'No holidays were found in that file.',
+          {
+            httpStatus: 400,
+            details: problems.slice(0, 10).map((m) => ({ path: 'file', message: m })),
+          },
+        );
+      }
+      const result = await importHolidays(req.ctx, {
+        rows: rows.slice(0, 400),
+        calendarId: b.calendarId,
+      });
+      return {
+        ...result,
+        problems,
+        message:
+          result.message + (problems.length ? ` ${problems.length} row(s) could not be read.` : ''),
+      };
+    }),
+  );
+  app.post(
+    '/api/v1/holidays/load-standard',
+    handle(async (req) => {
+      const year = Number((req.body as { year?: unknown } | undefined)?.year);
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+        throw new DomainError('BAD_YEAR', 'Choose a year between 2000 and 2100.', {
+          httpStatus: 400,
+        });
+      }
+      const result = await importHolidays(req.ctx, { rows: standardHolidays(year) });
+      return {
+        ...result,
+        message: `${result.message} Add festivals whose dates change each year (Pongal, Deepavali and so on) from the official list.`,
+      };
+    }),
   );
   app.post(
     '/api/v1/holidays/import',

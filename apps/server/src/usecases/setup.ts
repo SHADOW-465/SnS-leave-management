@@ -3,32 +3,47 @@ import { isBootstrapped, seedSystem, withTx } from '@sns/database';
 import {
   DomainError,
   defaultRulesForCode,
-  monthlyAccrualHalfDays,
   monthsInclusive,
   newId,
+  parseRules,
   periodBounds,
-  prorateJoinerHalfDays,
+  planRollover,
   type LeavePolicyRules,
 } from '@sns/domain';
 import type { RequestContext } from '../ctx.js';
-/** Shared password for the synthetic sample accounts. Development convenience only. */
-export const DEMO_PASSWORD = 'ChangeMe_demo_1';
-/** Sample accounts are only ever created at these reserved, undeliverable addresses. */
-export const DEMO_EMAIL_SUFFIX = '@example.invalid';
+import {
+  DEMO_ADMIN,
+  DEMO_DOMAIN,
+  DEMO_PASSWORD,
+  ensureDemoOrganisation,
+  seedDemoActivity,
+} from './demo.js';
+import { creditMonth } from '../jobs/balance.js';
+export { DEMO_PASSWORD } from './demo.js';
+
+/** Sample accounts live only at these reserved, undeliverable domains. */
+const DEMO_DOMAINS = [DEMO_DOMAIN, '@example.invalid'];
 
 export async function setupStatus(ctx: RequestContext) {
   return { needsSetup: !(await isBootstrapped(ctx.sqlite)) };
 }
 
 /**
- * Lists the synthetic sample accounts so they can be shown on the sign-in screen while
- * developing. Returns nothing outside development, and never returns an account whose
- * address is not a reserved `@example.invalid` one — so a real account can never leak
- * here even if the environment is misconfigured.
+ * Lists the sample sign-ins for the sign-in screen while developing or on the hosted
+ * preview. Returns nothing in production, and never an account outside the reserved demo
+ * domains — so a real account cannot leak here even if the environment is misconfigured.
  */
 export async function demoAccounts(ctx: RequestContext): Promise<{
   password: string;
-  accounts: { email: string; name: string; roles: string; password?: string }[];
+  accounts: {
+    email: string;
+    name: string;
+    roles: string;
+    title: string | null;
+    code: string | null;
+    department: string | null;
+    password?: string;
+  }[];
 }> {
   if (ctx.config.env === 'production' || !ctx.config.showDemoAccounts)
     return { password: '', accounts: [] };
@@ -37,39 +52,57 @@ export async function demoAccounts(ctx: RequestContext): Promise<{
     .prepare(
       `SELECT ua.email AS email,
               COALESCE(e.first_name || ' ' || e.last_name, ua.email) AS name,
-              GROUP_CONCAT(r.code, ', ') AS roles
+              j.name AS title, e.employee_code AS code, d.name AS department,
+              (SELECT GROUP_CONCAT(r.code, ', ') FROM user_role ur JOIN role r ON r.id = ur.role_id
+                WHERE ur.user_account_id = ua.id) AS roles
        FROM user_account ua
        LEFT JOIN employee e ON e.id = ua.employee_id
-       LEFT JOIN user_role ur ON ur.user_account_id = ua.id
-       LEFT JOIN role r ON r.id = ur.role_id
-       WHERE ua.email LIKE '%${DEMO_EMAIL_SUFFIX}' AND ua.is_disabled = 0
-       GROUP BY ua.id, ua.email, ua.created_at, e.first_name, e.last_name
+       LEFT JOIN job_title j ON j.id = e.job_title_id
+       LEFT JOIN department d ON d.id = e.department_id
+       WHERE ua.is_disabled = 0 AND (ua.email LIKE ? OR ua.email LIKE ?)
        ORDER BY ua.created_at`,
     )
-    .all()) as { email: string; name: string; roles: string | null }[];
-
-  const accounts = rows.map((r) => ({
-    email: r.email,
-    name: r.name,
-    roles: r.roles ?? 'no role',
-    password: r.email.startsWith('admin') ? 'ChangeMe_admin_1' : DEMO_PASSWORD,
-  }));
+    .all(`%${DEMO_DOMAINS[0]}`, `%${DEMO_DOMAINS[1]}`)) as {
+    email: string;
+    name: string;
+    roles: string | null;
+    title: string | null;
+    code: string | null;
+    department: string | null;
+  }[];
+  const order = (await ctx.sqlite
+    .prepare(`SELECT value_json FROM app_setting WHERE key = 'demo.accounts'`)
+    .get()) as { value_json: string } | undefined;
+  const rank = new Map<string, number>(
+    (order ? (JSON.parse(order.value_json) as string[]) : []).map((e, i) => [e, i]),
+  );
+  rows.sort((x, y) => (rank.get(x.email) ?? 999) - (rank.get(y.email) ?? 999));
 
   return {
     password: DEMO_PASSWORD,
-    accounts,
+    accounts: rows.map((r) => ({
+      ...r,
+      roles: r.roles ?? 'no role',
+      password: r.email.startsWith('admin') ? DEMO_ADMIN.password : DEMO_PASSWORD,
+    })),
   };
 }
 
 /**
- * Hosted preview only. The first Vercel deploy seeded the older sample people (no Sofia,
- * no Engineering org). `seedOnEmpty` will not run again on a bootstrapped database, so
- * this backfills the missing department-head rung and seats the existing sample people
- * into it. Safe to call on every cold start: existing rows are left alone.
+ * Hosted preview only. Brings an already-bootstrapped demo database up to the current
+ * sample organisation — renaming the older placeholder people in place, never deleting —
+ * once. Cheap on every later cold start.
  */
 export async function ensureDemoHierarchy(ctx: RequestContext): Promise<void> {
   if (!(await isBootstrapped(ctx.sqlite))) return;
-
+  const done = await ctx.sqlite
+    .prepare(`SELECT key FROM app_setting WHERE key = 'demo.version' AND value_json = '2'`)
+    .get();
+  if (done) return;
+  const hasDemo = await ctx.sqlite
+    .prepare(`SELECT id FROM user_account WHERE email LIKE ? OR email LIKE ? LIMIT 1`)
+    .get(`%${DEMO_DOMAINS[0]}`, `%${DEMO_DOMAINS[1]}`);
+  if (!hasDemo) return;
   const actor = (await ctx.sqlite
     .prepare(
       `SELECT ua.id AS id FROM user_account ua
@@ -80,103 +113,18 @@ export async function ensureDemoHierarchy(ctx: RequestContext): Promise<void> {
         LIMIT 1`,
     )
     .get()) as { id: string } | undefined;
-  const location = (await ctx.sqlite.prepare(`SELECT id FROM location LIMIT 1`).get()) as
-    { id: string } | undefined;
-  const job = (await ctx.sqlite.prepare(`SELECT id FROM job_title LIMIT 1`).get()) as
-    { id: string } | undefined;
-  const type = (await ctx.sqlite
-    .prepare(`SELECT id FROM employment_type WHERE code = 'PERM'`)
-    .get()) as { id: string } | undefined;
-  if (!actor || !location || !job || !type) return;
+  if (!actor) return;
+  await ensureDemoOrganisation(ctx, actor.id, { upgradeLegacy: true });
+  await markDemoVersion(ctx, actor.id);
+}
 
-  const periodId = await currentPeriodId(ctx);
-  const demoPassword = await hashPassword(DEMO_PASSWORD);
-
-  await withTx(ctx.sqlite, async () => {
-    const engineeringId = await ensureNamedDepartment(ctx, actor.id, 'ENG', 'Engineering');
-    const platformTeamId = await ensureNamedTeam(ctx, actor.id, engineeringId, 'Platform');
-    const supportTeamId = await ensureNamedTeam(ctx, actor.id, engineeringId, 'Customer Support');
-
-    await ensureDemoPerson(ctx, {
-      code: 'E-1006',
-      first: 'Sofia',
-      last: 'Example',
-      email: 'sofia@example.invalid',
-      role: 'manager',
-      departmentId: engineeringId,
-      teamId: null,
-      locationId: location.id,
-      jobId: job.id,
-      typeId: type.id,
-      periodId,
-      actorId: actor.id,
-      passwordHash: demoPassword,
-    });
-
-    await placeDemoEmployee(ctx, 'amina@example.invalid', engineeringId, platformTeamId);
-    await placeDemoEmployee(ctx, 'ravi@example.invalid', engineeringId, platformTeamId);
-    await placeDemoEmployee(ctx, 'paul@example.invalid', engineeringId, supportTeamId);
-
-    const raviId = await employeeIdForEmail(ctx, 'ravi@example.invalid');
-    const sofiaId = await employeeIdForEmail(ctx, 'sofia@example.invalid');
-    if (raviId) {
-      const lead = (await ctx.sqlite
-        .prepare(`SELECT lead_employee_id AS id FROM team WHERE id = ?`)
-        .get(platformTeamId)) as { id: string | null };
-      if (!lead.id) {
-        await ctx.sqlite
-          .prepare(`UPDATE team SET lead_employee_id = ?, updated_at = ? WHERE id = ?`)
-          .run(raviId, ctx.now, platformTeamId);
-      }
-    }
-    if (sofiaId) {
-      const head = (await ctx.sqlite
-        .prepare(`SELECT head_employee_id AS id FROM department WHERE id = ?`)
-        .get(engineeringId)) as { id: string | null };
-      if (!head.id) {
-        await ctx.sqlite
-          .prepare(`UPDATE department SET head_employee_id = ?, updated_at = ? WHERE id = ?`)
-          .run(sofiaId, ctx.now, engineeringId);
-      }
-    }
-
-    const teamLeadStep = (await ctx.sqlite
-      .prepare(`SELECT id FROM approval_workflow_step WHERE approver_kind = 'team_lead' LIMIT 1`)
-      .get()) as { id: string } | undefined;
-    if (!teamLeadStep) {
-      await ctx.sqlite
-        .prepare(`UPDATE approval_workflow SET is_active = 0, updated_at = ? WHERE is_active = 1`)
-        .run(ctx.now);
-      await seedWorkflows(ctx, actor.id);
-    }
-
-    const emails = (
-      (await ctx.sqlite
-        .prepare(
-          `SELECT email FROM user_account
-            WHERE email LIKE '%${DEMO_EMAIL_SUFFIX}' AND is_disabled = 0
-            ORDER BY created_at`,
-        )
-        .all()) as { email: string }[]
-    ).map((r) => r.email);
-    const setting = (await ctx.sqlite
-      .prepare(`SELECT key FROM app_setting WHERE key = 'demo.accounts'`)
-      .get()) as { key: string } | undefined;
-    const payload = JSON.stringify(emails);
-    if (setting) {
-      await ctx.sqlite
-        .prepare(
-          `UPDATE app_setting SET value_json = ?, updated_by = ?, updated_at = ? WHERE key = 'demo.accounts'`,
-        )
-        .run(payload, actor.id, ctx.now);
-    } else {
-      await ctx.sqlite
-        .prepare(
-          `INSERT INTO app_setting (key, value_json, updated_by, updated_at) VALUES ('demo.accounts', ?, ?, ?)`,
-        )
-        .run(payload, actor.id, ctx.now);
-    }
-  });
+async function markDemoVersion(ctx: RequestContext, actorId: string) {
+  await ctx.sqlite.prepare(`DELETE FROM app_setting WHERE key = 'demo.version'`).run();
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO app_setting (key, value_json, updated_by, updated_at) VALUES ('demo.version', '2', ?, ?)`,
+    )
+    .run(actorId, ctx.now);
 }
 
 export async function completeSetup(
@@ -190,6 +138,8 @@ export async function completeSetup(
     adminEmail: string;
     adminPassword: string;
     loadSampleData: boolean;
+    /** Also create sample leave requests at every stage (development and the preview). */
+    sampleActivity?: boolean;
   },
 ) {
   if (await isBootstrapped(ctx.sqlite)) {
@@ -337,7 +287,7 @@ export async function completeSetup(
     // These must complete before balances are granted: grantOpeningBalances reads
     // leave_type, and un-awaited calls here left the administrator with only whichever
     // types happened to be inserted first.
-    await seedLeaveTypes(ctx, adminUserId);
+    await seedLeaveTypes(ctx, adminUserId, period.startsOn);
     await seedWorkflows(ctx, adminUserId);
     await grantOpeningBalances(ctx, adminEmployeeId, periodId, adminUserId);
     await ctx.sqlite
@@ -348,11 +298,17 @@ export async function completeSetup(
       .run(newId(), ctx.now, adminUserId, input.adminEmail, ctx.requestId);
   });
   if (input.loadSampleData) {
-    await seedDemoPeople(ctx, { locationId, deptId, calendarId, periodId, actorId: adminUserId });
+    await ensureDemoOrganisation(ctx, adminUserId);
+    await markDemoVersion(ctx, adminUserId);
+    if (input.sampleActivity) await seedDemoActivity(ctx);
   }
   return { ok: true };
 }
-async function seedLeaveTypes(ctx: RequestContext, actor: string) {
+/**
+ * The first rules take effect from the start of the current leave year, not the day the
+ * app was installed: leave taken earlier in the year is recorded under them too.
+ */
+async function seedLeaveTypes(ctx: RequestContext, actor: string, effectiveFrom: string) {
   const types = [
     { code: 'CL', name: 'Casual leave', token: 'accent', paid: 1 },
     { code: 'SL', name: 'Sick leave', token: 'status-pending', paid: 1 },
@@ -374,7 +330,7 @@ async function seedLeaveTypes(ctx: RequestContext, actor: string) {
         `INSERT INTO leave_policy_version (id, leave_type_id, version_no, effective_from, rules_json, published_at, published_by, created_at, created_by)
          VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(versionId, typeId, ctx.today, JSON.stringify(rules), ctx.now, actor, ctx.now, actor);
+      .run(versionId, typeId, effectiveFrom, JSON.stringify(rules), ctx.now, actor, ctx.now, actor);
     await ctx.sqlite
       .prepare(
         `INSERT INTO policy_assignment (id, leave_policy_version_id, scope_type, scope_id, priority)
@@ -448,337 +404,6 @@ async function seedWorkflows(ctx: RequestContext, actor: string) {
     priority += 10;
   }
 }
-async function seedDemoPeople(
-  ctx: RequestContext,
-  ids: {
-    locationId: string;
-    deptId: string;
-    calendarId: string;
-    periodId: string;
-    actorId: string;
-  },
-) {
-  const { hashPassword } = await import('@sns/auth');
-  // Synthetic sign-in accounts covering every rung of the approval hierarchy, so the
-  // chain is visible the moment someone opens the app rather than something you have to
-  // construct by hand. They sign in without a forced password change on purpose: the
-  // forced change belongs to real provisioning and to admin reset, and both still set it.
-  // Every address is @example.invalid, a reserved, undeliverable TLD.
-  const demoPassword = await hashPassword(DEMO_PASSWORD);
-
-  await withTx(ctx.sqlite, async () => {
-    const job = (await ctx.sqlite.prepare(`SELECT id FROM job_title LIMIT 1`).get()) as {
-      id: string;
-    };
-    const type = (await ctx.sqlite
-      .prepare(`SELECT id FROM employment_type WHERE code = 'PERM'`)
-      .get()) as { id: string };
-
-    // A small but complete organisation: one department with two teams, each with a
-    // lead, and a department head above them.
-    const engineeringId = newId();
-    await ctx.sqlite
-      .prepare(
-        `INSERT INTO department (id, name, code, created_at, created_by, updated_at, updated_by)
-         VALUES (?, 'Engineering', 'ENG', ?, ?, ?, ?)`,
-      )
-      .run(engineeringId, ctx.now, ids.actorId, ctx.now, ids.actorId);
-
-    const platformTeamId = newId();
-    const supportTeamId = newId();
-    const teams: [string, string][] = [
-      [platformTeamId, 'Platform'],
-      [supportTeamId, 'Customer Support'],
-    ];
-    for (const [id, name] of teams) {
-      await ctx.sqlite
-        .prepare(
-          `INSERT INTO team (id, department_id, name, created_at, created_by, updated_at, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(id, engineeringId, name, ctx.now, ids.actorId, ctx.now, ids.actorId);
-    }
-
-    type Person = {
-      code: string;
-      first: string;
-      last: string;
-      email: string;
-      role: 'employee' | 'manager' | 'hr_officer' | 'payroll_officer' | 'auditor';
-      teamId: string | null;
-      leadsTeamId?: string;
-      headsDepartment?: boolean;
-    };
-
-    const people: Person[] = [
-      {
-        code: 'E-1001',
-        first: 'Amina',
-        last: 'Example',
-        email: 'amina@example.invalid',
-        role: 'employee',
-        teamId: platformTeamId,
-      },
-      {
-        code: 'E-1002',
-        first: 'Ravi',
-        last: 'Example',
-        email: 'ravi@example.invalid',
-        role: 'manager',
-        teamId: platformTeamId,
-        leadsTeamId: platformTeamId,
-      },
-      {
-        code: 'E-1006',
-        first: 'Sofia',
-        last: 'Example',
-        email: 'sofia@example.invalid',
-        role: 'manager',
-        teamId: null,
-        headsDepartment: true,
-      },
-      {
-        code: 'E-1003',
-        first: 'Helen',
-        last: 'Example',
-        email: 'helen@example.invalid',
-        role: 'hr_officer',
-        teamId: null,
-      },
-      {
-        code: 'E-1004',
-        first: 'Paul',
-        last: 'Example',
-        email: 'paul@example.invalid',
-        role: 'payroll_officer',
-        teamId: supportTeamId,
-      },
-      {
-        code: 'E-1005',
-        first: 'Nora',
-        last: 'Example',
-        email: 'nora@example.invalid',
-        role: 'auditor',
-        teamId: null,
-      },
-    ];
-
-    const employeeIdByEmail = new Map<string, string>();
-    for (const p of people) {
-      const empId = newId();
-      const userId = newId();
-      employeeIdByEmail.set(p.email, empId);
-      // People in a team sit in Engineering; HR, payroll and audit stay in the default
-      // department so their chain escalates upward rather than looping back to itself.
-      const departmentId = p.teamId || p.headsDepartment ? engineeringId : ids.deptId;
-      await ctx.sqlite
-        .prepare(
-          `INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, created_at, created_by, updated_at, updated_by)
-           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, 'standard', ?, ?, ?, ?)`,
-        )
-        .run(
-          empId,
-          p.code,
-          p.first,
-          p.last,
-          p.email,
-          '2024-01-15',
-          ids.locationId,
-          departmentId,
-          p.teamId,
-          job.id,
-          type.id,
-          ctx.now,
-          ids.actorId,
-          ctx.now,
-          ids.actorId,
-        );
-      await ctx.sqlite
-        .prepare(
-          `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
-           VALUES (?, ?, ?, ?, 'argon2id', 0, 0, ?, ?, ?, ?)`,
-        )
-        .run(userId, empId, p.email, demoPassword, ctx.now, ids.actorId, ctx.now, ids.actorId);
-      const role = (await ctx.sqlite.prepare(`SELECT id FROM role WHERE code = ?`).get(p.role)) as {
-        id: string;
-      };
-      await ctx.sqlite
-        .prepare(
-          `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)`,
-        )
-        .run(userId, role.id, ids.actorId, ctx.now);
-      await grantOpeningBalances(ctx, empId, ids.periodId, ids.actorId);
-    }
-
-    // Appoint the leadership now that everyone exists.
-    for (const p of people) {
-      const empId = employeeIdByEmail.get(p.email);
-      if (!empId) continue;
-      if (p.leadsTeamId) {
-        await ctx.sqlite
-          .prepare(`UPDATE team SET lead_employee_id = ?, updated_at = ? WHERE id = ?`)
-          .run(empId, ctx.now, p.leadsTeamId);
-      }
-      if (p.headsDepartment) {
-        await ctx.sqlite
-          .prepare(`UPDATE department SET head_employee_id = ?, updated_at = ? WHERE id = ?`)
-          .run(empId, ctx.now, engineeringId);
-      }
-    }
-
-    // Recorded so the sign-in screen can list exactly these accounts in development,
-    // rather than guessing from the address.
-    await ctx.sqlite
-      .prepare(
-        `INSERT INTO app_setting (key, value_json, updated_by, updated_at)
-         VALUES ('demo.accounts', ?, ?, ?)`,
-      )
-      .run(JSON.stringify(people.map((p) => p.email)), ids.actorId, ctx.now);
-  });
-}
-
-async function ensureNamedDepartment(
-  ctx: RequestContext,
-  actorId: string,
-  code: string,
-  name: string,
-): Promise<string> {
-  const existing = (await ctx.sqlite
-    .prepare(`SELECT id FROM department WHERE code = ? AND archived_at IS NULL`)
-    .get(code)) as { id: string } | undefined;
-  if (existing) return existing.id;
-  const id = newId();
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO department (id, name, code, created_at, created_by, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(id, name, code, ctx.now, actorId, ctx.now, actorId);
-  return id;
-}
-
-async function ensureNamedTeam(
-  ctx: RequestContext,
-  actorId: string,
-  departmentId: string,
-  name: string,
-): Promise<string> {
-  const existing = (await ctx.sqlite
-    .prepare(`SELECT id FROM team WHERE department_id = ? AND name = ? AND archived_at IS NULL`)
-    .get(departmentId, name)) as { id: string } | undefined;
-  if (existing) return existing.id;
-  const id = newId();
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO team (id, department_id, name, created_at, created_by, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(id, departmentId, name, ctx.now, actorId, ctx.now, actorId);
-  return id;
-}
-
-async function employeeIdForEmail(ctx: RequestContext, email: string): Promise<string | null> {
-  const row = (await ctx.sqlite
-    .prepare(`SELECT employee_id AS id FROM user_account WHERE email = ?`)
-    .get(email)) as { id: string | null } | undefined;
-  return row?.id ?? null;
-}
-
-async function placeDemoEmployee(
-  ctx: RequestContext,
-  email: string,
-  departmentId: string,
-  teamId: string,
-): Promise<void> {
-  const emp = (await ctx.sqlite
-    .prepare(
-      `SELECT e.id AS id, e.team_id AS teamId, t.name AS teamName
-         FROM employee e
-         JOIN user_account ua ON ua.employee_id = e.id
-         LEFT JOIN team t ON t.id = e.team_id
-        WHERE ua.email = ?`,
-    )
-    .get(email)) as { id: string; teamId: string | null; teamName: string | null } | undefined;
-  if (!emp) return;
-  if (emp.teamId && emp.teamName !== 'Default') return;
-  await ctx.sqlite
-    .prepare(`UPDATE employee SET department_id = ?, team_id = ?, updated_at = ? WHERE id = ?`)
-    .run(departmentId, teamId, ctx.now, emp.id);
-}
-
-async function ensureDemoPerson(
-  ctx: RequestContext,
-  input: {
-    code: string;
-    first: string;
-    last: string;
-    email: string;
-    role: string;
-    departmentId: string;
-    teamId: string | null;
-    locationId: string;
-    jobId: string;
-    typeId: string;
-    periodId: string;
-    actorId: string;
-    passwordHash: string;
-  },
-): Promise<void> {
-  if (await employeeIdForEmail(ctx, input.email)) return;
-  const taken = (await ctx.sqlite
-    .prepare(`SELECT id FROM employee WHERE employee_code = ?`)
-    .get(input.code)) as { id: string } | undefined;
-  const code = taken ? `E-${newId().slice(-4)}` : input.code;
-  const empId = newId();
-  const userId = newId();
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, created_at, created_by, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, 'standard', ?, ?, ?, ?)`,
-    )
-    .run(
-      empId,
-      code,
-      input.first,
-      input.last,
-      input.email,
-      '2024-01-15',
-      input.locationId,
-      input.departmentId,
-      input.teamId,
-      input.jobId,
-      input.typeId,
-      ctx.now,
-      input.actorId,
-      ctx.now,
-      input.actorId,
-    );
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, 'argon2id', 0, 0, ?, ?, ?, ?)`,
-    )
-    .run(
-      userId,
-      empId,
-      input.email,
-      input.passwordHash,
-      ctx.now,
-      input.actorId,
-      ctx.now,
-      input.actorId,
-    );
-  const role = (await ctx.sqlite.prepare(`SELECT id FROM role WHERE code = ?`).get(input.role)) as {
-    id: string;
-  };
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)`,
-    )
-    .run(userId, role.id, input.actorId, ctx.now);
-  await grantOpeningBalances(ctx, empId, input.periodId, input.actorId);
-}
-
 export async function grantOpeningBalances(
   ctx: RequestContext,
   employeeId: string,
@@ -797,6 +422,20 @@ export async function grantOpeningBalances(
     .get(employeeId)) as { joinedOn: string } | undefined;
   for (const t of types) {
     const rules = (await publishedRules(ctx, t.id)) ?? defaultRulesForCode(t.code);
+    // Recorded before anything is granted, so the leave-year job never opens this year for
+    // this person a second time. Without it, everyone set up here was credited twice.
+    const opened = await ctx.sqlite
+      .prepare(
+        `SELECT id FROM period_rollover_run WHERE period_id = ? AND employee_id = ? AND leave_type_id = ?`,
+      )
+      .get(periodId, employeeId, t.id);
+    if (!opened) {
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO period_rollover_run (id, period_id, employee_id, leave_type_id, ran_at) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(newId(), periodId, employeeId, t.id, ctx.now);
+    }
     if (rules.entitlementHalfDays <= 0) continue;
     if (rules.accrualMethod === 'monthly') {
       await grantMonthlyCatchUp(ctx, {
@@ -811,6 +450,17 @@ export async function grantOpeningBalances(
       });
       continue;
     }
+    if (opened) continue;
+    // Same calculation as the leave-year job, so someone who joins in July gets half a
+    // year's entitlement whether they were added mid-year or rolled over.
+    const plan = planRollover({
+      rules,
+      closingBalanceHalfDays: 0,
+      joinedOn: employee?.joinedOn ?? ctx.today,
+      periodStartsOn: period?.startsOn ?? ctx.today,
+      employeeStatus: 'active',
+    });
+    if (plan.grantHalfDays <= 0) continue;
     await ctx.sqlite
       .prepare(
         `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, reason, created_by, created_at)
@@ -821,8 +471,8 @@ export async function grantOpeningBalances(
         employeeId,
         t.id,
         periodId,
-        rules.entitlementHalfDays,
-        ctx.today,
+        plan.grantHalfDays,
+        period?.startsOn ?? ctx.today,
         actor,
         ctx.now,
       );
@@ -842,7 +492,7 @@ async function publishedRules(
     .get(leaveTypeId, ctx.today)) as { rules_json: string } | undefined;
   if (!row) return null;
   try {
-    return JSON.parse(row.rules_json) as LeavePolicyRules;
+    return parseRules(row.rules_json);
   } catch {
     return null;
   }
@@ -870,46 +520,16 @@ async function grantMonthlyCatchUp(
   const to = ctx.today < input.periodEnd ? ctx.today : input.periodEnd;
   if (from > to) return;
   for (const month of monthsInclusive(from, to)) {
-    const already = (await ctx.sqlite
-      .prepare(
-        `SELECT id FROM accrual_run
-          WHERE employee_id = ? AND leave_type_id = ? AND accrual_month = ?`,
-      )
-      .get(input.employeeId, input.leaveTypeId, month)) as { id: string } | undefined;
-    if (already) continue;
-    const quantity =
-      month === input.joinedOn.slice(0, 7)
-        ? prorateJoinerHalfDays({
-            entitlementHalfDays: input.rules.entitlementHalfDays,
-            joinedOn: input.joinedOn,
-            monthIso: month,
-          })
-        : monthlyAccrualHalfDays(input.rules.entitlementHalfDays);
-    const effectiveOn = `${month}-01`;
-    if (quantity > 0) {
-      await ctx.sqlite
-        .prepare(
-          `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, reason, created_by, created_at)
-           VALUES (?, ?, ?, ?, 'ACCRUAL', ?, ?, 'job_run', ?, ?, ?)`,
-        )
-        .run(
-          newId(),
-          input.employeeId,
-          input.leaveTypeId,
-          input.periodId,
-          quantity,
-          effectiveOn,
-          `Monthly accrual for ${month}`,
-          input.actor,
-          ctx.now,
-        );
-    }
-    await ctx.sqlite
-      .prepare(
-        `INSERT INTO accrual_run (id, period_id, employee_id, leave_type_id, accrual_month, ran_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(newId(), input.periodId, input.employeeId, input.leaveTypeId, month, ctx.now);
+    await creditMonth(ctx.sqlite, {
+      employeeId: input.employeeId,
+      leaveTypeId: input.leaveTypeId,
+      periodId: input.periodId,
+      month,
+      rules: input.rules,
+      actor: input.actor,
+      now: ctx.now,
+      effectiveOn: month === input.joinedOn.slice(0, 7) ? input.joinedOn : `${month}-01`,
+    });
   }
 }
 export async function currentPeriodId(ctx: RequestContext): Promise<string> {

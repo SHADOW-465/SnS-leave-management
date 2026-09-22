@@ -25,7 +25,7 @@ export const appConfigSchema = z.object({
   sessionIdleHours: z.coerce.number().default(2),
   /** Temporary Vercel/Supabase click-through host. Office go-live remains SQLite (DW-41). */
   hostedPreview: bool.default(false),
-  /** Sample @example.invalid accounts on the sign-in screen. */
+  /** Sample @sns.test accounts on the sign-in screen. */
   showDemoAccounts: bool.default(false),
   /** First-run seed when the database is empty. Hosted preview only. */
   seedOnEmpty: bool.default(false),

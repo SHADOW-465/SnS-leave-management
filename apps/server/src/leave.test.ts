@@ -170,7 +170,7 @@ describe('API slice', () => {
     const hrLogin = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'ravi@example.invalid', password: 'ChangeMe_demo_1' },
+      payload: { email: 'john@sns.test', password: 'ChangeMe_demo_1' },
     });
     const hrCookies = hrLogin.headers['set-cookie'];
     const hrHeader = Array.isArray(hrCookies)
@@ -205,7 +205,7 @@ describe('API slice', () => {
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'amina@example.invalid', password: 'ChangeMe_demo_1' },
+      payload: { email: 'vijay@sns.test', password: 'ChangeMe_demo_1' },
     });
     const cookies = login.headers['set-cookie'];
     const cookieHeader = Array.isArray(cookies)

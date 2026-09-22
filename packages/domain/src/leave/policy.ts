@@ -4,6 +4,8 @@ import type { DayPortion } from './working-days.js';
 
 export type AccrualMethod = 'none' | 'monthly' | 'annual_grant';
 export type ProbationRestriction = 'none' | 'forbid' | 'limited';
+/** What someone earns for the month they join in. */
+export type JoinMonthAccrual = 'full' | 'prorated' | 'none';
 
 export type LeavePolicyRules = {
   entitlementHalfDays: number;
@@ -20,6 +22,21 @@ export type LeavePolicyRules = {
   negativeBalanceAllowed: boolean;
   /** null = never required. Counted working half-days. */
   attachmentRequiredAfterHalfDays: number | null;
+  /** Weekends inside a request are not counted as leave. */
+  excludeWeekends: boolean;
+  /** Public holidays inside a request are not counted as leave. */
+  excludeHolidays: boolean;
+  /** Monthly accrual for the joining month: the full month, pro-rated, or nothing. */
+  joinMonthAccrual: JoinMonthAccrual;
+  /**
+   * Monthly credit (half-days) by staff category — the employment type code — when it
+   * differs from the standard rate. e.g. { MGMT: 5 } gives management 2.5 days a month.
+   */
+  categoryMonthlyHalfDays: Record<string, number>;
+  /** Monthly credit while on probation; null = same as everyone else. */
+  probationMonthlyHalfDays: number | null;
+  /** Accrual stops once the balance reaches this; 0 = no ceiling. */
+  maxBalanceHalfDays: number;
 };
 
 export const DEFAULT_POLICY: LeavePolicyRules = {
@@ -36,7 +53,22 @@ export const DEFAULT_POLICY: LeavePolicyRules = {
   maxConsecutiveDays: 15,
   negativeBalanceAllowed: false,
   attachmentRequiredAfterHalfDays: 6,
+  excludeWeekends: true,
+  excludeHolidays: true,
+  joinMonthAccrual: 'prorated',
+  categoryMonthlyHalfDays: {},
+  probationMonthlyHalfDays: null,
+  maxBalanceHalfDays: 0,
 };
+
+/**
+ * Reads stored rules. Versions published before a setting existed simply lack it, so every
+ * missing field falls back to the default rather than arriving as undefined.
+ */
+export function parseRules(raw: string | Partial<LeavePolicyRules>): LeavePolicyRules {
+  const obj = (typeof raw === 'string' ? JSON.parse(raw) : raw) as Partial<LeavePolicyRules>;
+  return { ...DEFAULT_POLICY, ...obj, categoryMonthlyHalfDays: obj.categoryMonthlyHalfDays ?? {} };
+}
 
 export function defaultRulesForCode(code: string): LeavePolicyRules {
   const base = { ...DEFAULT_POLICY };

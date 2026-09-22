@@ -59,8 +59,8 @@ beforeEach(async () => {
       loadSampleData: true,
     },
   });
-  hr = await signIn('helen@example.invalid', 'ChangeMe_demo_1');
-  employee = await signIn('amina@example.invalid', 'ChangeMe_demo_1');
+  hr = await signIn('anitha@sns.test', 'ChangeMe_demo_1');
+  employee = await signIn('vijay@sns.test', 'ChangeMe_demo_1');
 });
 
 afterEach(async () => {

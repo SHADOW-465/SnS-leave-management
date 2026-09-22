@@ -1,8 +1,9 @@
 /**
- * The hosted preview was seeded before hierarchical approval existed: five sample
- * people, no Sofia, no Engineering org. `seedOnEmpty` will not run again. This is
- * the backfill that `ensureDemoHierarchy` has to perform on that already-bootstrapped
- * database.
+ * The hosted preview was first seeded with five placeholder people ("Amina Example" and
+ * so on at @example.invalid). `seedOnEmpty` will not run again on it, so
+ * `ensureDemoHierarchy` has to bring that database up to the current sample organisation
+ * in place: rename the placeholders, add everyone else, and assign reporting managers —
+ * without deleting anything.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -145,32 +146,48 @@ describe('ensureDemoHierarchy backfills a pre-hierarchy preview database', () =>
     return { app, sqlite, ctx };
   }
 
-  it('adds Sofia, seats Amina under Ravi, and can be run twice', async () => {
+  it('renames the placeholders, adds the rest, keeps their leave, and can be run twice', async () => {
     const { app, sqlite, ctx } = await bootLegacy();
     const before = (await sqlite
-      .prepare(`SELECT email FROM user_account WHERE email = 'sofia@example.invalid'`)
+      .prepare(`SELECT email FROM user_account WHERE email = 'david@sns.test'`)
       .get()) as { email: string } | undefined;
     expect(before).toBeUndefined();
 
     await ensureDemoHierarchy(ctx);
     await ensureDemoHierarchy(ctx);
 
-    const sofias = (await sqlite
-      .prepare(`SELECT COUNT(*) AS n FROM user_account WHERE email = 'sofia@example.invalid'`)
+    const davids = (await sqlite
+      .prepare(`SELECT COUNT(*) AS n FROM user_account WHERE email = 'david@sns.test'`)
       .get()) as { n: number };
-    expect(sofias.n).toBe(1);
+    expect(davids.n).toBe(1);
+    // Amina became Vijay: same employee row, same balance history.
+    const vijay = (await sqlite
+      .prepare(
+        `SELECT e.first_name AS first, e.employee_code AS code,
+                (SELECT COUNT(*) FROM balance_ledger l WHERE l.employee_id = e.id) AS ledger
+           FROM employee e WHERE e.work_email = 'vijay@sns.test'`,
+      )
+      .get()) as { first: string; code: string; ledger: number };
+    expect(vijay).toMatchObject({ first: 'Vijay', code: 'SNS-1005' });
+    expect(Number(vijay.ledger)).toBeGreaterThan(0);
+    const leftovers = (await sqlite
+      .prepare(
+        `SELECT COUNT(*) AS n FROM user_account WHERE email LIKE '%@example.invalid' AND email != 'admin@example.invalid'`,
+      )
+      .get()) as { n: number };
+    expect(Number(leftovers.n)).toBe(0);
 
     const login = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'sofia@example.invalid', password: DEMO_PASSWORD },
+      payload: { email: 'david@sns.test', password: DEMO_PASSWORD },
     });
     expect(login.statusCode).toBe(200);
 
     const amina = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: { email: 'amina@example.invalid', password: DEMO_PASSWORD },
+      payload: { email: 'vijay@sns.test', password: DEMO_PASSWORD },
     });
     expect(amina.statusCode).toBe(200);
     const cookie = Array.isArray(amina.headers['set-cookie'])
@@ -188,7 +205,7 @@ describe('ensureDemoHierarchy backfills a pre-hierarchy preview database', () =>
         leaveTypeId: cl.id,
         startDate: '2026-10-05',
         endDate: '2026-10-07',
-        reason: 'Proving the backfilled hierarchy routes to the team lead.',
+        reason: 'Proving the upgraded organisation routes to the reporting manager.',
       },
     });
     expect(applied.statusCode).toBe(201);
@@ -200,7 +217,7 @@ describe('ensureDemoHierarchy backfills a pre-hierarchy preview database', () =>
           WHERE s.leave_request_id = ?`,
       )
       .get(requestId)) as { email: string };
-    expect(approver.email).toBe('ravi@example.invalid');
+    expect(approver.email).toBe('john@sns.test');
     await app.close();
   });
 });

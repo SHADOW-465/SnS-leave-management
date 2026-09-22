@@ -12,6 +12,7 @@ import { withTx } from '@sns/database';
 import { DomainError, NotAuthenticatedError, newId } from '@sns/domain';
 import type { RequestContext } from '../ctx.js';
 import { addHoursIso } from '../time.js';
+import { weekendDaysFor } from './leave.js';
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -47,9 +48,16 @@ export async function login(
     workstationId?: string;
   },
 ) {
+  // People sign in with their work email or their employee ID (e.g. SNS-1001).
+  const identifier = input.email.trim();
   const account = (await ctx.sqlite
-    .prepare(`SELECT * FROM user_account WHERE email = ?`)
-    .get(input.email)) as
+    .prepare(
+      identifier.includes('@')
+        ? `SELECT * FROM user_account WHERE LOWER(email) = LOWER(?)`
+        : `SELECT ua.* FROM user_account ua JOIN employee e ON e.id = ua.employee_id
+            WHERE UPPER(e.employee_code) = UPPER(?)`,
+    )
+    .get(identifier)) as
     | {
         id: string;
         email: string;
@@ -355,7 +363,7 @@ export async function currentUserView(ctx: RequestContext) {
             .prepare(
               `SELECT 1 FROM team WHERE lead_employee_id = ? AND archived_at IS NULL
                UNION SELECT 1 FROM department WHERE head_employee_id = ? AND archived_at IS NULL
-               UNION SELECT 1 FROM approval_override WHERE approver_employee_id = ?
+               UNION SELECT 1 FROM employee WHERE manager_employee_id = ? AND status != 'exited'
                UNION SELECT 1 FROM approval_delegation
                  WHERE delegate_employee_id = ? AND starts_on <= ? AND ends_on >= ?
                LIMIT 1`,
@@ -373,6 +381,7 @@ export async function currentUserView(ctx: RequestContext) {
     mustChangePassword: Boolean(account.must_change_password),
     companyName: company?.name ?? 'Leave OS',
     timezone: company?.timezone ?? 'UTC',
+    weekendDays: await weekendDaysFor(ctx),
     approvesLeave,
     pendingApprovals: Number(pending.n),
   };
@@ -416,7 +425,7 @@ export async function changePassword(
       .run(newId(), p.userId, account.password_hash, ctx.now);
     await ctx.sqlite
       .prepare(
-        `UPDATE user_account SET password_hash = ?, must_change_password = 0, password_changed_at = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
+        `UPDATE user_account SET password_hash = ?, must_change_password = 1, failed_attempts = 0, locked_until = NULL, password_changed_at = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
       )
       .run(next, ctx.now, ctx.now, p.userId, p.userId);
     await ctx.sqlite

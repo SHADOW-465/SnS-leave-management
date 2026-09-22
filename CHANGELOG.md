@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.0 — 2026-09-22
+
+Everything the Leave Tracker functional framework asks for, a realistic sample organisation,
+and a round of fixes found by walking through every screen.
+
+### Added
+- **Reporting managers** (was "Approval routing"): the reporting manager assigned to each person is who approves their leave (§6, §9). Change one person or many at once, from a chosen date; every change is kept with its dates (`employment_history`) and shown under *History*. Old requests stay with the manager they were sent to (§18D). Without a manager — or while they are away — leave goes to the team lead, then the department head, then HR. The page explains that order in a simple diagram and only warns when someone is actually affected. Administrator overrides were folded into reporting managers (migration `0006`).
+- **Leave configuration** (§10): monthly credit per leave type ("2 days a month = 24 a year"); a different monthly rate per staff category (e.g. Management 2.5) and during probation; what someone earns in the month they join — full, pro-rated or nothing (§18C); maximum balance; whether weekends and government holidays are counted (§5); the company working week, with upcoming leave recounted when it changes. Staff categories can be added from the same page.
+- **Leave transactions** (§13, §14): every credit, approval, cancellation and adjustment with the balance after it, a summary (opening, earned, manual credit, manual deduction, used, closing, pending), and a manual credit/deduction form with a required reason. Employees see their own as *Leave history*.
+- **Annual leave report** (§19): per person for a leave year and type — opening, earned, adjusted, days used in each month (leave across two months is split), pending, closing — with Excel and CSV export.
+- **Payroll PDF**: the monthly payroll sheet is now in the PDF export too (§12).
+- **Government holidays** (§11): a list for the selected year (Date / Day / Holiday) with add, rename and remove; import straight from Excel in the government notification's layout (`01-Jan-2026`, `26/01/2026`…); load the fixed-date national holidays.
+- **Profile** page for every employee; **change password** from the app.
+- **Sign-ins**: the administrator creates a sign-in for anyone without one and resets passwords; the temporary password is shown once and must be changed at first sign-in. Anyone can sign in with their employee ID as well as their email.
+- **Notifications** use the framework's wording ("New leave request submitted by Ravi for 12–14 September", "…has been rejected. Reason: …") and employees are emailed the decision (§17).
+- **Sample organisation**: Simon & Sons with 17 people across six departments, real designations, reporting managers, holidays and leave at every stage. The hosted preview's older placeholder people are renamed in place.
+
+### Fixed
+- Casual and sick leave were credited twice to everyone set up by the installer (once at setup, again by the leave-year job), which is why balances read 24 instead of 12. Setup now records that the year was opened and pro-rates mid-year joiners like the job does; migration `0007` reverses the duplicate with a correcting ledger entry on existing databases.
+- The dashboard showed the manager field while leave actually went to the team lead; it now shows the reporting manager, and who the leave goes to when that differs.
+- The first leave rules took effect on the install date, so leave earlier in the year could not be recorded; they now start with the leave year.
+- The change-password screen was never shown, so temporary passwords were never replaced; accounts created by HR, bulk provisioning or an admin reset now must change it at first sign-in.
+- Moving someone to another team moved their department but left them reporting to their old team lead; they now report to the new lead (with history), unless a manager had been chosen deliberately. The team dialog stays open to add several people, and says what changed.
+- HR could open department-head, team-lead and reporting-manager fields they cannot save; those now show who decides them instead.
+- "Deactivate" on departments and teams used an add-person icon; "1 days"; the leave year read "2026–2027" for a calendar year; a nested database transaction could fail on SQLite and deadlock on Postgres.
+
+### Changed
+- Rebuilt the local knowledge graph from current source: 1,223 nodes, 2,292 edges, 146 communities. Generated `public/` and `api/` bundles stay out via `.graphifyignore`. `graphify-out/` is not committed.
+
 ## 0.1.10 — 2026-09-21
 
 ### Added — Leave Tracker functional framework gaps

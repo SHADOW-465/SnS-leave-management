@@ -4,6 +4,7 @@ import { DomainError, assertNoManagerCycle, newId } from '@sns/domain';
 import { authorizeAction, graphFor, requirePrincipal, type RequestContext } from '../ctx.js';
 import { grantOpeningBalances, currentPeriodId } from './setup.js';
 import { audit } from './leave.js';
+import { changeReportingManager } from './admin.js';
 export async function listEmployees(ctx: RequestContext, q: string) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'employee.read', p.employeeId);
@@ -100,6 +101,8 @@ export async function updateEmployee(
     probationEndOn?: string | null;
     status?: 'active' | 'probation' | 'notice' | 'exited' | 'suspended';
     phone?: string | null;
+    /** When a manager change takes effect. Defaults to today. */
+    managerEffectiveFrom?: string | null;
     expectedVersion: number;
   },
 ) {
@@ -122,17 +125,12 @@ export async function updateEmployee(
     );
   }
 
-  // Prevent manager cycle if managerEmployeeId is set and changed
-  if (
+  // Who approves whose leave is the administrator's decision, and every change is kept
+  // with the date it took effect — so it goes through the same path as Reporting managers.
+  const managerChanging =
     input.managerEmployeeId !== undefined &&
-    input.managerEmployeeId !== null &&
-    input.managerEmployeeId !== existing.manager_employee_id
-  ) {
-    const employees = (await ctx.sqlite
-      .prepare(`SELECT id, manager_employee_id AS managerEmployeeId FROM employee`)
-      .all()) as { id: string; managerEmployeeId: string | null }[];
-    assertNoManagerCycle(employees, employeeId, input.managerEmployeeId);
-  }
+    (input.managerEmployeeId ?? null) !== (existing.manager_employee_id ?? null);
+  if (managerChanging) await authorizeAction(ctx, 'approval.routing.manage', null);
 
   // Check unique constraints if employeeCode or workEmail changed
   if (input.employeeCode && input.employeeCode !== existing.employee_code) {
@@ -172,10 +170,7 @@ export async function updateEmployee(
     const newDeptId = input.departmentId ?? (existing.department_id as string);
     const newTeamId =
       input.teamId !== undefined ? input.teamId : (existing.team_id as string | null);
-    const newManagerId =
-      input.managerEmployeeId !== undefined
-        ? input.managerEmployeeId
-        : (existing.manager_employee_id as string | null);
+    const newManagerId = existing.manager_employee_id as string | null;
     const newLocId = input.locationId ?? (existing.location_id as string);
     const newJobId = input.jobTitleId ?? (existing.job_title_id as string);
     const newEmpTypeId = input.employmentTypeId ?? (existing.employment_type_id as string);
@@ -272,6 +267,14 @@ export async function updateEmployee(
     });
   });
 
+  if (managerChanging) {
+    const r = await changeReportingManager(ctx, {
+      employeeId,
+      managerEmployeeId: input.managerEmployeeId ?? null,
+      effectiveFrom: input.managerEffectiveFrom ?? null,
+    });
+    if (r.changed) return { id: employeeId, version: updatedVersion + 1 };
+  }
   return { id: employeeId, version: updatedVersion };
 }
 export async function createEmployee(
@@ -295,6 +298,7 @@ export async function createEmployee(
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'employee.create', null);
+  if (input.managerEmployeeId) await authorizeAction(ctx, 'approval.routing.manage', null);
   const employees = (await ctx.sqlite
     .prepare(`SELECT id, manager_employee_id AS managerEmployeeId FROM employee`)
     .all()) as {
@@ -345,7 +349,7 @@ export async function createEmployee(
       await ctx.sqlite
         .prepare(
           `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
-           VALUES (?, ?, ?, ?, 'argon2id', 0, 0, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
         )
         .run(userId, id, input.workEmail, hash, ctx.now, p.userId, ctx.now, p.userId);
       const role = (await ctx.sqlite
@@ -361,6 +365,24 @@ export async function createEmployee(
     }
     if (input.phone) {
       await upsertEmployeePhone(ctx, id, input.phone, p.userId);
+    }
+    if (input.managerEmployeeId) {
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO employment_history (id, employee_id, job_title_id, employment_type_id, department_id, manager_employee_id, effective_from, effective_to, reason, created_at, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'Joined', ?, ?)`,
+        )
+        .run(
+          newId(),
+          id,
+          input.jobTitleId,
+          input.employmentTypeId,
+          input.departmentId,
+          input.managerEmployeeId,
+          input.joinedOn,
+          ctx.now,
+          p.userId,
+        );
     }
     await grantOpeningBalances(ctx, id, await currentPeriodId(ctx), p.userId);
     await audit(ctx, 'employee.created', 'employee', id, null, {
@@ -437,7 +459,7 @@ export async function bulkProvision(ctx: RequestContext, employeeIds: string[]) 
     await ctx.sqlite
       .prepare(
         `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
-         VALUES (?, ?, ?, ?, 'argon2id', 0, 0, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
       )
       .run(userId, empId, emp.work_email, hash, ctx.now, p.userId, ctx.now, p.userId);
     const role = (await ctx.sqlite
@@ -1045,8 +1067,21 @@ export async function manageTeamMembers(
   await authorizeAction(ctx, 'org.structure.manage', null);
 
   const team = (await ctx.sqlite.prepare(`SELECT * FROM team WHERE id = ?`).get(teamId)) as
-    { id: string; department_id: string } | undefined;
+    | { id: string; name: string; department_id: string; lead_employee_id: string | null }
+    | undefined;
   if (!team) throw new DomainError('NOT_FOUND', 'Team not found.', { httpStatus: 404 });
+
+  // Before moving anyone: who managed them, and who led the team they are leaving.
+  const before = new Map<string, { managerId: string | null; oldLeadId: string | null }>();
+  for (const empId of input.addEmployeeIds ?? []) {
+    const row = (await ctx.sqlite
+      .prepare(
+        `SELECT e.manager_employee_id AS "managerId", t.lead_employee_id AS "oldLeadId"
+           FROM employee e LEFT JOIN team t ON t.id = e.team_id WHERE e.id = ?`,
+      )
+      .get(empId)) as { managerId: string | null; oldLeadId: string | null } | undefined;
+    if (row) before.set(empId, row);
+  }
 
   await withTx(ctx.sqlite, async () => {
     if (input.removeEmployeeIds && input.removeEmployeeIds.length > 0) {
@@ -1087,7 +1122,30 @@ export async function manageTeamMembers(
     });
   });
 
-  return { id: teamId, success: true };
+  // Someone who reported to their old team's lead (or to nobody) now reports to the new
+  // team's lead, so their leave follows them. A manager chosen deliberately is left alone.
+  const notes: string[] = [];
+  const mayRoute = p.permissions.includes('approval.routing.manage:company');
+  for (const [empId, was] of before) {
+    const newLead = team.lead_employee_id;
+    if (!newLead || newLead === empId || was.managerId === newLead) continue;
+    if (was.managerId && was.managerId !== was.oldLeadId) continue;
+    if (!mayRoute) {
+      notes.push('Ask an administrator to update the reporting manager on Reporting managers.');
+      continue;
+    }
+    try {
+      const r = await changeReportingManager(ctx, {
+        employeeId: empId,
+        managerEmployeeId: newLead,
+        reason: `Moved to the ${team.name} team`,
+      });
+      if (r.changed) notes.push(r.message);
+    } catch (err) {
+      notes.push(err instanceof Error ? err.message : 'Reporting manager was not changed.');
+    }
+  }
+  return { id: teamId, success: true, notes: [...new Set(notes)] };
 }
 
 async function upsertEmployeePhone(
@@ -1107,4 +1165,68 @@ async function upsertEmployeePhone(
          updated_by = excluded.updated_by`,
     )
     .run(employeeId, value, ctx.now, actor, ctx.now, actor);
+}
+
+/**
+ * Adds a staff category (employment type), e.g. "Production staff" or "Management". Leave
+ * policies can give each category its own monthly accrual rate.
+ */
+export async function createStaffCategory(
+  ctx: RequestContext,
+  input: { name: string; code?: string },
+) {
+  const p = requirePrincipal(ctx);
+  await authorizeAction(ctx, 'org.structure.manage', null);
+  const name = input.name.trim();
+  if (name.length < 2) {
+    throw new DomainError('NAME_REQUIRED', 'Give the category a name.', { httpStatus: 400 });
+  }
+  const code = (input.code?.trim() || name.replace(/[^A-Za-z0-9]+/g, '').slice(0, 8))
+    .toUpperCase()
+    .replace(/[^A-Z0-9_]/g, '');
+  if (!code)
+    throw new DomainError('CODE_REQUIRED', 'Give the category a short code.', { httpStatus: 400 });
+  const clash = await ctx.sqlite
+    .prepare(`SELECT id FROM employment_type WHERE code = ? OR LOWER(name) = LOWER(?)`)
+    .get(code, name);
+  if (clash) {
+    throw new DomainError(
+      'DUPLICATE',
+      `A category called ${name} or coded ${code} already exists.`,
+      {
+        httpStatus: 409,
+      },
+    );
+  }
+  const id = newId();
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO employment_type (id, name, code, is_leave_eligible, created_at, created_by, updated_at, updated_by)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
+    )
+    .run(id, name, code, ctx.now, p.userId, ctx.now, p.userId);
+  await audit(ctx, 'org.staff_category.created', 'employment_type', id, null, { name, code });
+  return { id, name, code };
+}
+
+/** Adds a designation (job title), e.g. "Senior Proof Reader". */
+export async function createDesignation(ctx: RequestContext, input: { name: string }) {
+  const p = requirePrincipal(ctx);
+  await authorizeAction(ctx, 'org.structure.manage', null);
+  const name = input.name.trim();
+  if (name.length < 2) {
+    throw new DomainError('NAME_REQUIRED', 'Give the designation a name.', { httpStatus: 400 });
+  }
+  const clash = await ctx.sqlite
+    .prepare(`SELECT id FROM job_title WHERE LOWER(name) = LOWER(?) AND archived_at IS NULL`)
+    .get(name);
+  if (clash) throw new DomainError('DUPLICATE', `${name} already exists.`, { httpStatus: 409 });
+  const id = newId();
+  await ctx.sqlite
+    .prepare(
+      `INSERT INTO job_title (id, name, created_at, created_by, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(id, name, ctx.now, p.userId, ctx.now, p.userId);
+  await audit(ctx, 'org.designation.created', 'job_title', id, null, { name });
+  return { id, name };
 }

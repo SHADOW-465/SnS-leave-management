@@ -18,6 +18,9 @@ import { ReportsPage } from './pages/Reports.js';
 import { AuditPage } from './pages/Audit.js';
 import { SettingsPage } from './pages/Settings.js';
 import { AttendancePage } from './pages/Attendance.js';
+import { PasswordPage } from './pages/Password.js';
+import { ProfilePage } from './pages/Profile.js';
+import { TransactionsPage } from './pages/Transactions.js';
 
 export function App() {
   const setup = useQuery({
@@ -55,6 +58,8 @@ export function App() {
     }
   }
   if (!me.data) return <LoginPage />;
+  // A temporary password (new sign-in or admin reset) must be replaced before anything else.
+  if (me.data.mustChangePassword) return <PasswordPage me={me.data} />;
 
   return (
     <Shell me={me.data}>
@@ -66,7 +71,7 @@ export function App() {
         <Route path="/approvals" element={<QueuePage me={me.data} />} />
         <Route path="/approvals/:id" element={<QueuePage me={me.data} />} />
         <Route path="/calendar" element={<CalendarPage me={me.data} />} />
-        <Route path="/team" element={<TeamPage />} />
+        <Route path="/team" element={<TeamPage weekendDays={me.data.weekendDays} />} />
         <Route
           path="/people"
           element={
@@ -83,6 +88,9 @@ export function App() {
         <Route path="/settings" element={<SettingsPage me={me.data} />} />
         <Route path="/attendance" element={<AttendancePage me={me.data} />} />
         <Route path="/admin/routing" element={<ApprovalRoutingPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/password" element={<PasswordPage me={me.data} voluntary />} />
+        <Route path="/transactions" element={<TransactionsPage me={me.data} />} />
         <Route path="/allowances" element={<AllowancesPage />} />
         <Route path="/admin/users" element={<UsersPage me={me.data} />} />
         <Route path="*" element={<Navigate to="/" replace />} />

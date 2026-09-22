@@ -3,13 +3,18 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@sns/ui';
 import { api, ApiError, type Me } from '../api.js';
 
-export function PasswordPage({ me }: { me: Me }) {
+/**
+ * Choose a new password. Shown on its own when an account must change a temporary
+ * password before doing anything else; inside the app when someone changes it by choice.
+ */
+export function PasswordPage({ me, voluntary = false }: { me: Me; voluntary?: boolean }) {
   const qc = useQueryClient();
   const [currentPassword, setCurrent] = useState('');
   const [newPassword, setNew] = useState('');
   const [showCurrent, setShowCurrent] = useState(true);
   const [showNew, setShowNew] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -19,25 +24,46 @@ export function PasswordPage({ me }: { me: Me }) {
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       await qc.invalidateQueries({ queryKey: ['me'] });
+      setDone(true);
+      setCurrent('');
+      setNew('');
+      setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not change password.');
     }
   }
 
   return (
-    <main className="login-pane" style={{ minHeight: '100vh', maxWidth: 460, margin: '0 auto' }}>
-      <div className="brand">
-        <div className="mark">S</div>
-        <span className="brand-name">Leave OS</span>
-      </div>
-      <form onSubmit={(e) => void onSubmit(e)} className="page-stack" style={{ marginTop: 40 }}>
+    <main
+      className={voluntary ? 'card' : 'login-pane'}
+      style={
+        voluntary ? { maxWidth: 520 } : { minHeight: '100vh', maxWidth: 460, margin: '0 auto' }
+      }
+    >
+      {voluntary ? null : (
+        <div className="brand">
+          <div className="mark">S</div>
+          <span className="brand-name">Leave OS</span>
+        </div>
+      )}
+      <form
+        onSubmit={(e) => void onSubmit(e)}
+        className="page-stack"
+        style={{ marginTop: voluntary ? 0 : 40 }}
+      >
         <div>
           <h1 style={{ margin: '0 0 8px' }}>Choose a new password</h1>
           <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
-            {me.displayName}, you signed in with a temporary password. Other sessions on this
-            account will be signed out.
+            {voluntary
+              ? 'Other sessions on this account will be signed out.'
+              : `${me.displayName}, you signed in with a temporary password. Choose your own before continuing. Other sessions on this account will be signed out.`}
           </p>
         </div>
+        {done ? (
+          <p role="status" className="form-ok">
+            Password changed.
+          </p>
+        ) : null}
         {error ? (
           <p role="alert" style={{ color: 'var(--status-rejected-fg)' }}>
             {error}
@@ -106,24 +132,6 @@ export function PasswordPage({ me }: { me: Me }) {
           <Button variant="primary" type="submit" style={{ flex: 1 }}>
             Update password
           </Button>
-          <button
-            type="button"
-            className="button"
-            style={{
-              fontSize: 12,
-              padding: '0 12px',
-              background: 'var(--bg-secondary, #f8fafc)',
-              border: '1px solid var(--border-default, #e2e8f0)',
-              borderRadius: 6,
-              cursor: 'pointer',
-            }}
-            onClick={() => {
-              setNew('ChangeMe_test_123');
-              setShowNew(true);
-            }}
-          >
-            Auto-fill Test Pass
-          </button>
         </div>
       </form>
     </main>

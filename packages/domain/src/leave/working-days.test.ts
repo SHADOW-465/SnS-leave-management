@@ -113,3 +113,26 @@ describe('working-day calculation', () => {
 function dayOfWeekSafe(iso: string): number {
   return new Date(iso + 'T00:00:00Z').getUTCDay();
 }
+
+describe('admin-configurable counting', () => {
+  const holidays = [{ date: '2026-10-12', kind: 'public' as const, name: 'Festival' }];
+  it('counts weekends and holidays when the leave type says so', () => {
+    const days = classifyRequestDays({
+      startDate: '2026-10-09',
+      endDate: '2026-10-12',
+      holidays,
+      options: { excludeWeekends: false, excludeHolidays: false },
+    });
+    expect(totalCountedHalfDays(days)).toBe(8);
+  });
+  it('uses the company working week', () => {
+    // Friday-Saturday weekend: Fri 9th and Sat 10th skipped, Sun 11th counted, Mon holiday skipped.
+    const days = classifyRequestDays({
+      startDate: '2026-10-09',
+      endDate: '2026-10-12',
+      holidays,
+      options: { weekendDays: [5, 6] },
+    });
+    expect(totalCountedHalfDays(days)).toBe(2);
+  });
+});

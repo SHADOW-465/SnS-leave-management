@@ -97,7 +97,7 @@ export function AllowancesPage() {
         <h1>Leave allowances</h1>
         <p className="muted">
           How many days each person gets this leave year. Pick people, choose a leave type and a
-          number of days. The yearly default for new starters is set in Leave policy.
+          number of days. The yearly default for new starters is set in Leave configuration.
         </p>
       </header>
 

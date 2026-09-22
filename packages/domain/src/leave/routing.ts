@@ -107,10 +107,11 @@ export type ResolvedApprover = {
 /**
  * Walks the chain and returns the first usable approver.
  *
- * An administrator can shape the chain in two ways, both applied before the ladder:
+ * The person's **reporting manager**, when one is assigned, decides first. Only when
+ * there is none, or they cannot decide (away, disabled, or the person asking), does the
+ * request walk the ladder: team lead → department head → HR → administrator.
  *
- * - an **override** names a specific approver for one person, whatever their team says;
- * - a **delegation** hands one approver's decisions to someone else for a date range, so
+ * A **delegation** hands one approver's decisions to someone else for a date range, so
  *   when a team lead is on holiday their team's leave goes to the cover they chose
  *   rather than jumping straight to the department head.
  *
@@ -127,8 +128,8 @@ export function resolveApproverChain(input: {
     department_head: ApproverCandidate[];
     roles: Record<string, ApproverCandidate[]>;
   };
-  /** An administrator's named approver for this requester, if one is set. */
-  override?: ApproverCandidate | null;
+  /** The requester's assigned reporting manager, if one is set. */
+  reportingManager?: ApproverCandidate | null;
   /** Active cover, keyed by the employee id of the approver who is handing over. */
   delegations?: Record<string, ApproverCandidate>;
 }): ResolvedApprover {
@@ -145,20 +146,20 @@ export function resolveApproverChain(input: {
     return { c, from: null };
   };
 
-  if (input.override) {
-    const { c, from } = withCover(input.override);
+  if (input.reportingManager) {
+    const { c, from } = withCover(input.reportingManager);
     if (usable(c, input.requesterUserId)) {
       return {
         approverUserId: c.userId,
         approverEmployeeId: c.employeeId,
-        approverKind: 'specific_employee',
+        approverKind: 'reporting_manager',
         approverRole: null,
         escalation: null,
         selfApproved: false,
         delegatedFromEmployeeId: from,
       };
     }
-    firstFailure = rungFailureReason('specific_employee', [c], input.requesterUserId);
+    firstFailure = rungFailureReason('reporting_manager', [c], input.requesterUserId);
     usedFirstRung = false;
   }
 

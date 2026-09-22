@@ -23,6 +23,10 @@ export type RequestDay = {
 export type WorkingDayOptions = {
   /** 0 = Sunday … 6 = Saturday. Default Sat+Sun. */
   weekendDays?: number[];
+  /** Leave on a weekend is not counted. Default true. */
+  excludeWeekends?: boolean;
+  /** Leave on a public holiday is not counted. Default true. */
+  excludeHolidays?: boolean;
 };
 
 function portionFor(
@@ -59,6 +63,8 @@ export function classifyRequestDays(input: {
   options?: WorkingDayOptions;
 }): RequestDay[] {
   const weekendDays = input.options?.weekendDays ?? [0, 6];
+  const excludeWeekends = input.options?.excludeWeekends ?? true;
+  const excludeHolidays = input.options?.excludeHolidays ?? true;
   const byDate = new Map<string, Holiday[]>();
   for (const h of input.holidays) {
     const list = byDate.get(h.date) ?? [];
@@ -79,7 +85,7 @@ export function classifyRequestDays(input: {
     const publicHoliday = marks.find((m) => m.kind === 'public');
     const weekend = weekendDays.includes(dayOfWeek(date));
 
-    if (publicHoliday && !declaredWorking) {
+    if (publicHoliday && !declaredWorking && excludeHolidays) {
       return {
         date,
         portion,
@@ -88,7 +94,7 @@ export function classifyRequestDays(input: {
         skipLabel: publicHoliday.name,
       };
     }
-    if (weekend && !declaredWorking) {
+    if (weekend && !declaredWorking && excludeWeekends) {
       return {
         date,
         portion,

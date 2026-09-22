@@ -213,8 +213,9 @@ whether or not that employee exists.
 ## 5. Why HR is not an administrator
 
 HR Officer is the most powerful _people_ role and holds no _system_ power: no backup, no
-restore, no configuration, no account creation, no impersonation, no ability to touch the
-audit log.
+restore, no system configuration, no impersonation, no ability to touch the audit log. HR
+does create and manage employees' sign-ins (note 10), but cannot grant or remove the
+administrator role.
 
 The reason is separation of duties. An HR account is used daily by several people, is the
 most likely to be phished, and is the most likely to be shared "just this once". If that
@@ -242,7 +243,7 @@ Named here so they cannot be forgotten. Detail in [TESTING.md](TESTING.md) §4.
 - An Admin approving their own request requires `leave.request.self_approve`, is recorded with the `leave.self_approved` audit action, and appears in the self-approval report.
 - Escalation to Admin fires under each of the four absence conditions, and not otherwise.
 - Auditor receives 403 on every write endpoint in the application, enumerated from the route table.
-- HR receives 403 on backup, restore, configuration, and account creation.
+- HR receives 403 on backup, restore, and system configuration, and on granting or removing the administrator role.
 - An employee cannot change their own `department_id`, `manager_employee_id`, `joined_on`, or `status`.
 - An expired or revoked session receives 401 on every authenticated route.
 - Changing a user's role takes effect on the next request, and existing sessions do not retain stale permissions.

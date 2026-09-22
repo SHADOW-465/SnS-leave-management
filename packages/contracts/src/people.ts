@@ -19,6 +19,11 @@ export const createEmployeeBodySchema = z
     employmentTypeId: ulid,
     phone: z.string().trim().max(20).optional(),
     createAccount: z.boolean().default(true),
+    /** Sign-in roles. Defaults to Employee. Only an administrator may include Administrator. */
+    roles: z
+      .array(z.enum(['employee', 'manager', 'hr_officer', 'payroll_officer', 'admin', 'auditor']))
+      .max(6)
+      .optional(),
   })
   .strict();
 

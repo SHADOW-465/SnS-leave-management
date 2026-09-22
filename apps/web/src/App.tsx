@@ -19,6 +19,7 @@ import { AuditPage } from './pages/Audit.js';
 import { SettingsPage } from './pages/Settings.js';
 import { AttendancePage } from './pages/Attendance.js';
 import { PasswordPage } from './pages/Password.js';
+import { LeaveTypesPage } from './pages/LeaveTypes.js';
 import { ProfilePage } from './pages/Profile.js';
 import { TransactionsPage } from './pages/Transactions.js';
 
@@ -88,11 +89,21 @@ export function App() {
         <Route path="/settings" element={<SettingsPage me={me.data} />} />
         <Route path="/attendance" element={<AttendancePage me={me.data} />} />
         <Route path="/admin/routing" element={<ApprovalRoutingPage />} />
+        <Route path="/leave-types" element={<LeaveTypesPage me={me.data} />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/password" element={<PasswordPage me={me.data} voluntary />} />
         <Route path="/transactions" element={<TransactionsPage me={me.data} />} />
         <Route path="/allowances" element={<AllowancesPage />} />
-        <Route path="/admin/users" element={<UsersPage me={me.data} />} />
+        <Route
+          path="/admin/users"
+          element={
+            can(me.data, 'user.account.create') ? (
+              <UsersPage me={me.data} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

@@ -58,6 +58,17 @@ export const setAllowanceBodySchema = z
   })
   .strict();
 
+export const updateAccountBodySchema = z
+  .object({
+    firstName: z.string().trim().min(1).max(80).optional(),
+    lastName: z.string().trim().min(1).max(80).optional(),
+    email: z.string().trim().email().max(254).optional(),
+    employeeCode: z.string().trim().min(2).max(40).optional(),
+    /** Required when the sign-in belongs to an employee. */
+    expectedVersion: z.number().int().positive().optional(),
+  })
+  .strict();
+
 export const createLoginBodySchema = z
   .object({
     employeeId: ulid,
@@ -65,6 +76,25 @@ export const createLoginBodySchema = z
     roles: z
       .array(z.enum(['employee', 'manager', 'hr_officer', 'payroll_officer', 'admin', 'auditor']))
       .max(6),
+  })
+  .strict();
+
+export const createLeaveTypeBodySchema = z
+  .object({
+    name: z.string().trim().min(2).max(60),
+    code: z.string().trim().min(2).max(8),
+    isPaid: z.boolean(),
+    /** Start from a template's rules (AL, CL, SL, EL, LOP), or null for none. */
+    template: z.string().trim().max(8).nullable(),
+    colour: z.string().max(40).optional(),
+  })
+  .strict();
+
+export const updateLeaveTypeBodySchema = z
+  .object({
+    name: z.string().trim().min(2).max(60).optional(),
+    isPaid: z.boolean().optional(),
+    colour: z.string().max(40).optional(),
   })
   .strict();
 

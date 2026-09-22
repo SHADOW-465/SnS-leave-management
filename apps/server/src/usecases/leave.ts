@@ -363,6 +363,18 @@ export async function submitLeave(
     first_name: string;
     last_name: string;
   };
+  const typeRow = (await ctx.sqlite
+    .prepare(`SELECT name, archived_at AS "archivedAt" FROM leave_type WHERE id = ?`)
+    .get(input.leaveTypeId)) as { name: string; archivedAt: string | null } | undefined;
+  if (!typeRow || typeRow.archivedAt) {
+    throw new DomainError(
+      'LEAVE_TYPE_ARCHIVED',
+      `${typeRow?.name ?? 'This leave type'} is no longer offered.`,
+      {
+        httpStatus: 400,
+      },
+    );
+  }
   const policy = await currentPolicy(ctx, input.leaveTypeId);
   const days = classifyRequestDays({
     startDate: input.startDate,

@@ -43,7 +43,7 @@ const auth = (s: Session) => ({ cookie: s.cookie, 'x-csrf-token': s.csrf });
 
 async function call(
   s: Session,
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   url: string,
   payload?: unknown,
 ) {
@@ -111,7 +111,7 @@ beforeEach(async () => {
     },
   });
   admin = await signIn('admin@example.invalid', 'ChangeMe_admin_1');
-  const row = (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'CL'`).get()) as {
+  const row = (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'AL'`).get()) as {
     id: string;
   };
   clTypeId = row.id;
@@ -133,13 +133,24 @@ describe('the approval map', () => {
   it('shows who each person’s leave goes to, matching real routing', async () => {
     const res = await call(admin, 'GET', '/api/v1/admin/approval-map');
     expect(res.statusCode).toBe(200);
-    const people = (
+    const data = (
       res.json() as {
-        data: { people: { name: string; route: { approverName: string } | null }[] };
+        data: {
+          people: {
+            name: string;
+            route: { approverName: string; approverJobTitle: string | null } | null;
+          }[];
+          candidates: { name: string; jobTitle: string | null }[];
+        };
       }
-    ).data.people;
+    ).data;
+    const people = data.people;
     const vijay = people.find((p) => p.name === 'Vijay Anand');
     expect(vijay?.route?.approverName).toBe('John Mathew');
+    expect(vijay?.route?.approverJobTitle).toBe('Printing Supervisor');
+    expect(data.candidates.find((c) => c.name === 'John Mathew')?.jobTitle).toBe(
+      'Printing Supervisor',
+    );
     const john = people.find((p) => p.name === 'John Mathew');
     expect(john?.route?.approverName).toBe('David Fernandes');
   });
@@ -500,16 +511,113 @@ describe('users and access', () => {
     expect((await call(second, 'GET', '/api/v1/me')).statusCode).toBe(401);
   });
 
-  it('is all refused to HR', async () => {
+  it('HR can add, edit and remove an account; the record is kept', async () => {
     const helen = await signIn('anitha@sns.test');
-    expect((await call(helen, 'GET', '/api/v1/admin/users')).statusCode).toBe(403);
-    expect(
-      (
-        await call(helen, 'PUT', `/api/v1/admin/users/${await userId('ramesh@sns.test')}/roles`, {
-          roles: ['admin'],
-        })
-      ).statusCode,
-    ).toBe(403);
+    const org = (await sqlite.prepare(`SELECT id FROM department LIMIT 1`).get()) as { id: string };
+    const job = (await sqlite.prepare(`SELECT id FROM job_title LIMIT 1`).get()) as { id: string };
+    const kind = (await sqlite.prepare(`SELECT id FROM employment_type LIMIT 1`).get()) as {
+      id: string;
+    };
+    const place = (await sqlite.prepare(`SELECT id FROM location LIMIT 1`).get()) as { id: string };
+    const created = await call(helen, 'POST', '/api/v1/employees', {
+      employeeCode: 'SNS-9090',
+      firstName: 'Leela',
+      lastName: 'Nair',
+      workEmail: 'leela@sns.test',
+      joinedOn: '2026-09-01',
+      locationId: place.id,
+      departmentId: org.id,
+      jobTitleId: job.id,
+      employmentTypeId: kind.id,
+      createAccount: true,
+      roles: ['payroll_officer'],
+    });
+    expect(created.statusCode).toBe(201);
+    const temporaryPassword = (created.json() as { data: { temporaryPassword: string } }).data
+      .temporaryPassword;
+    const signedIn = await signIn('leela@sns.test', temporaryPassword);
+    const me = await call(signedIn, 'GET', '/api/v1/me');
+    expect((me.json() as { data: { roles: string[] } }).data.roles).toContain('payroll_officer');
+
+    const accountId = await userId('leela@sns.test');
+    const edited = await call(helen, 'PATCH', `/api/v1/admin/users/${accountId}`, {
+      firstName: 'Leela',
+      lastName: 'Menon',
+      email: 'leela.menon@sns.test',
+      employeeCode: 'SNS-9090',
+      expectedVersion: 1,
+    });
+    expect(edited.statusCode).toBe(200);
+
+    const version = (
+      (await sqlite
+        .prepare(`SELECT version, status FROM employee WHERE employee_code = 'SNS-9090'`)
+        .get()) as { version: number; status: string }
+    ).version;
+    const removed = await call(
+      helen,
+      'POST',
+      `/api/v1/employees/${await employeeId('leela.menon@sns.test')}/deactivate`,
+      {
+        reason: 'Left the company',
+        exitedOn: '2026-09-22',
+        expectedVersion: Number(version),
+      },
+    );
+    expect(removed.statusCode).toBe(200);
+    const still = (await sqlite
+      .prepare(
+        `SELECT e.status, ua.is_disabled AS disabled FROM employee e
+           JOIN user_account ua ON ua.employee_id = e.id WHERE e.employee_code = 'SNS-9090'`,
+      )
+      .get()) as { status: string; disabled: number };
+    expect(still.status).toBe('exited');
+    expect(Number(still.disabled)).toBe(1);
+    const again = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'leela.menon@sns.test', password: temporaryPassword },
+    });
+    expect(again.statusCode).toBe(401);
+  });
+
+  it('refuses account management to other roles, and refuses HR granting administrator', async () => {
+    const helen = await signIn('anitha@sns.test');
+    const vijay = await signIn('vijay@sns.test');
+    expect((await call(vijay, 'GET', '/api/v1/admin/users')).statusCode).toBe(403);
+    expect((await call(helen, 'GET', '/api/v1/admin/users')).statusCode).toBe(200);
+    const grant = await call(
+      helen,
+      'PUT',
+      `/api/v1/admin/users/${await userId('ramesh@sns.test')}/roles`,
+      {
+        roles: ['admin'],
+      },
+    );
+    expect(grant.statusCode).toBe(403);
+    expect((grant.json() as { error: { code: string } }).error.code).toBe('ADMIN_ROLE');
+    const duplicate = await call(helen, 'POST', '/api/v1/employees', {
+      employeeCode: 'SNS-1005',
+      firstName: 'Copy',
+      lastName: 'Vijay',
+      workEmail: 'vijay@sns.test',
+      joinedOn: '2026-09-01',
+      locationId: (
+        (await sqlite.prepare(`SELECT id FROM location LIMIT 1`).get()) as { id: string }
+      ).id,
+      departmentId: (
+        (await sqlite.prepare(`SELECT id FROM department LIMIT 1`).get()) as { id: string }
+      ).id,
+      jobTitleId: (
+        (await sqlite.prepare(`SELECT id FROM job_title LIMIT 1`).get()) as { id: string }
+      ).id,
+      employmentTypeId: (
+        (await sqlite.prepare(`SELECT id FROM employment_type LIMIT 1`).get()) as { id: string }
+      ).id,
+      createAccount: true,
+      roles: ['employee'],
+    });
+    expect(duplicate.statusCode).toBe(409);
   });
 });
 

@@ -1,10 +1,9 @@
 /**
  * Administrator controls: who approves whom, and who can do what.
  *
- * Everything here needs a permission only the administrator role holds —
- * `approval.routing.manage` for the approval chain, `role.assign`, `user.account.disable`
- * and `user.session.revoke` for accounts. HR keeps day-to-day people and structure work;
- * deciding the approval hierarchy is the administrator's.
+ * The approval chain (`approval.routing.manage`) is the administrator's.
+ * Sign-in accounts (`user.account.create`, `role.assign`, `user.account.disable`) are
+ * HR and the administrator. Only an administrator may grant or remove the administrator role.
  */
 import { generateTemporaryPassword, hashPassword } from '@sns/auth';
 import { withTx } from '@sns/database';
@@ -114,6 +113,7 @@ export async function approvalMap(ctx: RequestContext) {
   );
 
   const nameOf = new Map(people.map((p) => [p.id, `${p.first_name} ${p.last_name}`]));
+  const titleOf = new Map(people.map((p) => [p.id, p.job_title]));
 
   const rows = [];
   for (const person of people) {
@@ -151,6 +151,10 @@ export async function approvalMap(ctx: RequestContext) {
           approverName: r.selfApproved
             ? 'Themselves'
             : (r.approverEmployeeId && nameOf.get(r.approverEmployeeId)) || role,
+          approverJobTitle:
+            !r.selfApproved && r.approverEmployeeId
+              ? (titleOf.get(r.approverEmployeeId) ?? null)
+              : null,
           approverRole: role,
           escalation: r.escalation ? describeEscalation(r.escalation) : null,
           coveringFor:
@@ -263,7 +267,12 @@ export async function approvalMap(ctx: RequestContext) {
     warnings,
     candidates: people
       .filter((p) => p.user_id)
-      .map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}`, team: p.team_name })),
+      .map((p) => ({
+        id: p.id,
+        name: `${p.first_name} ${p.last_name}`,
+        jobTitle: p.job_title,
+        team: p.team_name,
+      })),
   };
 }
 
@@ -771,14 +780,47 @@ export async function reassignRequest(
 // Users and access
 // ---------------------------------------------------------------------------------------
 
+/** Only an administrator may grant the administrator role, or change an account that has it. */
+export function assertMayGrantAdmin(
+  actorIsAdmin: boolean,
+  next: readonly string[],
+  previous: readonly string[],
+): void {
+  if (actorIsAdmin) return;
+  if (next.includes('admin') || previous.includes('admin')) {
+    throw new DomainError(
+      'ADMIN_ROLE',
+      'Only an administrator can grant or change the administrator role.',
+      { httpStatus: 403 },
+    );
+  }
+}
+
+function nextEmployeeCode(codes: string[]): string {
+  let prefix = 'SNS-';
+  let max = 1000;
+  for (const code of codes) {
+    const match = /^(.*?)(\d+)$/.exec(code);
+    if (!match) continue;
+    const n = Number(match[2]);
+    if (n >= max) {
+      max = n;
+      prefix = match[1] || 'SNS-';
+    }
+  }
+  return `${prefix}${max + 1}`;
+}
+
 export async function listUsers(ctx: RequestContext) {
   requirePrincipal(ctx);
-  await authorizeAction(ctx, 'role.assign', null);
+  await authorizeAction(ctx, 'user.account.create', null);
   const rows = (await ctx.sqlite
     .prepare(
       `SELECT ua.id, ua.email, ua.is_disabled AS "isDisabled", ua.last_login_at AS "lastLoginAt",
               ua.must_change_password AS "mustChangePassword",
-              e.id AS "employeeId", e.employee_code AS "employeeCode", e.first_name || ' ' || e.last_name AS name, e.status,
+              e.id AS "employeeId", e.employee_code AS "employeeCode",
+              e.first_name AS "firstName", e.last_name AS "lastName",
+              e.first_name || ' ' || e.last_name AS name, e.status, e.version AS "employeeVersion",
               d.name AS "departmentName", t.name AS "teamName",
               (SELECT COUNT(*) FROM session s WHERE s.user_account_id = ua.id
                   AND s.revoked_at IS NULL AND s.expires_at > ?) AS "activeSessions",
@@ -802,8 +844,11 @@ export async function listUsers(ctx: RequestContext) {
     mustChangePassword: number;
     employeeId: string | null;
     employeeCode: string | null;
+    firstName: string | null;
+    lastName: string | null;
     name: string | null;
     status: string | null;
+    employeeVersion: number | null;
     departmentName: string | null;
     teamName: string | null;
     activeSessions: number;
@@ -825,8 +870,16 @@ export async function listUsers(ctx: RequestContext) {
       isDisabled: Number(u.isDisabled) === 1,
       mustChangePassword: Number(u.mustChangePassword) === 1,
       activeSessions: Number(u.activeSessions),
+      employeeVersion: u.employeeVersion == null ? null : Number(u.employeeVersion),
       roles: rolesFor.get(u.id) ?? [],
     })),
+    nextEmployeeCode: nextEmployeeCode(
+      (
+        (await ctx.sqlite.prepare(`SELECT employee_code AS code FROM employee`).all()) as {
+          code: string;
+        }[]
+      ).map((r) => r.code),
+    ),
     roles: ROLE_CODES.map((code) => ({ code, ...ROLE_INFO[code] })),
     // Employees who cannot sign in yet — the admin creates their login from here.
     withoutAccount: (await ctx.sqlite
@@ -912,6 +965,7 @@ export async function setUserRoles(ctx: RequestContext, userId: string, roles: R
       .all(userId)) as { code: RoleCode }[]
   ).map((r) => r.code);
 
+  assertMayGrantAdmin(p.roles.includes('admin'), unique, current);
   const losingAdmin = current.includes('admin') && !unique.includes('admin');
   if (losingAdmin && userId === p.userId) {
     throw new DomainError(
@@ -1080,6 +1134,152 @@ export async function releaseWorkstations(ctx: RequestContext, userId: string) {
 // Sign-in accounts
 // ---------------------------------------------------------------------------------------
 
+export async function updateAccount(
+  ctx: RequestContext,
+  userId: string,
+  input: {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    employeeCode?: string;
+    expectedVersion?: number;
+  },
+) {
+  const p = requirePrincipal(ctx);
+  const user = (await ctx.sqlite
+    .prepare(`SELECT id, email, employee_id AS "employeeId" FROM user_account WHERE id = ?`)
+    .get(userId)) as { id: string; email: string; employeeId: string | null } | undefined;
+  if (!user) throw new DomainError('NOT_FOUND', 'Account not found.', { httpStatus: 404 });
+
+  if (!user.employeeId) {
+    await authorizeAction(ctx, 'user.account.create', null);
+    if (!input.email || input.email.toLowerCase() === user.email.toLowerCase()) {
+      return { ok: true, message: 'Nothing to change.' };
+    }
+    const taken = await ctx.sqlite
+      .prepare(`SELECT id FROM user_account WHERE LOWER(email) = LOWER(?) AND id != ?`)
+      .get(input.email, userId);
+    if (taken) {
+      throw new DomainError('DUPLICATE', `${input.email} is already used by another sign-in.`, {
+        httpStatus: 409,
+      });
+    }
+    await withTx(ctx.sqlite, async () => {
+      await ctx.sqlite
+        .prepare(`UPDATE user_account SET email = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
+        .run(input.email, ctx.now, p.userId, userId);
+      await audit(
+        ctx,
+        'user.account.updated',
+        'user_account',
+        userId,
+        { email: user.email },
+        {
+          email: input.email,
+        },
+      );
+    });
+    return { ok: true, message: `Sign-in email is now ${input.email}.` };
+  }
+
+  await authorizeAction(ctx, 'employee.update', user.employeeId);
+  if (input.expectedVersion == null) {
+    throw new DomainError('VERSION_REQUIRED', 'Reload the page and try the edit again.', {
+      httpStatus: 400,
+    });
+  }
+  const employee = (await ctx.sqlite
+    .prepare(
+      `SELECT id, employee_code AS code, first_name AS "firstName", last_name AS "lastName",
+              work_email AS email, version
+         FROM employee WHERE id = ?`,
+    )
+    .get(user.employeeId)) as
+    | {
+        id: string;
+        code: string;
+        firstName: string;
+        lastName: string;
+        email: string;
+        version: number;
+      }
+    | undefined;
+  if (!employee) throw new DomainError('NOT_FOUND', 'Employee not found.', { httpStatus: 404 });
+  if (Number(employee.version) !== input.expectedVersion) {
+    throw new DomainError('CONFLICT', 'This record has already changed. Reload and try again.', {
+      httpStatus: 409,
+    });
+  }
+  const firstName = input.firstName ?? employee.firstName;
+  const lastName = input.lastName ?? employee.lastName;
+  const email = input.email ?? employee.email;
+  const code = input.employeeCode ?? employee.code;
+  if (code !== employee.code) {
+    const clash = await ctx.sqlite
+      .prepare(`SELECT id FROM employee WHERE employee_code = ? AND id != ?`)
+      .get(code, employee.id);
+    if (clash) {
+      throw new DomainError('DUPLICATE', `Employee ID '${code}' is already in use.`, {
+        httpStatus: 409,
+      });
+    }
+  }
+  if (email.toLowerCase() !== employee.email.toLowerCase()) {
+    const clash = await ctx.sqlite
+      .prepare(
+        `SELECT id FROM employee WHERE LOWER(work_email) = LOWER(?) AND id != ?
+         UNION SELECT id FROM user_account WHERE LOWER(email) = LOWER(?) AND id != ?`,
+      )
+      .get(email, employee.id, email, userId);
+    if (clash) {
+      throw new DomainError('DUPLICATE', `Work email '${email}' is already in use.`, {
+        httpStatus: 409,
+      });
+    }
+  }
+  const version = Number(employee.version) + 1;
+  await withTx(ctx.sqlite, async () => {
+    const bump = await ctx.sqlite
+      .prepare(
+        `UPDATE employee SET employee_code = ?, first_name = ?, last_name = ?, work_email = ?,
+                version = ?, updated_at = ?, updated_by = ? WHERE id = ? AND version = ?`,
+      )
+      .run(
+        code,
+        firstName,
+        lastName,
+        email,
+        version,
+        ctx.now,
+        p.userId,
+        employee.id,
+        input.expectedVersion,
+      );
+    if (bump.changes !== 1) {
+      throw new DomainError('CONFLICT', 'This record has already changed. Reload and try again.', {
+        httpStatus: 409,
+      });
+    }
+    await ctx.sqlite
+      .prepare(`UPDATE user_account SET email = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
+      .run(email, ctx.now, p.userId, userId);
+    await audit(
+      ctx,
+      'employee.updated',
+      'employee',
+      employee.id,
+      {
+        employeeCode: employee.code,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        workEmail: employee.email,
+      },
+      { employeeCode: code, firstName, lastName, workEmail: email },
+    );
+  });
+  return { ok: true, version, message: `${firstName} ${lastName} was updated.` };
+}
+
 /**
  * Creates a sign-in for an employee who has none. The temporary password is returned once
  * and must be changed at first sign-in. They can sign in with the email or their employee ID.
@@ -1119,6 +1319,7 @@ export async function createLogin(
     });
   }
   const roles: RoleCode[] = input.roles.length ? [...new Set(input.roles)] : ['employee'];
+  assertMayGrantAdmin(p.roles.includes('admin'), roles, []);
   const temp = generateTemporaryPassword();
   const hash = await hashPassword(temp);
   const userId = newId();

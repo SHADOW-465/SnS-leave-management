@@ -2,7 +2,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import {
   bulkHolidayBodySchema,
+  createLeaveTypeBodySchema,
+  updateLeaveTypeBodySchema,
   createLoginBodySchema,
+  updateAccountBodySchema,
   holidayFileBodySchema,
   workWeekBodySchema,
   importHolidaysBodySchema,
@@ -20,6 +23,12 @@ import { authorizeAction } from './ctx.js';
 import { sendError } from './http.js';
 import { readHolidaySheet, standardHolidays } from './holiday-sheet.js';
 import {
+  createLeaveType,
+  listLeaveTypes,
+  setLeaveTypeArchived,
+  updateLeaveType,
+} from './usecases/leave-types.js';
+import {
   approvalMap,
   createLogin,
   createDelegation,
@@ -34,6 +43,7 @@ import {
   reportingManagerHistory,
   setTeamLead,
   setUserRoles,
+  updateAccount,
 } from './usecases/admin.js';
 import {
   applyHolidays,
@@ -126,6 +136,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return createLogin(req.ctx, { ...b, roles: b.roles as RoleCode[] });
     }),
   );
+  app.patch(
+    '/api/v1/admin/users/:id',
+    handle((req) => updateAccount(req.ctx, param(req, 'id'), body(updateAccountBodySchema, req))),
+  );
   app.put(
     '/api/v1/admin/users/:id/roles',
     handle((req) =>
@@ -145,6 +159,28 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.post(
     '/api/v1/admin/users/:id/sign-out-everywhere',
     handle((req) => revokeUserSessions(req.ctx, param(req, 'id'), req.sessionTokenHash ?? null)),
+  );
+
+  // Leave types
+  app.get(
+    '/api/v1/admin/leave-types',
+    handle((req) => listLeaveTypes(req.ctx)),
+  );
+  app.post(
+    '/api/v1/admin/leave-types',
+    handle((req) => createLeaveType(req.ctx, body(createLeaveTypeBodySchema, req))),
+  );
+  app.patch(
+    '/api/v1/admin/leave-types/:id',
+    handle((req) =>
+      updateLeaveType(req.ctx, param(req, 'id'), body(updateLeaveTypeBodySchema, req)),
+    ),
+  );
+  app.put(
+    '/api/v1/admin/leave-types/:id/archived',
+    handle((req) =>
+      setLeaveTypeArchived(req.ctx, param(req, 'id'), body(setDisabledBodySchema, req).disabled),
+    ),
   );
 
   // Allowances and the calendar in bulk

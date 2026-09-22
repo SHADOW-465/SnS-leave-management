@@ -309,12 +309,10 @@ export async function completeSetup(
  * app was installed: leave taken earlier in the year is recorded under them too.
  */
 async function seedLeaveTypes(ctx: RequestContext, actor: string, effectiveFrom: string) {
-  const types = [
-    { code: 'CL', name: 'Casual leave', token: 'accent', paid: 1 },
-    { code: 'SL', name: 'Sick leave', token: 'status-pending', paid: 1 },
-    { code: 'EL', name: 'Earned leave', token: 'status-approved', paid: 1 },
-    { code: 'LOP', name: 'Loss of pay', token: 'status-neutral', paid: 0 },
-  ];
+  // The Leave Tracker functional framework describes one leave type: Annual Leave, 2 days
+  // a month. That is the default. Casual, sick, earned and unpaid leave are templates an
+  // administrator can add from Leave types when the company uses them.
+  const types = [{ code: 'AL', name: 'Annual Leave', token: 'accent', paid: 1 }];
   for (const t of types) {
     const typeId = newId();
     await ctx.sqlite
@@ -410,7 +408,9 @@ export async function grantOpeningBalances(
   periodId: string,
   actor: string,
 ) {
-  const types = (await ctx.sqlite.prepare(`SELECT id, code FROM leave_type`).all()) as {
+  const types = (await ctx.sqlite
+    .prepare(`SELECT id, code FROM leave_type WHERE archived_at IS NULL`)
+    .all()) as {
     id: string;
     code: string;
   }[];

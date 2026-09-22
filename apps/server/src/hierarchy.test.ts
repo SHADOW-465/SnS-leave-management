@@ -91,7 +91,7 @@ beforeEach(async () => {
       loadSampleData: true,
     },
   });
-  const row = (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'CL'`).get()) as {
+  const row = (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'AL'`).get()) as {
     id: string;
   };
   clTypeId = row.id;

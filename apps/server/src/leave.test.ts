@@ -91,8 +91,29 @@ describe('API slice', () => {
           code: string;
         }[];
       }
-    ).data.find((t) => t.code === 'CL')?.id;
+    ).data.find((t) => t.code === 'AL')?.id;
     expect(typeId).toBeTruthy();
+    {
+      // The administrator joined today, so Annual Leave (2 days a month) has barely started
+      // accruing. Credit some days so the flow under test has a balance to draw on.
+      const who = await app.inject({
+        method: 'GET',
+        url: '/api/v1/me',
+        headers: { cookie: cookieHeader },
+      });
+      const credit = await app.inject({
+        method: 'POST',
+        url: '/api/v1/balances/adjust',
+        headers: { cookie: cookieHeader, 'x-csrf-token': csrf },
+        payload: {
+          employeeId: (who.json() as { data: { employeeId: string } }).data.employeeId,
+          leaveTypeId: typeId,
+          quantityHalfDays: 20,
+          reason: 'Test balance for the approval flow',
+        },
+      });
+      expect(credit.statusCode).toBe(200);
+    }
     const me = await app.inject({
       method: 'GET',
       url: '/api/v1/me',
@@ -218,7 +239,7 @@ describe('API slice', () => {
       headers: { cookie: cookieHeader },
     });
     const typeId = (types.json() as { data: { id: string; code: string }[] }).data.find(
-      (t) => t.code === 'CL',
+      (t) => t.code === 'AL',
     )!.id;
     const first = await app.inject({
       method: 'POST',
@@ -281,8 +302,26 @@ describe('API slice', () => {
       headers: { cookie: cookieHeader },
     });
     const typeId = (typesRes.json() as { data: { id: string; code: string }[] }).data.find(
-      (t) => t.code === 'CL',
+      (t) => t.code === 'AL',
     )!.id;
+
+    // The administrator joined today; credit a few days so there is a balance to request.
+    const who = await app.inject({
+      method: 'GET',
+      url: '/api/v1/me',
+      headers: { cookie: cookieHeader },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/balances/adjust',
+      headers: { cookie: cookieHeader, 'x-csrf-token': csrf },
+      payload: {
+        employeeId: (who.json() as { data: { employeeId: string } }).data.employeeId,
+        leaveTypeId: typeId,
+        quantityHalfDays: 10,
+        reason: 'Test balance',
+      },
+    });
 
     // Submit leave request (recipient approver will receive notification)
     const submitRes = await app.inject({

@@ -85,7 +85,10 @@ function EmpHome({ me }: { me: Me }) {
       />
     );
   }
-  const headline = data.balances.find((b) => b.code === 'EL') ?? data.balances[0]!;
+  const headline =
+    data.balances.find((b) => b.code === 'AL') ??
+    data.balances.find((b) => b.code === 'EL') ??
+    data.balances[0]!;
   const pendingApprovals = approvals.data ?? [];
   return (
     <div className="page">

@@ -180,7 +180,7 @@ describe('the calendar drives the working-day calculation', () => {
       headers: { cookie: employee.cookie },
     });
     const typeId = (types.json() as { data: { id: string; code: string }[] }).data.find(
-      (t) => t.code === 'CL',
+      (t) => t.code === 'AL',
     )!.id;
     const res = await app.inject({
       method: 'GET',
@@ -221,7 +221,7 @@ describe('the calendar drives the working-day calculation', () => {
       headers: { cookie: employee.cookie },
     });
     const typeId = (types.json() as { data: { id: string; code: string }[] }).data.find(
-      (t) => t.code === 'CL',
+      (t) => t.code === 'AL',
     )!.id;
 
     // Step 2: Employee submits leave from Mon 7 Sep to Fri 11 Sep (initially 4 working days because Wed was holiday)
@@ -334,7 +334,9 @@ describe('the calendar drives the working-day calculation', () => {
     const clBalance = empHome.data.balances.find((b) => b.id === typeId);
     expect(clBalance).toBeDefined();
     // Available does not drop until the request is approved. Pending is shown separately.
-    expect(clBalance?.left).toBe('12');
+    // Annual Leave: 2 days credited each month from January.
+    const monthsElapsed = new Date().getUTCMonth() + 1;
+    expect(clBalance?.left).toBe(String(2 * monthsElapsed));
     expect(clBalance?.pending).toBe('5');
     expect(empHome.data.employee?.code).toBeTruthy();
     expect(empHome.data.monthly.length).toBeGreaterThan(0);
@@ -396,14 +398,14 @@ describe('leave rules published from settings take effect', () => {
   }
 
   it('enforces a new maximum consecutive days immediately', async () => {
-    const typeId = await publish('CL', { maxConsecutiveDays: 2 });
+    const typeId = await publish('AL', { maxConsecutiveDays: 2 });
     const res = await submit(typeId, '2026-10-05', '2026-10-08');
     expect(res.statusCode).toBeGreaterThanOrEqual(400);
     expect((res.json() as { error: { code: string } }).error.code).toBe('LEAVE_MAX_CONSECUTIVE');
   });
 
   it('enforces a new minimum notice period', async () => {
-    const typeId = await publish('CL', { minNoticeDays: 90 }); // schema maximum
+    const typeId = await publish('AL', { minNoticeDays: 90 }); // schema maximum
     // A fixed weekday well inside the notice window, so the notice rule is what
     // rejects it rather than the dates happening to fall on a weekend.
     const res = await submit(typeId, '2026-10-05', '2026-10-05'); // a Monday
@@ -411,14 +413,20 @@ describe('leave rules published from settings take effect', () => {
   });
 
   it('publishing bumps the version and records an audit event with before and after', async () => {
-    await publish('CL', { maxConsecutiveDays: 7 });
-    const versions = (await sqlite
-      .prepare(
-        `SELECT COUNT(*) AS n FROM leave_policy_version v
-         JOIN leave_type t ON t.id = v.leave_type_id WHERE t.code = 'CL'`,
-      )
-      .get()) as { n: number };
-    expect(versions.n).toBe(2);
+    const countVersions = async () =>
+      Number(
+        (
+          (await sqlite
+            .prepare(
+              `SELECT COUNT(*) AS n FROM leave_policy_version v
+               JOIN leave_type t ON t.id = v.leave_type_id WHERE t.code = 'AL'`,
+            )
+            .get()) as { n: number }
+        ).n,
+      );
+    const before = await countVersions();
+    await publish('AL', { maxConsecutiveDays: 7 });
+    expect(await countVersions()).toBe(before + 1);
     const audit = (await sqlite
       .prepare(
         `SELECT before_json, after_json FROM audit_event WHERE action = 'leave.policy.published'`,

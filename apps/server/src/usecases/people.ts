@@ -1,10 +1,10 @@
 import { generateTemporaryPassword, hashPassword } from '@sns/auth';
 import { withTx } from '@sns/database';
-import { DomainError, assertNoManagerCycle, newId } from '@sns/domain';
+import { DomainError, ROLE_CODES, assertNoManagerCycle, newId, type RoleCode } from '@sns/domain';
 import { authorizeAction, graphFor, requirePrincipal, type RequestContext } from '../ctx.js';
 import { grantOpeningBalances, currentPeriodId } from './setup.js';
 import { audit } from './leave.js';
-import { changeReportingManager } from './admin.js';
+import { assertMayGrantAdmin, changeReportingManager } from './admin.js';
 export async function listEmployees(ctx: RequestContext, q: string) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'employee.read', p.employeeId);
@@ -294,11 +294,52 @@ export async function createEmployee(
     employmentTypeId: string;
     phone?: string;
     createAccount: boolean;
+    roles?: RoleCode[];
   },
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'employee.create', null);
   if (input.managerEmployeeId) await authorizeAction(ctx, 'approval.routing.manage', null);
+  const accountRoles: RoleCode[] = input.createAccount
+    ? [
+        ...new Set(
+          (input.roles?.length ? input.roles : ['employee']).filter((r): r is RoleCode =>
+            (ROLE_CODES as readonly string[]).includes(r),
+          ),
+        ),
+      ]
+    : [];
+  if (input.createAccount) {
+    if (accountRoles.length === 0) {
+      throw new DomainError('NO_ROLES', 'Choose at least one role. Use Employee for staff.', {
+        httpStatus: 400,
+      });
+    }
+    await authorizeAction(ctx, 'user.account.create', null);
+    if (!(accountRoles.length === 1 && accountRoles[0] === 'employee')) {
+      await authorizeAction(ctx, 'role.assign', null);
+    }
+    assertMayGrantAdmin(p.roles.includes('admin'), accountRoles, []);
+  }
+  const codeTaken = await ctx.sqlite
+    .prepare(`SELECT id FROM employee WHERE employee_code = ?`)
+    .get(input.employeeCode);
+  if (codeTaken) {
+    throw new DomainError('DUPLICATE', `Employee ID '${input.employeeCode}' is already in use.`, {
+      httpStatus: 409,
+    });
+  }
+  const emailTaken = await ctx.sqlite
+    .prepare(
+      `SELECT id FROM employee WHERE LOWER(work_email) = LOWER(?)
+       UNION SELECT id FROM user_account WHERE LOWER(email) = LOWER(?)`,
+    )
+    .get(input.workEmail, input.workEmail);
+  if (emailTaken) {
+    throw new DomainError('DUPLICATE', `Work email '${input.workEmail}' is already in use.`, {
+      httpStatus: 409,
+    });
+  }
   const employees = (await ctx.sqlite
     .prepare(`SELECT id, manager_employee_id AS managerEmployeeId FROM employee`)
     .all()) as {
@@ -352,16 +393,20 @@ export async function createEmployee(
            VALUES (?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
         )
         .run(userId, id, input.workEmail, hash, ctx.now, p.userId, ctx.now, p.userId);
-      const role = (await ctx.sqlite
-        .prepare(`SELECT id FROM role WHERE code = 'employee'`)
-        .get()) as {
-        id: string;
-      };
-      await ctx.sqlite
-        .prepare(
-          `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)`,
-        )
-        .run(userId, role.id, p.userId, ctx.now);
+      for (const code of accountRoles) {
+        const role = (await ctx.sqlite.prepare(`SELECT id FROM role WHERE code = ?`).get(code)) as
+          { id: string } | undefined;
+        if (!role) {
+          throw new DomainError('NO_ROLES', `The role ${code} is not available.`, {
+            httpStatus: 400,
+          });
+        }
+        await ctx.sqlite
+          .prepare(
+            `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)`,
+          )
+          .run(userId, role.id, p.userId, ctx.now);
+      }
     }
     if (input.phone) {
       await upsertEmployeePhone(ctx, id, input.phone, p.userId);

@@ -16,6 +16,7 @@ type Person = {
   reportingManager: { employeeId: string; name: string; since: string } | null;
   route: {
     approverName: string;
+    approverJobTitle: string | null;
     approverRole: string;
     escalation: string | null;
     coveringFor: string | null;
@@ -43,7 +44,7 @@ type MapData = {
     active: boolean;
   }[];
   warnings: { level: 'problem' | 'notice'; text: string }[];
-  candidates: { id: string; name: string; team: string | null }[];
+  candidates: { id: string; name: string; jobTitle: string | null; team: string | null }[];
 };
 type History = {
   effectiveFrom: string;
@@ -53,6 +54,16 @@ type History = {
 }[];
 
 const NONE = '__none__';
+
+function candidateLabel(c: { name: string; jobTitle: string | null }) {
+  if (!c.jobTitle) return c.name;
+  return (
+    <span className="rm-person">
+      <span>{c.name}</span>
+      <span className="rm-person-title">{c.jobTitle}</span>
+    </span>
+  );
+}
 const today = () => new Date().toISOString().slice(0, 10);
 type Tab = 'managers' | 'fallback' | 'cover';
 
@@ -226,6 +237,10 @@ export function ApprovalRoutingPage() {
         .rm .delform { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0; }
         .rm .dels { list-style:none; margin:0; padding:0; }
         .rm .dels li { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 0; border-top:1px solid #f3f3ef; font-size:13.5px; }
+        .rm .rm-manager .custom-select-trigger.is-sm { height:auto; min-height:32px; white-space:normal; padding-top:4px; padding-bottom:4px; }
+        .rm .rm-manager .custom-select-label { white-space:normal; overflow:visible; text-overflow:unset; }
+        .rm .rm-person { display:flex; flex-direction:column; align-items:flex-start; line-height:1.25; text-align:left; }
+        .rm .rm-person-title { font-size:11px; font-weight:450; color:var(--text-secondary); }
       `}</style>
     </div>
   );
@@ -254,7 +269,9 @@ function ManagersTab({ d, run }: { d: MapData; run: Run }) {
 
   const managerOptions = (exclude?: string) => [
     { value: NONE, label: 'Not set' },
-    ...d.candidates.filter((c) => c.id !== exclude).map((c) => ({ value: c.id, label: c.name })),
+    ...d.candidates
+      .filter((c) => c.id !== exclude)
+      .map((c) => ({ value: c.id, label: candidateLabel(c) })),
   ];
   const allShown = people.length > 0 && people.every((p) => picked.has(p.employeeId));
 
@@ -293,6 +310,7 @@ function ManagersTab({ d, run }: { d: MapData; run: Run }) {
           <strong>{picked.size} selected</strong>
           <span>Reporting manager</span>
           <Select
+            className="rm-manager"
             size="sm"
             aria-label="New reporting manager"
             placeholder="Choose…"
@@ -381,6 +399,7 @@ function ManagersTab({ d, run }: { d: MapData; run: Run }) {
                 </td>
                 <td>
                   <Select
+                    className="rm-manager"
                     size="sm"
                     aria-label={`Reporting manager for ${p.name}`}
                     value={p.reportingManager?.employeeId ?? NONE}
@@ -405,6 +424,9 @@ function ManagersTab({ d, run }: { d: MapData; run: Run }) {
                   {p.route ? (
                     <>
                       <strong>{p.route.approverName}</strong>
+                      {p.route.approverJobTitle ? (
+                        <div className="muted small">{p.route.approverJobTitle}</div>
+                      ) : null}
                       <div>
                         <RouteBadge p={p} />
                       </div>
@@ -465,7 +487,7 @@ function HistoryList({ employeeId }: { employeeId: string }) {
 function FallbackTab({ d, run }: { d: MapData; run: Run }) {
   const pick = [
     { value: NONE, label: 'Nobody' },
-    ...d.candidates.map((c) => ({ value: c.id, label: c.name })),
+    ...d.candidates.map((c) => ({ value: c.id, label: candidateLabel(c) })),
   ];
   return (
     <div className="grid2">
@@ -481,6 +503,7 @@ function FallbackTab({ d, run }: { d: MapData; run: Run }) {
               <div className="muted small">{dep.memberCount} people</div>
             </div>
             <Select
+              className="rm-manager"
               size="sm"
               aria-label={`Head of ${dep.name}`}
               value={dep.headEmployeeId ?? NONE}
@@ -508,6 +531,7 @@ function FallbackTab({ d, run }: { d: MapData; run: Run }) {
               </div>
             </div>
             <Select
+              className="rm-manager"
               size="sm"
               aria-label={`Team lead for ${t.name}`}
               value={t.leadEmployeeId ?? NONE}
@@ -550,21 +574,23 @@ function CoverTab({ d, run }: { d: MapData; run: Run }) {
         }}
       >
         <Select
+          className="rm-manager"
           size="sm"
           aria-label="Approver who is away"
           placeholder="Who is away"
           value={del.approverEmployeeId}
-          options={d.candidates.map((c) => ({ value: c.id, label: c.name }))}
+          options={d.candidates.map((c) => ({ value: c.id, label: candidateLabel(c) }))}
           onChange={(v) => setDel({ ...del, approverEmployeeId: v })}
         />
         <Select
+          className="rm-manager"
           size="sm"
           aria-label="Covered by"
           placeholder="Covered by"
           value={del.delegateEmployeeId}
           options={d.candidates
             .filter((c) => c.id !== del.approverEmployeeId)
-            .map((c) => ({ value: c.id, label: c.name }))}
+            .map((c) => ({ value: c.id, label: candidateLabel(c) }))}
           onChange={(v) => setDel({ ...del, delegateEmployeeId: v })}
         />
         <input

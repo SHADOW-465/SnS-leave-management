@@ -233,7 +233,9 @@ export async function openCurrentPeriod(sqlite: Db): Promise<{ opened: number }>
       `SELECT id, status, joined_on, probation_end_on FROM employee WHERE status != 'exited'`,
     )
     .all()) as Employee[];
-  const types = (await sqlite.prepare(`SELECT id, code FROM leave_type`).all()) as LeaveTypeRow[];
+  const types = (await sqlite
+    .prepare(`SELECT id, code FROM leave_type WHERE archived_at IS NULL`)
+    .all()) as LeaveTypeRow[];
 
   let opened = 0;
   for (const employee of employees) {
@@ -355,7 +357,9 @@ export async function runMonthlyAccrual(sqlite: Db): Promise<{ credited: number 
       `SELECT id, status, joined_on, probation_end_on FROM employee WHERE status != 'exited'`,
     )
     .all()) as Employee[];
-  const types = (await sqlite.prepare(`SELECT id, code FROM leave_type`).all()) as LeaveTypeRow[];
+  const types = (await sqlite
+    .prepare(`SELECT id, code FROM leave_type WHERE archived_at IS NULL`)
+    .all()) as LeaveTypeRow[];
 
   let credited = 0;
   for (const employee of employees) {

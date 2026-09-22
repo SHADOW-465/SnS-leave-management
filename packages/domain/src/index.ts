@@ -37,6 +37,7 @@ export {
 } from './leave/state-machine.js';
 export {
   DEFAULT_POLICY,
+  LEAVE_TYPE_TEMPLATES,
   defaultRulesForCode,
   parseRules,
   validatePolicyAgainstRequest,

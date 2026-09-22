@@ -68,7 +68,7 @@ describe('functional framework', () => {
     const amina = (await sqlite
       .prepare(`SELECT id FROM employee WHERE work_email = 'vijay@sns.test'`)
       .get()) as { id: string };
-    const el = (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'EL'`).get()) as {
+    const el = (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'AL'`).get()) as {
       id: string;
     };
     const grants = (await sqlite

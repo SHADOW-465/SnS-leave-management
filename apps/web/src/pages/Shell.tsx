@@ -24,6 +24,7 @@ import {
   KeyRound,
   History,
   UserRound,
+  Tags,
 } from 'lucide-react';
 import { Button } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
@@ -103,16 +104,21 @@ function navFor(me: Me): NavItem[] {
     items.push({ to: '/reports', label: 'Reports', icon: FileBarChart, section: 'Reports' });
   }
   if (can(me, 'approval.routing.manage') || can(me, 'leave.policy.manage')) {
-    items.push({
-      to: '/settings',
-      label: 'Leave configuration',
-      icon: Settings,
-      section: 'Administration',
-    });
+    items.push({ to: '/leave-types', label: 'Leave types', icon: Tags, section: 'Administration' });
+    items.push({ to: '/settings', label: 'Leave configuration', icon: Settings });
   }
   if (can(me, 'approval.routing.manage')) {
     items.push({ to: '/admin/routing', label: 'Reporting managers', icon: GitBranch });
-    items.push({ to: '/admin/users', label: 'Users & access', icon: KeyRound });
+  }
+  if (can(me, 'user.account.create')) {
+    items.push({
+      to: '/admin/users',
+      label: 'Users & access',
+      icon: KeyRound,
+      ...(can(me, 'approval.routing.manage') || can(me, 'leave.policy.manage')
+        ? {}
+        : { section: 'Administration' }),
+    });
   }
   return items;
 }
@@ -286,10 +292,11 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
     '/allowances': ['Leave allowances', 'How much leave each person has this year'],
     '/reports': ['Reports', 'Monthly payroll, annual leave and utilisation'],
     '/audit': ['Audit log', 'Append-only. Nothing here can be edited.'],
-    '/settings': ['Leave configuration', 'Leave types, accrual, working week and leave year'],
+    '/settings': ['Leave configuration', 'Rules for each leave type, working week and leave year'],
     '/attendance': ['Attendance', 'Signals, not verdicts. A missing login is not an absence.'],
     '/admin/routing': ['Reporting managers', 'Who approves whose leave'],
     '/admin/users': ['Users & access', 'Sign-ins, roles and access'],
+    '/leave-types': ['Leave types', 'The kinds of leave people can apply for'],
     '/profile': ['My profile', 'Your employee record'],
     '/password': ['Change password', 'Choose a new password'],
   };

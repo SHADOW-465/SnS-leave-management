@@ -402,8 +402,8 @@ export async function ensureDemoOrganisation(
             .run(id, name, now, actorId, now, actorId),
       );
 
-    // The demo shows per-category accrual at work: management earns 2.5 days a month and
-    // anyone on probation 1 day, against the standard 2 (functional framework §10).
+    // The demo shows per-category accrual at work on Annual Leave: management earns 2.5
+    // days a month and anyone on probation 1 day, against the standard 2 (framework §10).
     await publishDemoEarnedLeavePolicy(ctx, actorId);
 
     // People.
@@ -625,7 +625,7 @@ async function upgradeLegacyDemo(ctx: RequestContext, now: string) {
 }
 
 async function publishDemoEarnedLeavePolicy(ctx: RequestContext, actorId: string) {
-  const el = (await ctx.sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'EL'`).get()) as
+  const el = (await ctx.sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'AL'`).get()) as
     { id: string } | undefined;
   if (!el) return;
   const latest = (await ctx.sqlite
@@ -635,7 +635,7 @@ async function publishDemoEarnedLeavePolicy(ctx: RequestContext, actorId: string
     .get(el.id)) as { n: number; rules: string } | undefined;
   if (latest && latest.rules.includes('"MGMT"')) return;
   const rules = {
-    ...defaultRulesForCode('EL'),
+    ...defaultRulesForCode('AL'),
     categoryMonthlyHalfDays: { MGMT: 5 },
     probationMonthlyHalfDays: 2,
   };
@@ -739,7 +739,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
     {
       who: 'vijay',
       approver: 'john',
-      type: 'EL',
+      type: 'AL',
       start: monday(addDays(ctx.today, -120)),
       days: 3,
       reason: 'Family function in Madurai',
@@ -748,7 +748,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
     {
       who: 'vijay',
       approver: 'john',
-      type: 'CL',
+      type: 'AL',
       start: monday(addDays(ctx.today, -45)),
       days: 1,
       reason: 'Bank work',
@@ -757,7 +757,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
     {
       who: 'vijay',
       approver: 'john',
-      type: 'EL',
+      type: 'AL',
       start: monday(addDays(ctx.today, 14)),
       days: 2,
       reason: 'Travelling home for a wedding',
@@ -765,7 +765,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
     {
       who: 'priya',
       approver: 'john',
-      type: 'CL',
+      type: 'AL',
       start: monday(addDays(ctx.today, 3)),
       days: 1,
       reason: 'Child’s school annual day',
@@ -773,7 +773,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
     {
       who: 'ravi',
       approver: 'kumar',
-      type: 'SL',
+      type: 'AL',
       start: monday(addDays(ctx.today, -60)),
       days: 2,
       reason: 'Fever',
@@ -782,7 +782,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
     {
       who: 'ravi',
       approver: 'kumar',
-      type: 'EL',
+      type: 'AL',
       start: monday(addDays(ctx.today, 10)),
       days: 3,
       reason: 'Pilgrimage to Tirupati',
@@ -790,7 +790,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
     {
       who: 'suresh',
       approver: 'david',
-      type: 'CL',
+      type: 'AL',
       start: monday(addDays(ctx.today, 5)),
       days: 1,
       reason: 'Personal work',
@@ -798,7 +798,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
     {
       who: 'divya',
       approver: 'arun',
-      type: 'EL',
+      type: 'AL',
       start: monday(addDays(ctx.today, 21)),
       days: 5,
       reason: 'Holiday with family',
@@ -808,7 +808,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
     {
       who: 'sneha',
       approver: 'lakshmi',
-      type: 'EL',
+      type: 'AL',
       start: monday(addDays(ctx.today, 9)),
       days: 2,
       reason: 'Sister’s engagement',

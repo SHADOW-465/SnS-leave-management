@@ -23,7 +23,7 @@ export async function listAllowances(ctx: RequestContext) {
   await authorizeAction(ctx, 'leave.balance.read', null);
   const periodId = await currentPeriodId(ctx);
   const types = (await ctx.sqlite
-    .prepare(`SELECT id, name, code FROM leave_type ORDER BY name`)
+    .prepare(`SELECT id, name, code FROM leave_type WHERE archived_at IS NULL ORDER BY name`)
     .all()) as { id: string; name: string; code: string }[];
   const people = (await ctx.sqlite
     .prepare(

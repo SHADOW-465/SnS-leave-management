@@ -194,7 +194,7 @@ describe('ensureDemoHierarchy backfills a pre-hierarchy preview database', () =>
       ? amina.headers['set-cookie'].map((c) => c.split(';')[0]).join('; ')
       : String(amina.headers['set-cookie'] ?? '');
     const csrf = /leaveos\.csrf=([^;]*)/.exec(cookie)?.[1] ?? '';
-    const cl = (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'CL'`).get()) as {
+    const cl = (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'AL'`).get()) as {
       id: string;
     };
     const applied = await app.inject({

@@ -73,6 +73,26 @@ export function parseRules(raw: string | Partial<LeavePolicyRules>): LeavePolicy
 export function defaultRulesForCode(code: string): LeavePolicyRules {
   const base = { ...DEFAULT_POLICY };
   switch (code) {
+    case 'AL':
+      // The Leave Tracker functional framework (§4, §10): 2 days credited every month,
+      // 24 a year; unused days carry forward with no fixed ceiling; weekends and
+      // government holidays are not counted; the joining month is pro-rated.
+      return {
+        ...base,
+        entitlementHalfDays: 48,
+        accrualMethod: 'monthly',
+        accrualCadenceMonths: 1,
+        carryForwardCapHalfDays: 400,
+        carryForwardExpiryMonths: 0,
+        probationRestriction: 'none',
+        halfDaysAllowed: true,
+        minNoticeDays: 0,
+        maxConsecutiveDays: 30,
+        attachmentRequiredAfterHalfDays: null,
+        excludeWeekends: true,
+        excludeHolidays: true,
+        joinMonthAccrual: 'prorated',
+      };
     case 'CL':
       return { ...base, entitlementHalfDays: 24, attachmentRequiredAfterHalfDays: null };
     case 'SL':
@@ -198,3 +218,43 @@ function addDaysSafe(iso: string, n: number): string {
   const dt = new Date(Date.UTC(y, m - 1, d + n));
   return dt.toISOString().slice(0, 10);
 }
+
+/** Starting points offered when an administrator adds a leave type. */
+export const LEAVE_TYPE_TEMPLATES: {
+  code: string;
+  name: string;
+  isPaid: boolean;
+  summary: string;
+}[] = [
+  {
+    code: 'AL',
+    name: 'Annual Leave',
+    isPaid: true,
+    summary:
+      'The framework default: 2 days credited every month (24 a year). Unused days carry forward. Weekends and holidays are not counted.',
+  },
+  {
+    code: 'CL',
+    name: 'Casual Leave',
+    isPaid: true,
+    summary: '12 days given at the start of the year for short personal needs. Half days allowed.',
+  },
+  {
+    code: 'SL',
+    name: 'Sick Leave',
+    isPaid: true,
+    summary: '12 days a year. A medical certificate is required for 3 days or more.',
+  },
+  {
+    code: 'EL',
+    name: 'Earned Leave',
+    isPaid: true,
+    summary: '2 days a month for planned leave. Full days only, applied for 7 days ahead.',
+  },
+  {
+    code: 'LOP',
+    name: 'Loss of Pay',
+    isPaid: false,
+    summary: 'Unpaid leave with no balance. Days taken are deducted from pay.',
+  },
+];

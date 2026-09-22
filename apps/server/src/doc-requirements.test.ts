@@ -118,7 +118,7 @@ describe('working week and day counting (§5, §10)', () => {
     const vijay = await signIn('vijay@sns.test');
     // Mon 5 Oct – Sat 10 Oct 2026: five working days with a Saturday–Sunday weekend.
     const submitted = await call(vijay, 'POST', '/api/v1/leave-requests', {
-      leaveTypeId: await typeId('CL'),
+      leaveTypeId: await typeId('AL'),
       startDate: '2026-10-05',
       endDate: '2026-10-10',
       reason: 'Checking the working week',
@@ -144,7 +144,7 @@ describe('working week and day counting (§5, §10)', () => {
   it('a leave type can count weekends and holidays when HR says so', async () => {
     await boot();
     const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
-    const cl = await typeId('CL');
+    const cl = await typeId('AL');
     const current = (await sqlite
       .prepare(
         `SELECT rules_json FROM leave_policy_version WHERE leave_type_id = ? ORDER BY version_no DESC LIMIT 1`,
@@ -170,7 +170,7 @@ describe('working week and day counting (§5, §10)', () => {
 describe('accrual (§4, §10, §18C)', () => {
   it('credits each staff category at its own rate and applies the joining-month rule', async () => {
     await boot();
-    const el = await typeId('EL');
+    const el = await typeId('AL');
     const rules = parseRules({
       entitlementHalfDays: 48,
       accrualMethod: 'monthly',
@@ -211,7 +211,7 @@ describe('leave transactions (§13, §14)', () => {
     await boot();
     const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
     const vijayId = await employeeId('vijay@sns.test');
-    const el = await typeId('EL');
+    const el = await typeId('AL');
     const adjust = await call(admin, 'POST', '/api/v1/balances/adjust', {
       employeeId: vijayId,
       leaveTypeId: el,
@@ -335,6 +335,17 @@ describe('sample organisation', () => {
 });
 
 describe('yearly entitlement is credited once', () => {
+  // Casual Leave (12 days given at the start of the year) is added from Leave types.
+  const addCasual = async () => {
+    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
+    const res = await call(admin, 'POST', '/api/v1/admin/leave-types', {
+      name: 'Casual Leave',
+      code: 'CL',
+      isPaid: true,
+      template: 'CL',
+    });
+    expect(res.statusCode).toBe(200);
+  };
   const grants = async (email: string, code: string) =>
     Number(
       (
@@ -348,8 +359,9 @@ describe('yearly entitlement is credited once', () => {
       ).n,
     );
 
-  it('the leave-year job does not grant again what setup already granted', async () => {
+  it('the leave-year job does not grant again what was already granted', async () => {
     await boot();
+    await addCasual();
     const before = await grants('vijay@sns.test', 'CL');
     expect(before).toBe(24); // 12 days
     await openCurrentPeriod(sqlite);
@@ -358,6 +370,7 @@ describe('yearly entitlement is credited once', () => {
 
   it('a database that was credited twice is corrected, once', async () => {
     await boot();
+    await addCasual();
     const row = (await sqlite
       .prepare(
         `SELECT l.* FROM balance_ledger l JOIN employee e ON e.id = l.employee_id
@@ -389,5 +402,105 @@ describe('yearly entitlement is credited once', () => {
     );
     await sqlite.exec(fix);
     expect(await grants('vijay@sns.test', 'CL')).toBe(24);
+  });
+});
+
+describe('leave types (Leave types screen)', () => {
+  it('a fresh install follows the framework: Annual Leave, 2 days a month', async () => {
+    await boot();
+    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
+    const d = data<{ types: { code: string; name: string; summary: string }[] }>(
+      await call(admin, 'GET', '/api/v1/admin/leave-types'),
+    );
+    expect(d.types.map((t) => t.code)).toEqual(['AL']);
+    expect(d.types[0]!.summary).toBe('2 days credited every month (24 a year)');
+  });
+
+  it('adds a type from a template and everyone can use it at once', async () => {
+    await boot();
+    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
+    const res = await call(admin, 'POST', '/api/v1/admin/leave-types', {
+      name: 'Sick Leave',
+      code: 'sl',
+      isPaid: true,
+      template: 'SL',
+    });
+    expect(res.statusCode).toBe(200);
+    const vijay = await signIn('vijay@sns.test');
+    const home = data<{ balances: { code: string; left: string }[] }>(
+      await call(vijay, 'GET', '/api/v1/home'),
+    );
+    expect(home.balances.find((b) => b.code === 'SL')?.left).toBe('12');
+    const dup = await call(admin, 'POST', '/api/v1/admin/leave-types', {
+      name: 'Sick Leave',
+      code: 'SL',
+      isPaid: true,
+      template: 'SL',
+    });
+    expect(dup.statusCode).toBe(409);
+  });
+
+  it('renames, archives and restores; archived types cannot be applied for', async () => {
+    await boot();
+    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
+    const created = data<{ id: string }>(
+      await call(admin, 'POST', '/api/v1/admin/leave-types', {
+        name: 'Loss of Pay',
+        code: 'LOP',
+        isPaid: false,
+        template: 'LOP',
+      }),
+    );
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/leave-types/${created.id}`,
+      headers: { cookie: admin.cookie, 'x-csrf-token': admin.csrf },
+      payload: { name: 'Unpaid Leave' },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(
+      (
+        await call(admin, 'PUT', `/api/v1/admin/leave-types/${created.id}/archived`, {
+          disabled: true,
+        })
+      ).statusCode,
+    ).toBe(200);
+    const vijay = await signIn('vijay@sns.test');
+    const refused = await call(vijay, 'POST', '/api/v1/leave-requests', {
+      leaveTypeId: created.id,
+      startDate: '2026-10-05',
+      endDate: '2026-10-05',
+      reason: 'Trying an archived type',
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(
+      (
+        await call(admin, 'PUT', `/api/v1/admin/leave-types/${created.id}/archived`, {
+          disabled: false,
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+
+  it('will not archive the last type, nor one with requests waiting', async () => {
+    await boot();
+    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
+    const al = await typeId('AL');
+    expect(
+      (await call(admin, 'PUT', `/api/v1/admin/leave-types/${al}/archived`, { disabled: true }))
+        .statusCode,
+    ).toBe(409);
+  });
+
+  it('is refused to an ordinary employee', async () => {
+    await boot();
+    const vijay = await signIn('vijay@sns.test');
+    const res = await call(vijay, 'POST', '/api/v1/admin/leave-types', {
+      name: 'Holiday Bonus',
+      code: 'HB',
+      isPaid: true,
+      template: null,
+    });
+    expect(res.statusCode).toBe(403);
   });
 });

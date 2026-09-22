@@ -94,7 +94,7 @@ export function SettingsPage({ me }: { me: Me }) {
             <p className="note" style={{ margin: '2px 0 0' }}>
               {readOnly
                 ? 'You can view these rules. Changing them needs policy permission.'
-                : 'Each save publishes a new version. Requests already submitted keep the version they were submitted under.'}
+                : 'Each save publishes a new version. Requests already submitted keep the version they were submitted under. Add, rename or archive leave types on Leave types.'}
             </p>
           </div>
         </div>

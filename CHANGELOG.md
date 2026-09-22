@@ -1,11 +1,21 @@
 # Changelog
 
+## 0.2.1 — 2026-09-22
+
+### Added
+- **Users & access** is for HR and administrators. Add account creates the employee and a sign-in together, with a role (Employee, Manager, HR, Payroll, Auditor; Administrator only if you are an administrator). Edit changes the name, work email, employee ID and roles. Remove marks them as left and turns the sign-in off; the leave history stays, and Restore brings them back. A temporary disable still exists for a sign-in that should stop without the person leaving.
+
+### Changed
+- **Reporting managers** shows each person’s designation under their name in the manager dropdown and in the “Leave goes to today” column.
+
 ## 0.2.0 — 2026-09-22
 
 Everything the Leave Tracker functional framework asks for, a realistic sample organisation,
 and a round of fixes found by walking through every screen.
 
 ### Added
+- **Leave types** screen (Administration → Leave types): add a type from a template (Annual, Casual, Sick, Earned, Loss of Pay) or from scratch, rename it, mark it paid or unpaid, archive and restore it. A new type opens everyone's balance at once; archiving is refused while requests of that type are waiting, and never removes history. Archived types disappear from applying, balances, allowances and accrual.
+- **Defaults follow the framework**: a fresh install has one leave type, Annual Leave — 2 days credited monthly (24 a year), carry forward, weekends and holidays not counted, joining month pro-rated. Casual, sick, earned and unpaid leave are optional templates. Existing installations keep their types.
 - **Reporting managers** (was "Approval routing"): the reporting manager assigned to each person is who approves their leave (§6, §9). Change one person or many at once, from a chosen date; every change is kept with its dates (`employment_history`) and shown under *History*. Old requests stay with the manager they were sent to (§18D). Without a manager — or while they are away — leave goes to the team lead, then the department head, then HR. The page explains that order in a simple diagram and only warns when someone is actually affected. Administrator overrides were folded into reporting managers (migration `0006`).
 - **Leave configuration** (§10): monthly credit per leave type ("2 days a month = 24 a year"); a different monthly rate per staff category (e.g. Management 2.5) and during probation; what someone earns in the month they join — full, pro-rated or nothing (§18C); maximum balance; whether weekends and government holidays are counted (§5); the company working week, with upcoming leave recounted when it changes. Staff categories can be added from the same page.
 - **Leave transactions** (§13, §14): every credit, approval, cancellation and adjustment with the balance after it, a summary (opening, earned, manual credit, manual deduction, used, closing, pending), and a manual credit/deduction form with a required reason. Employees see their own as *Leave history*.

@@ -36,6 +36,25 @@ async function boot(): Promise<{ app: FastifyInstance; sqlite: Db }> {
       loadSampleData: true,
     },
   });
+  // These tests are about yearly-grant leave, so add Casual Leave from its template the way
+  // an administrator would on Leave types.
+  const login = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    payload: { email: ADMIN.email, password: ADMIN.password },
+  });
+  const raw = login.headers['set-cookie'];
+  const cookie = Array.isArray(raw)
+    ? raw.map((c) => c.split(';')[0]).join('; ')
+    : String(raw ?? '');
+  const csrf = /leaveos\.csrf=([^;]*)/.exec(cookie)?.[1] ?? '';
+  const added = await app.inject({
+    method: 'POST',
+    url: '/api/v1/admin/leave-types',
+    headers: { cookie, 'x-csrf-token': csrf },
+    payload: { name: 'Casual Leave', code: 'CL', isPaid: true, template: 'CL' },
+  });
+  if (added.statusCode !== 200) throw new Error(`could not add Casual Leave: ${added.body}`);
   return { app, sqlite };
 }
 

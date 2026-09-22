@@ -11,6 +11,23 @@ describe('RBAC', () => {
     );
   });
 
+  it('lets HR and administrators manage accounts, and nobody else', () => {
+    for (const code of [
+      'user.account.create:company',
+      'user.account.disable:company',
+      'user.password.reset:company',
+      'user.session.revoke:company',
+      'role.assign:company',
+    ]) {
+      expect(ROLE_PERMISSIONS.hr_officer).toContain(code);
+      expect(ROLE_PERMISSIONS.admin).toContain(code);
+      expect(ROLE_PERMISSIONS.employee).not.toContain(code);
+      expect(ROLE_PERMISSIONS.manager).not.toContain(code);
+      expect(ROLE_PERMISSIONS.payroll_officer).not.toContain(code);
+      expect(ROLE_PERMISSIONS.auditor).not.toContain(code);
+    }
+  });
+
   it('resolves direct vs recursive reports on a three-level tree', () => {
     const employees = [
       { id: 'a', managerEmployeeId: null, locationId: 'l', departmentId: 'd', teamId: 't' },

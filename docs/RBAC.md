@@ -137,11 +137,11 @@ self-approval report. Where a second Admin exists, requests route to them first.
 | `notification.read`             | `self`   | `self`              | `self`              | `self`  | `self`   | `self`  |
 | `audit.read`                    | —        | —                   | ✓⁸                  | —       | ✓        | ✓       |
 | `user.account.read`             | `self`   | —                   | ✓⁸                  | —       | ✓        | ✓       |
-| `user.account.create`           | —        | —                   | —                   | —       | ✓        | —       |
-| `user.account.disable`          | —        | —                   | —                   | —       | ✓        | —       |
-| `user.password.reset`           | —        | —                   | —                   | —       | ✓        | —       |
-| `user.session.revoke`           | `self`   | —                   | —                   | —       | ✓        | —       |
-| `role.assign`                   | —        | —                   | —                   | —       | ✓        | —       |
+| `user.account.create`           | —        | —                   | ✓¹⁰                 | —       | ✓        | —       |
+| `user.account.disable`          | —        | —                   | ✓¹⁰                 | —       | ✓        | —       |
+| `user.password.reset`           | —        | —                   | ✓¹⁰                 | —       | ✓        | —       |
+| `user.session.revoke`           | `self`   | —                   | ✓¹⁰                 | —       | ✓        | —       |
+| `role.assign`                   | —        | —                   | ✓¹⁰                 | —       | ✓        | —       |
 | `system.config.manage`          | —        | —                   | —                   | —       | ✓        | —       |
 | `system.backup.create`          | —        | —                   | —                   | —       | ✓        | —       |
 | `system.backup.restore`         | —        | —                   | —                   | —       | ✓        | —       |
@@ -168,6 +168,11 @@ self-approval report. Where a second Admin exists, requests route to them first.
    system administration events, and cannot read security configuration.
 9. Admin self-approval (D-08). A separate permission from ordinary approval so it can be
    audited, reported, and withdrawn independently. Applies only to the Admin's own request.
+10. HR and administrators manage sign-in accounts from Users & access: create an employee
+    with any role, edit the account, or remove it. Removal deactivates the employee and
+    disables the sign-in; the record is kept (D-21). Only an administrator can grant or
+    remove the administrator role. A manager, payroll officer, auditor, or employee who
+    calls these endpoints receives 403.
 
 ---
 

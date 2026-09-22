@@ -173,8 +173,8 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 
 ## 4f. Resolved against the rest of the Leave Tracker framework — 2026-09-22
 
-| ID    | Item                                                                                          | Status          | Evidence                                                                                                      |
-| ----- | --------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------- |
+| ID    | Item                                                                                         | Status          | Evidence                                                                                                      |
+| ----- | -------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------- |
 | DW-76 | Reporting manager approves leave, with dated history                                         | DONE 2026-09-22 | Migration `0006_reporting_manager.sql`; `packages/domain/src/leave/routing.ts`                                |
 | DW-77 | Leave configuration: monthly credit, staff category, joining month, weekends and holidays    | DONE 2026-09-22 | `doc-requirements.test.ts` working week and accrual; Settings leave rules                                     |
 | DW-78 | Leave transactions with manual credit and deduction                                          | DONE 2026-09-22 | `doc-requirements.test.ts` leave transactions; `Transactions.tsx`                                             |

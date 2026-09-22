@@ -99,6 +99,11 @@ export const ROLE_PERMISSIONS: Record<RoleCode, readonly KnownPermission[]> = {
     'notification.read:self',
     'audit.read:company',
     'user.account.read:company',
+    'user.account.create:company',
+    'user.account.disable:company',
+    'user.password.reset:company',
+    'user.session.revoke:company',
+    'role.assign:company',
     'import.run:company',
   ),
   payroll_officer: pick(

@@ -21,21 +21,21 @@ administrator, each with a designation, department, reporting manager and some l
 Addresses end in `@sns.test` (a reserved domain that can never receive mail). Anyone can also
 sign in with their employee ID, e.g. `SNS-1005`.
 
-| Who                                  | Sign in                               | Try                                                       |
-| ------------------------------------ | ------------------------------------- | --------------------------------------------------------- |
-| Arjun Das, administrator             | `admin@sns.test` / `ChangeMe_admin_1` | Reporting managers, Users & access, Leave configuration   |
-| Anitha Joseph, HR manager            | `anitha@sns.test`                     | Employees, holidays, allowances, payroll & annual reports |
-| Rajesh Menon, managing director      | `rajesh@sns.test`                     | Approves the department heads                             |
-| David Fernandes, production manager  | `david@sns.test`                      | Approves the Printing and Binding supervisors             |
-| John Mathew, printing supervisor     | `john@sns.test`                       | Approves Vijay and Priya                                  |
-| Vijay Anand, machine operator        | `vijay@sns.test` or `SNS-1005`        | Applies for leave, sees balance and history               |
-| Ramesh Nagarajan, payroll accountant | `ramesh@sns.test`                     | Monthly payroll report and export                         |
+| Who                                  | Sign in                               | Try                                                      |
+| ------------------------------------ | ------------------------------------- | -------------------------------------------------------- |
+| Arjun Das, administrator             | `admin@sns.test` / `ChangeMe_admin_1` | Reporting managers, Users & access, Leave configuration  |
+| Anitha Joseph, HR manager            | `anitha@sns.test`                     | Employees, Users & access, holidays, allowances, reports |
+| Rajesh Menon, managing director      | `rajesh@sns.test`                     | Approves the department heads                            |
+| David Fernandes, production manager  | `david@sns.test`                      | Approves the Printing and Binding supervisors            |
+| John Mathew, printing supervisor     | `john@sns.test`                       | Approves Vijay and Priya                                 |
+| Vijay Anand, machine operator        | `vijay@sns.test` or `SNS-1005`        | Applies for leave, sees balance and history              |
+| Ramesh Nagarajan, payroll accountant | `ramesh@sns.test`                     | Monthly payroll report and export                        |
 
 Everyone except the administrator uses `ChangeMe_demo_1`.
 
 ### A five-minute walkthrough
 
-1. **Vijay** applies for two days of earned leave. The form shows the working days (weekends
+1. **Vijay** applies for two days of Annual Leave. The form shows the working days (weekends
    and holidays skipped), his balance, and that it will go to John.
 2. **John** sees it under _Pending requests_ with Vijay's balance and history, and approves or
    rejects it with a remark. Vijay is notified; his balance drops only on approval.
@@ -49,13 +49,19 @@ Everyone except the administrator uses `ChangeMe_demo_1`.
 
 Everything is set in the app — no code changes:
 
+- **Leave types** — out of the box there is one, **Annual Leave**, exactly as the functional
+  framework describes it: 2 days credited every month (24 a year), unused days carried forward,
+  weekends and government holidays not counted, the joining month pro-rated. Add Casual, Sick,
+  Earned or Loss of Pay from ready-made templates (or your own), rename, mark unpaid, or archive
+  a type — archived types keep all their history.
+
 - **Leave configuration** — per leave type: monthly credit or yearly grant, rate per staff
   category and during probation, joining-month rule, carry-forward, maximum balance, whether
   weekends and holidays count, notice, half days. Also the working week and the leave year.
 - **Government holidays** — add, rename, remove, bulk-select days (e.g. every 2nd Saturday),
   load the fixed-date national holidays, or import the government list from Excel.
 - **Reporting managers** — who approves whose leave, with dated history; cover while away.
-- **Users & access** — create sign-ins, set roles, reset passwords, disable accounts.
+- **Users & access** — HR or an administrator adds an employee and their sign-in, edits the account, or removes it (the person is marked as left; history is kept).
 - **Leave allowances / Leave transactions** — set a person's allowance, or record a manual
   credit or deduction with a reason. Balances are never edited directly.
 

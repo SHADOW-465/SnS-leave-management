@@ -133,7 +133,7 @@ beforeAll(async () => {
     headers: { cookie: employee.cookie },
   });
   clTypeId = (types.json() as { data: { id: string; code: string }[] }).data.find(
-    (t) => t.code === 'CL',
+    (t) => t.code === 'AL',
   )!.id;
 }, 60_000);
 
@@ -411,6 +411,40 @@ describe('hosted Postgres: administrator controls', () => {
     expect((history.json() as { data: unknown[] }).data.length).toBeGreaterThan(0);
   });
 
+  it('manages leave types: add from a template, rename, archive, restore', async () => {
+    const get = (url: string) =>
+      app.inject({ method: 'GET', url, headers: { cookie: admin.cookie } });
+    const created = await post(admin, '/api/v1/admin/leave-types', {
+      name: 'Sick Leave (hosted)',
+      code: 'SLH',
+      isPaid: true,
+      template: 'SL',
+    });
+    expect(created.statusCode).toBe(200);
+    const id = (created.json() as { data: { id: string } }).data.id;
+    const list = await get('/api/v1/admin/leave-types');
+    expect(list.statusCode).toBe(200);
+    expect(
+      (list.json() as { data: { types: { id: string; requests: unknown }[] } }).data.types.find(
+        (t) => t.id === id,
+      )?.requests,
+    ).toBe(0);
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/leave-types/${id}`,
+      headers: auth(admin),
+      payload: { name: 'Medical Leave' },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(
+      (await put(admin, `/api/v1/admin/leave-types/${id}/archived`, { disabled: true })).statusCode,
+    ).toBe(200);
+    expect(
+      (await put(admin, `/api/v1/admin/leave-types/${id}/archived`, { disabled: false }))
+        .statusCode,
+    ).toBe(200);
+  });
+
   it('works through the transactions register, annual report and working week', async () => {
     const vijay = await emp('vijay@sns.test');
     const get = (url: string) =>
@@ -511,7 +545,7 @@ describe('hosted Postgres: administrator controls', () => {
   });
 
   it('lists and sets allowances, with numbers not bigints', async () => {
-    const cl = (await pg.query<{ id: string }>(`SELECT id FROM leave_type WHERE code = 'CL'`))
+    const cl = (await pg.query<{ id: string }>(`SELECT id FROM leave_type WHERE code = 'AL'`))
       .rows[0]!.id;
     const paul = await emp('ramesh@sns.test');
     const set = await put(admin, '/api/v1/allowances', {

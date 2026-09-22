@@ -1,14 +1,19 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, ErrorState, Skeleton } from '@sns/ui';
+import { Button, ErrorState, Select, Skeleton } from '@sns/ui';
 import { api, type Me } from '../api.js';
 import { formatRelativeTime } from '../format.js';
 
 type User = {
   id: string;
   email: string;
+  employeeId: string | null;
   employeeCode: string | null;
+  firstName: string | null;
+  lastName: string | null;
   name: string | null;
+  status: string | null;
+  employeeVersion: number | null;
   departmentName: string | null;
   teamName: string | null;
   isDisabled: boolean;
@@ -18,8 +23,15 @@ type User = {
   workstationSeenAt: string | null;
   roles: string[];
 };
+type Org = {
+  locations: { id: string; name: string }[];
+  departments: { id: string; name: string }[];
+  jobTitles: { id: string; name: string }[];
+  employmentTypes: { id: string; name: string }[];
+};
 type Data = {
   users: User[];
+  nextEmployeeCode: string;
   roles: { code: string; name: string; description: string }[];
   withoutAccount: {
     employeeId: string;
@@ -31,22 +43,188 @@ type Data = {
 };
 /** Shown once, straight after a login is created or a password is reset. */
 type Issued = { name: string; login: string; employeeCode: string | null; password: string };
+type NewAccount = {
+  firstName: string;
+  lastName: string;
+  workEmail: string;
+  employeeCode: string;
+  departmentId: string;
+  jobTitleId: string;
+  employmentTypeId: string;
+  locationId: string;
+  joinedOn: string;
+  roles: string[];
+};
+type EditDraft = {
+  id: string;
+  employeeId: string | null;
+  firstName: string;
+  lastName: string;
+  email: string;
+  employeeCode: string;
+  employeeVersion: number | null;
+  roles: string[];
+  originalRoles: string[];
+};
+
+function todayLocal(): string {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${day}`;
+}
 
 export function UsersPage({ me }: { me: Me }) {
+  const actorIsAdmin = me.roles.includes('admin');
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: ['admin-users'],
     queryFn: () => api<Data>('/api/v1/admin/users'),
   });
+  const org = useQuery({
+    queryKey: ['org'],
+    queryFn: () => api<Org>('/api/v1/org'),
+  });
   const [flash, setFlash] = useState<{ ok: boolean; text: string } | null>(null);
   const [filter, setFilter] = useState('');
-  const [editing, setEditing] = useState<{ id: string; roles: string[] } | null>(null);
+  const [editing, setEditing] = useState<EditDraft | null>(null);
+  const [adding, setAdding] = useState<NewAccount | null>(null);
+  const [removing, setRemoving] = useState<{ user: User; reason: string } | null>(null);
   const [creating, setCreating] = useState<{
     employeeId: string;
     email: string;
     roles: string[];
   } | null>(null);
   const [issued, setIssued] = useState<Issued | null>(null);
+
+  function startAdd() {
+    const directory = org.data;
+    setEditing(null);
+    setAdding({
+      firstName: '',
+      lastName: '',
+      workEmail: '',
+      employeeCode: q.data?.nextEmployeeCode ?? '',
+      departmentId: directory?.departments[0]?.id ?? '',
+      jobTitleId: directory?.jobTitles[0]?.id ?? '',
+      employmentTypeId: directory?.employmentTypes[0]?.id ?? '',
+      locationId: directory?.locations[0]?.id ?? '',
+      joinedOn: todayLocal(),
+      roles: ['employee'],
+    });
+  }
+
+  async function addAccount() {
+    if (!adding) return;
+    try {
+      const r = await api<{ temporaryPassword: string | null }>('/api/v1/employees', {
+        method: 'POST',
+        body: JSON.stringify({
+          employeeCode: adding.employeeCode.trim(),
+          firstName: adding.firstName.trim(),
+          lastName: adding.lastName.trim(),
+          workEmail: adding.workEmail.trim(),
+          joinedOn: adding.joinedOn,
+          locationId: adding.locationId,
+          departmentId: adding.departmentId,
+          jobTitleId: adding.jobTitleId,
+          employmentTypeId: adding.employmentTypeId,
+          createAccount: true,
+          roles: adding.roles,
+        }),
+      });
+      if (r.temporaryPassword) {
+        setIssued({
+          name: `${adding.firstName.trim()} ${adding.lastName.trim()}`,
+          login: adding.workEmail.trim(),
+          employeeCode: adding.employeeCode.trim(),
+          password: r.temporaryPassword,
+        });
+      }
+      setFlash({
+        ok: true,
+        text: `${adding.firstName.trim()} ${adding.lastName.trim()} can sign in. Give them the temporary password.`,
+      });
+      setAdding(null);
+      await qc.invalidateQueries();
+    } catch (e) {
+      setFlash({ ok: false, text: e instanceof Error ? e.message : 'Could not add the account.' });
+    }
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    try {
+      await api(`/api/v1/admin/users/${editing.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          firstName: editing.firstName.trim() || undefined,
+          lastName: editing.lastName.trim() || undefined,
+          email: editing.email.trim(),
+          employeeCode: editing.employeeCode.trim() || undefined,
+          ...(editing.employeeVersion != null ? { expectedVersion: editing.employeeVersion } : {}),
+        }),
+      });
+      const rolesChanged =
+        editing.roles.length !== editing.originalRoles.length ||
+        editing.roles.some((r) => !editing.originalRoles.includes(r));
+      const mayEditRoles = actorIsAdmin || !editing.originalRoles.includes('admin');
+      if (rolesChanged && mayEditRoles) {
+        await api(`/api/v1/admin/users/${editing.id}/roles`, {
+          method: 'PUT',
+          body: JSON.stringify({ roles: editing.roles }),
+        });
+      }
+      setFlash({ ok: true, text: 'Account updated.' });
+      setEditing(null);
+      await qc.invalidateQueries();
+    } catch (e) {
+      setFlash({ ok: false, text: e instanceof Error ? e.message : 'Could not save.' });
+    }
+  }
+
+  async function removeAccount() {
+    if (!removing) return;
+    const u = removing.user;
+    try {
+      if (u.employeeId && u.employeeVersion != null && u.status !== 'exited') {
+        await api(`/api/v1/employees/${u.employeeId}/deactivate`, {
+          method: 'POST',
+          body: JSON.stringify({
+            reason: removing.reason.trim(),
+            exitedOn: todayLocal(),
+            expectedVersion: u.employeeVersion,
+          }),
+        });
+        setFlash({
+          ok: true,
+          text: `${u.name ?? u.email} is marked as left and cannot sign in. Their leave history is kept.`,
+        });
+      } else if (u.status === 'exited' && u.employeeId && u.employeeVersion != null) {
+        await api(`/api/v1/employees/${u.employeeId}/reactivate`, {
+          method: 'POST',
+          body: JSON.stringify({ expectedVersion: u.employeeVersion }),
+        });
+        setFlash({ ok: true, text: `${u.name ?? u.email} can sign in again.` });
+      } else {
+        await api(`/api/v1/admin/users/${u.id}/disabled`, {
+          method: 'PUT',
+          body: JSON.stringify({ disabled: !u.isDisabled }),
+        });
+        setFlash({
+          ok: true,
+          text: u.isDisabled ? 'Account enabled.' : 'Account disabled and signed out.',
+        });
+      }
+      setRemoving(null);
+      await qc.invalidateQueries();
+    } catch (e) {
+      setFlash({
+        ok: false,
+        text: e instanceof Error ? e.message : 'Could not update the account.',
+      });
+    }
+  }
 
   async function createLogin() {
     if (!creating) return;
@@ -140,12 +318,22 @@ export function UsersPage({ me }: { me: Me }) {
   return (
     <div className="users">
       <header>
-        <h1>Users &amp; access</h1>
-        <p className="muted">
-          Create sign-ins, decide what each person can see and manage, and lock or unlock access.
-          People sign in with their work email or their employee ID. Who approves whose leave is set
-          on Reporting managers.
-        </p>
+        <div className="title-row">
+          <div>
+            <h1>Users &amp; access</h1>
+            <p className="muted">
+              Add an employee and their sign-in, edit the account, or remove it. Removing marks them
+              as left and turns the sign-in off. Leave history is kept. Only HR and administrators
+              can do this. Only an administrator can grant the administrator role. People sign in
+              with their work email or their employee ID.
+            </p>
+          </div>
+          {adding ? null : (
+            <Button variant="primary" onClick={startAdd}>
+              Add account
+            </Button>
+          )}
+        </div>
       </header>
       {flash ? (
         <div className={`flash ${flash.ok ? 'ok' : 'bad'}`} role="status">
@@ -188,6 +376,300 @@ export function UsersPage({ me }: { me: Me }) {
         </section>
       ) : null}
 
+      {adding ? (
+        <section className="card">
+          <h2>Add account</h2>
+          <p className="muted small">
+            This creates the employee and a sign-in. They choose their own password at first
+            sign-in.
+          </p>
+          {org.isError ? (
+            <p className="bad-text">Could not load departments. Reload and try again.</p>
+          ) : (
+            <div className="create">
+              <div className="grid">
+                <label className="small">
+                  First name
+                  <input
+                    className="input"
+                    value={adding.firstName}
+                    onChange={(e) => setAdding({ ...adding, firstName: e.target.value })}
+                  />
+                </label>
+                <label className="small">
+                  Last name
+                  <input
+                    className="input"
+                    value={adding.lastName}
+                    onChange={(e) => setAdding({ ...adding, lastName: e.target.value })}
+                  />
+                </label>
+                <label className="small">
+                  Work email
+                  <input
+                    className="input"
+                    type="email"
+                    value={adding.workEmail}
+                    onChange={(e) => setAdding({ ...adding, workEmail: e.target.value })}
+                  />
+                </label>
+                <label className="small">
+                  Employee ID
+                  <input
+                    className="input"
+                    value={adding.employeeCode}
+                    onChange={(e) => setAdding({ ...adding, employeeCode: e.target.value })}
+                  />
+                </label>
+                <label className="small">
+                  Department
+                  <Select
+                    fullWidth
+                    aria-label="Department"
+                    value={adding.departmentId}
+                    options={(org.data?.departments ?? []).map((d) => ({
+                      value: d.id,
+                      label: d.name,
+                    }))}
+                    onChange={(departmentId) => setAdding({ ...adding, departmentId })}
+                  />
+                </label>
+                <label className="small">
+                  Job title
+                  <Select
+                    fullWidth
+                    aria-label="Job title"
+                    value={adding.jobTitleId}
+                    options={(org.data?.jobTitles ?? []).map((d) => ({
+                      value: d.id,
+                      label: d.name,
+                    }))}
+                    onChange={(jobTitleId) => setAdding({ ...adding, jobTitleId })}
+                  />
+                </label>
+                <label className="small">
+                  Employment type
+                  <Select
+                    fullWidth
+                    aria-label="Employment type"
+                    value={adding.employmentTypeId}
+                    options={(org.data?.employmentTypes ?? []).map((d) => ({
+                      value: d.id,
+                      label: d.name,
+                    }))}
+                    onChange={(employmentTypeId) => setAdding({ ...adding, employmentTypeId })}
+                  />
+                </label>
+                <label className="small">
+                  Location
+                  <Select
+                    fullWidth
+                    aria-label="Location"
+                    value={adding.locationId}
+                    options={(org.data?.locations ?? []).map((d) => ({
+                      value: d.id,
+                      label: d.name,
+                    }))}
+                    onChange={(locationId) => setAdding({ ...adding, locationId })}
+                  />
+                </label>
+                <label className="small">
+                  Joined on
+                  <input
+                    className="input"
+                    type="date"
+                    value={adding.joinedOn}
+                    onChange={(e) => setAdding({ ...adding, joinedOn: e.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="roles">
+                {roles.map((r) => (
+                  <label key={r.code}>
+                    <input
+                      type="checkbox"
+                      disabled={r.code === 'admin' && !actorIsAdmin}
+                      checked={adding.roles.includes(r.code)}
+                      onChange={(e) =>
+                        setAdding({
+                          ...adding,
+                          roles: e.target.checked
+                            ? [...adding.roles, r.code]
+                            : adding.roles.filter((x) => x !== r.code),
+                        })
+                      }
+                    />
+                    <span>
+                      <strong>{r.name}</strong>
+                      <span className="muted small"> — {r.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <div className="actions">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={
+                    !adding.firstName.trim() ||
+                    !adding.lastName.trim() ||
+                    !adding.workEmail.includes('@') ||
+                    adding.employeeCode.trim().length < 2 ||
+                    !adding.departmentId ||
+                    !adding.jobTitleId ||
+                    !adding.employmentTypeId ||
+                    !adding.locationId ||
+                    !adding.roles.length
+                  }
+                  onClick={() => void addAccount()}
+                >
+                  Create account
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setAdding(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {editing ? (
+        <section className="card">
+          <h2>Edit {editing.firstName || editing.email}</h2>
+          <div className="create">
+            {editing.employeeId ? (
+              <div className="grid">
+                <label className="small">
+                  First name
+                  <input
+                    className="input"
+                    value={editing.firstName}
+                    onChange={(e) => setEditing({ ...editing, firstName: e.target.value })}
+                  />
+                </label>
+                <label className="small">
+                  Last name
+                  <input
+                    className="input"
+                    value={editing.lastName}
+                    onChange={(e) => setEditing({ ...editing, lastName: e.target.value })}
+                  />
+                </label>
+                <label className="small">
+                  Work email
+                  <input
+                    className="input"
+                    type="email"
+                    value={editing.email}
+                    onChange={(e) => setEditing({ ...editing, email: e.target.value })}
+                  />
+                </label>
+                <label className="small">
+                  Employee ID
+                  <input
+                    className="input"
+                    value={editing.employeeCode}
+                    onChange={(e) => setEditing({ ...editing, employeeCode: e.target.value })}
+                  />
+                </label>
+              </div>
+            ) : (
+              <label className="small">
+                Sign-in email
+                <input
+                  className="input"
+                  type="email"
+                  value={editing.email}
+                  onChange={(e) => setEditing({ ...editing, email: e.target.value })}
+                />
+              </label>
+            )}
+            {actorIsAdmin || !editing.originalRoles.includes('admin') ? (
+              <div className="roles">
+                {roles.map((r) => (
+                  <label key={r.code}>
+                    <input
+                      type="checkbox"
+                      disabled={r.code === 'admin' && !actorIsAdmin}
+                      checked={editing.roles.includes(r.code)}
+                      onChange={(e) =>
+                        setEditing({
+                          ...editing,
+                          roles: e.target.checked
+                            ? [...editing.roles, r.code]
+                            : editing.roles.filter((x) => x !== r.code),
+                        })
+                      }
+                    />
+                    <span>
+                      <strong>{r.name}</strong>
+                      <span className="muted small"> — {r.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="muted small">
+                Only an administrator can change an administrator’s roles.
+              </p>
+            )}
+            <div className="actions">
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={!editing.roles.length || !editing.email.includes('@')}
+                onClick={() => void saveEdit()}
+              >
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {removing ? (
+        <section className="card">
+          <h2>
+            {removing.user.status === 'exited' ? 'Restore' : 'Remove'}{' '}
+            {removing.user.name ?? removing.user.email}
+          </h2>
+          {removing.user.status === 'exited' ? (
+            <p className="muted small">They can sign in again. Their old leave history stays.</p>
+          ) : (
+            <>
+              <p className="muted small">
+                They are marked as left and cannot sign in. The account and leave history are kept.
+              </p>
+              <label className="small">
+                Reason
+                <input
+                  className="input"
+                  value={removing.reason}
+                  onChange={(e) => setRemoving({ ...removing, reason: e.target.value })}
+                />
+              </label>
+            </>
+          )}
+          <div className="actions">
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={removing.user.status !== 'exited' && removing.reason.trim().length < 3}
+              onClick={() => void removeAccount()}
+            >
+              {removing.user.status === 'exited' ? 'Restore access' : 'Remove account'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setRemoving(null)}>
+              Cancel
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
       {withoutAccount.length ? (
         <section className="card">
           <h2>People without a sign-in ({withoutAccount.length})</h2>
@@ -221,6 +703,7 @@ export function UsersPage({ me }: { me: Me }) {
                             <label key={r.code}>
                               <input
                                 type="checkbox"
+                                disabled={r.code === 'admin' && !actorIsAdmin}
                                 checked={creating.roles.includes(r.code)}
                                 onChange={(e) =>
                                   setCreating({
@@ -291,9 +774,16 @@ export function UsersPage({ me }: { me: Me }) {
             </tr>
           </thead>
           <tbody>
+            {shown.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="muted">
+                  No accounts match that search.
+                </td>
+              </tr>
+            ) : null}
             {shown.map((u) => {
               const self = u.id === me.id;
-              const isEditing = editing?.id === u.id;
+              const left = u.status === 'exited';
               return (
                 <tr key={u.id} className={u.isDisabled ? 'off' : ''}>
                   <td>
@@ -308,68 +798,18 @@ export function UsersPage({ me }: { me: Me }) {
                     </div>
                   </td>
                   <td>
-                    {isEditing ? (
-                      <div className="roles">
-                        {roles.map((r) => (
-                          <label key={r.code}>
-                            <input
-                              type="checkbox"
-                              checked={editing.roles.includes(r.code)}
-                              onChange={(e) =>
-                                setEditing({
-                                  id: u.id,
-                                  roles: e.target.checked
-                                    ? [...editing.roles, r.code]
-                                    : editing.roles.filter((x) => x !== r.code),
-                                })
-                              }
-                            />
-                            <span>
-                              <strong>{r.name}</strong>
-                              <span className="muted small"> — {r.description}</span>
-                            </span>
-                          </label>
-                        ))}
-                        <div className="actions">
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            disabled={!editing.roles.length}
-                            onClick={() =>
-                              void run(
-                                `/api/v1/admin/users/${u.id}/roles`,
-                                'PUT',
-                                { roles: editing.roles },
-                                'Roles updated. They apply at their next page load.',
-                              )
-                            }
-                          >
-                            Save roles
-                          </Button>
-                          <Button size="sm" onClick={() => setEditing(null)}>
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="chips">
-                        {u.roles.map((r) => (
-                          <span key={r} className="chip">
-                            {roles.find((x) => x.code === r)?.name ?? r}
-                          </span>
-                        ))}
-                        <button
-                          type="button"
-                          className="link"
-                          onClick={() => setEditing({ id: u.id, roles: u.roles })}
-                        >
-                          Change
-                        </button>
-                      </div>
-                    )}
+                    <div className="chips">
+                      {u.roles.map((r) => (
+                        <span key={r} className="chip">
+                          {roles.find((x) => x.code === r)?.name ?? r}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="small">
-                    {u.isDisabled ? (
+                    {left ? (
+                      <strong>Left</strong>
+                    ) : u.isDisabled ? (
                       <strong className="bad-text">Disabled</strong>
                     ) : (
                       <span>Active</span>
@@ -388,7 +828,39 @@ export function UsersPage({ me }: { me: Me }) {
                   </td>
                   <td>
                     <div className="actions">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setAdding(null);
+                          setRemoving(null);
+                          setEditing({
+                            id: u.id,
+                            employeeId: u.employeeId,
+                            firstName: u.firstName ?? '',
+                            lastName: u.lastName ?? '',
+                            email: u.email,
+                            employeeCode: u.employeeCode ?? '',
+                            employeeVersion: u.employeeVersion,
+                            roles: [...u.roles],
+                            originalRoles: [...u.roles],
+                          });
+                        }}
+                      >
+                        Edit
+                      </Button>
                       {!self ? (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setAdding(null);
+                            setEditing(null);
+                            setRemoving({ user: u, reason: '' });
+                          }}
+                        >
+                          {left ? 'Restore' : 'Remove'}
+                        </Button>
+                      ) : null}
+                      {!self && !left ? (
                         <Button
                           size="sm"
                           onClick={() =>
@@ -401,7 +873,7 @@ export function UsersPage({ me }: { me: Me }) {
                                 : 'Account disabled and signed out.',
                               u.isDisabled
                                 ? undefined
-                                : `Disable ${u.name ?? u.email}? They will be signed out and cannot sign in until re-enabled.`,
+                                : `Disable ${u.name ?? u.email}? They will be signed out and cannot sign in until re-enabled. Their record stays.`,
                             )
                           }
                         >
@@ -454,6 +926,9 @@ export function UsersPage({ me }: { me: Me }) {
       <style>{`
         .users { display:flex; flex-direction:column; gap:16px; }
         .users h1 { margin:0 0 4px; font-size:22px; }
+        .users .title-row { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+        .users .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; }
+        @media (max-width: 640px) { .users .grid { grid-template-columns:1fr; } }
         .users .muted { color:var(--text-secondary); }
         .users .small { font-size:12.5px; }
         .users h2 { margin:0 0 6px; font-size:15px; }

@@ -196,29 +196,24 @@ describe('logout', () => {
 });
 
 describe('setup seeding (regression: un-awaited seeds raced the balance grant)', () => {
-  it('grants the administrator an opening balance for every entitled leave type', async () => {
+  it('opens the administrator a balance for every leave type, exactly once', async () => {
     const { app, sqlite } = await boot();
-    const entitled = (await sqlite
-      .prepare(`SELECT COUNT(*) AS n FROM leave_type WHERE code != 'LOP'`)
-      .get()) as { n: number };
     const admin = (await sqlite
       .prepare(`SELECT employee_id AS id FROM user_account WHERE email = ?`)
       .get(ADMIN.email)) as { id: string };
-    const granted = (await sqlite
-      .prepare(
-        `SELECT COUNT(*) AS n FROM balance_ledger
-         WHERE employee_id = ? AND entry_type = 'ENTITLEMENT_GRANT'`,
-      )
+    const types = (await sqlite.prepare(`SELECT COUNT(*) AS n FROM leave_type`).get()) as {
+      n: number;
+    };
+    // Every type is marked as opened for the year, so the leave-year job never grants again.
+    const opened = (await sqlite
+      .prepare(`SELECT COUNT(*) AS n FROM period_rollover_run WHERE employee_id = ?`)
       .get(admin.id)) as { n: number };
-    const annual = (await sqlite
-      .prepare(
-        `SELECT COUNT(*) AS n FROM leave_policy_version
-         WHERE published_at IS NOT NULL AND rules_json LIKE '%"accrualMethod":"annual_grant"%'`,
-      )
-      .get()) as { n: number };
-    expect(granted.n).toBe(annual.n);
-    expect(granted.n).toBeGreaterThan(0);
-    expect(granted.n).toBeLessThanOrEqual(entitled.n);
+    expect(Number(opened.n)).toBe(Number(types.n));
+    // Annual Leave accrues monthly; months already elapsed are recorded as run.
+    const accrualMonths = (await sqlite
+      .prepare(`SELECT COUNT(*) AS n FROM accrual_run WHERE employee_id = ?`)
+      .get(admin.id)) as { n: number };
+    expect(Number(accrualMonths.n)).toBeGreaterThan(0);
     await app.close();
   });
 
@@ -226,7 +221,8 @@ describe('setup seeding (regression: un-awaited seeds raced the balance grant)',
     const { app, sqlite } = await boot();
     const count = async (table: string) =>
       ((await sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()) as { n: number }).n;
-    expect(await count('leave_type')).toBe(4);
+    // The framework describes one leave type: Annual Leave. Others are added from Leave types.
+    expect(await count('leave_type')).toBe(1);
     // One workflow per rung of the hierarchy: member, team lead, department head, HR/admin.
     expect(await count('approval_workflow')).toBe(4);
     // The calendar starts empty on purpose: HR enters the company's real holidays.

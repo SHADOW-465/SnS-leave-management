@@ -138,7 +138,9 @@ export async function myHome(ctx: RequestContext) {
       probation: null,
     };
   await authorizeAction(ctx, 'leave.balance.read', p.employeeId);
-  const types = (await ctx.sqlite.prepare(`SELECT id, name, code FROM leave_type`).all()) as {
+  const types = (await ctx.sqlite
+    .prepare(`SELECT id, name, code FROM leave_type WHERE archived_at IS NULL ORDER BY name`)
+    .all()) as {
     id: string;
     name: string;
     code: string;
@@ -307,6 +309,7 @@ async function monthlySummaryFor(
 ) {
   if (!period) return [];
   const focus =
+    balances.find((b) => b.code === 'AL') ??
     balances.find((b) => b.code === 'EL') ??
     balances.find((b) => b.earnedHalfDays > 0) ??
     balances[0];
@@ -1289,7 +1292,8 @@ export async function policies(ctx: RequestContext) {
   return await ctx.sqlite
     .prepare(
       `SELECT v.*, t.code, t.name FROM leave_policy_version v JOIN leave_type t ON t.id = v.leave_type_id
-       ORDER BY t.code, v.version_no DESC`,
+        WHERE t.archived_at IS NULL
+       ORDER BY t.name, v.version_no DESC`,
     )
     .all();
 }

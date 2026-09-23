@@ -107,7 +107,7 @@ function navFor(me: Me): NavItem[] {
     items.push({ to: '/leave-types', label: 'Leave types', icon: Tags, section: 'Administration' });
     items.push({ to: '/settings', label: 'Leave configuration', icon: Settings });
   }
-  if (can(me, 'approval.routing.manage')) {
+  if (can(me, 'approval.routing.manage') || can(me, 'employee.update:company')) {
     items.push({ to: '/admin/routing', label: 'Reporting managers', icon: GitBranch });
   }
   if (can(me, 'user.account.create')) {

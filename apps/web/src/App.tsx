@@ -88,7 +88,16 @@ export function App() {
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/settings" element={<SettingsPage me={me.data} />} />
         <Route path="/attendance" element={<AttendancePage me={me.data} />} />
-        <Route path="/admin/routing" element={<ApprovalRoutingPage />} />
+        <Route
+          path="/admin/routing"
+          element={
+            can(me.data, 'approval.routing.manage') || can(me.data, 'employee.update:company') ? (
+              <ApprovalRoutingPage me={me.data} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
         <Route path="/leave-types" element={<LeaveTypesPage me={me.data} />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/password" element={<PasswordPage me={me.data} voluntary />} />

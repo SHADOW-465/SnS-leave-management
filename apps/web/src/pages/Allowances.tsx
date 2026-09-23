@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, ErrorState, Select, Skeleton } from '@sns/ui';
 import { api } from '../api.js';
+import { EmployeeOverview } from './EmployeeOverview.js';
 
 type Bal = { allowance: number; taken: number; pending: number; available: number };
 type Data = {
@@ -19,6 +20,17 @@ type Result = { message: string; blocked: { name: string; reason: string }[] };
 
 const d = (half: number) => String(half / 2);
 
+function visibleAllowanceTypes(types: Data['types']) {
+  const annual = types.filter((t) => t.code === 'AL');
+  if (annual.length > 0) return annual;
+  const earned = types.filter((t) => t.code === 'EL');
+  if (earned.length > 0) return earned;
+  const rest = types.filter(
+    (t) => !['CL', 'SL', 'LOP'].includes(t.code) && !/casual|sick|loss of pay|unpaid/i.test(t.name),
+  );
+  return rest.length > 0 ? rest : types;
+}
+
 export function AllowancesPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['allowances'], queryFn: () => api<Data>('/api/v1/allowances') });
@@ -33,6 +45,7 @@ export function AllowancesPage() {
     text: string;
     blocked?: Result['blocked'];
   } | null>(null);
+  const [overviewId, setOverviewId] = useState<string | null>(null);
 
   const shown = useMemo(() => {
     const n = filter.toLowerCase();
@@ -50,7 +63,7 @@ export function AllowancesPage() {
         onRetry={() => void q.refetch()}
       />
     );
-  const { types } = q.data;
+  const types = visibleAllowanceTypes(q.data.types);
   const activeType = typeId || types[0]?.id || '';
   const allShown = shown.length > 0 && shown.every((p) => picked.has(p.id));
   const half = Math.round(Number(days) * 2);
@@ -212,11 +225,13 @@ export function AllowancesPage() {
                   />
                 </td>
                 <td>
-                  <strong>{p.name}</strong>
-                  <div className="muted small">
-                    {p.departmentName}
-                    {p.teamName ? ` · ${p.teamName}` : ''}
-                  </div>
+                  <button type="button" className="who" onClick={() => setOverviewId(p.id)}>
+                    <strong>{p.name}</strong>
+                    <div className="muted small">
+                      {p.departmentName}
+                      {p.teamName ? ` · ${p.teamName}` : ''}
+                    </div>
+                  </button>
                 </td>
                 {types.map((t) => {
                   const b = p.balances[t.id]!;
@@ -232,11 +247,12 @@ export function AllowancesPage() {
                           setDays(d(b.allowance));
                         }}
                       >
+                        <span className="cell-k">Allowance</span>
                         <strong>{d(b.allowance)}</strong>
-                        <span className="muted small">
-                          {' '}
-                          · {d(b.available)} left{b.pending ? ` · ${d(b.pending)} pending` : ''}
-                        </span>
+                        <span className="muted small">{d(b.available)} left</span>
+                        {b.pending ? (
+                          <span className="muted small">{d(b.pending)} pending</span>
+                        ) : null}
                       </button>
                     </td>
                   );
@@ -246,6 +262,9 @@ export function AllowancesPage() {
           </tbody>
         </table>
       </section>
+      {overviewId ? (
+        <EmployeeOverview employeeId={overviewId} onClose={() => setOverviewId(null)} />
+      ) : null}
       <style>{`
         .allow { display:flex; flex-direction:column; gap:16px; }
         .allow h1 { margin:0 0 4px; font-size:22px; }
@@ -261,7 +280,10 @@ export function AllowancesPage() {
         .allow td { padding:8px; border-top:1px solid #f3f3ef; vertical-align:middle; }
         .allow .hl { background:#f7f7ff; }
         .allow tr.on td { background:#eef2ff; }
-        .allow .cell { background:none; border:0; padding:4px 6px; border-radius:6px; cursor:pointer; text-align:left; font:inherit; }
+        .allow .who { background:none; border:0; padding:0; font:inherit; color:inherit; text-align:left; cursor:pointer; }
+        .allow .who:hover strong { text-decoration:underline; }
+        .allow .cell { background:none; border:0; padding:4px 6px; border-radius:6px; cursor:pointer; text-align:left; font:inherit; display:flex; flex-direction:column; align-items:flex-start; gap:1px; min-width:88px; line-height:1.25; white-space:normal; }
+        .allow .cell-k { font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; color:var(--text-tertiary); }
         .allow .cell:hover { background:#eef0f7; }
         .allow .bad-text { color:#b42318; margin:0; width:100%; }
         .allow .flash { display:flex; justify-content:space-between; gap:12px; padding:10px 14px; border-radius:10px; font-size:13.5px; }

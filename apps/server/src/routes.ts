@@ -100,6 +100,7 @@ import {
   policies,
   reports,
   requestDetail,
+  employeeLeaveOverview,
 } from './queries.js';
 import { previewLeaveEmail } from './email.js';
 import { storeAttachment, safeStoredPath } from './files.js';
@@ -409,6 +410,14 @@ export async function registerRoutes(app: FastifyInstance) {
     try {
       const q = req.query as Record<string, string>;
       return reply.send(ok(await listEmployees(req.ctx, q.search ?? ''), req.ctx.requestId));
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.get('/api/v1/employees/:id/leave-overview', async (req, reply) => {
+    try {
+      const { id } = req.params as { id: string };
+      return reply.send(ok(await employeeLeaveOverview(req.ctx, id), req.ctx.requestId));
     } catch (err) {
       return sendError(req, reply, err);
     }

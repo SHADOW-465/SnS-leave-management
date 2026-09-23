@@ -79,6 +79,8 @@ type LeaveHistory = {
   requested_type_total_days: string;
   requested_type_remaining_days: string;
   projected_remaining_days: string;
+  counts_as_earned_leave?: boolean;
+  this_request_loss_of_pay_days?: string;
   balances: BalanceSummary[];
   past_requests: PastRequestRow[];
 };
@@ -533,67 +535,35 @@ export function QueuePage({ me }: { me: Me }) {
                     <div className="leave-history-panel">
                       <div className="history-stats-grid">
                         <div className="history-stat-card">
-                          <span className="history-stat-label">Total Leave Taken</span>
+                          <span className="history-stat-label">Earned leave taken</span>
                           <span className="history-stat-val">
                             {detail.data.leave_history.total_taken_days} days
                           </span>
-                          <span className="history-stat-sub">Across all types (YTD)</span>
+                          <span className="history-stat-sub">Approved this leave year</span>
                         </div>
                         <div className="history-stat-card highlight">
-                          <span className="history-stat-label">{detail.data.type_name} Taken</span>
+                          <span className="history-stat-label">Loss of pay</span>
                           <span className="history-stat-val">
                             {detail.data.leave_history.requested_type_taken_days} days
                           </span>
                           <span className="history-stat-sub">
-                            of {detail.data.leave_history.requested_type_total_days} days total
-                            granted
+                            Approved days not covered by earned leave
                           </span>
                         </div>
                         <div className="history-stat-card">
-                          <span className="history-stat-label">Remaining Balance</span>
+                          <span className="history-stat-label">Earned leave left</span>
                           <span className="history-stat-val">
                             {detail.data.leave_history.requested_type_remaining_days} days
                           </span>
-                          <span
-                            className="history-stat-sub"
-                            style={{
-                              color:
-                                Number(detail.data.leave_history.projected_remaining_days) < 0
-                                  ? 'var(--status-rejected-fg)'
-                                  : 'var(--text-secondary)',
-                            }}
-                          >
-                            {Number(detail.data.leave_history.projected_remaining_days) < 0
-                              ? 'Exceeds balance if approved'
-                              : `${detail.data.leave_history.projected_remaining_days} days after this request`}
+                          <span className="history-stat-sub">
+                            {detail.data.leave_history.counts_as_earned_leave === false
+                              ? 'This request is not earned leave, so the balance stays the same.'
+                              : Number(detail.data.leave_history.this_request_loss_of_pay_days) > 0
+                                ? `${detail.data.leave_history.projected_remaining_days} days after this request, ${detail.data.leave_history.this_request_loss_of_pay_days} days loss of pay`
+                                : `${detail.data.leave_history.projected_remaining_days} days after this request`}
                           </span>
                         </div>
                       </div>
-
-                      {detail.data.leave_history.balances.length > 0 ? (
-                        <div>
-                          <span
-                            className="history-stat-label"
-                            style={{ display: 'block', marginBottom: 8 }}
-                          >
-                            All Leave Type Balances
-                          </span>
-                          <ul className="balance-chips-list">
-                            {detail.data.leave_history.balances.map((b) => (
-                              <li
-                                key={b.id}
-                                className={`balance-chip ${b.isCurrentType ? 'is-active' : ''}`}
-                              >
-                                <span>{b.name}:</span>
-                                <strong>{b.taken} taken</strong>
-                                <span className="note" style={{ margin: 0 }}>
-                                  ({b.left} left)
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
 
                       {detail.data.leave_history.past_requests &&
                       detail.data.leave_history.past_requests.length > 0 ? (
@@ -602,7 +572,7 @@ export function QueuePage({ me }: { me: Me }) {
                             className="history-stat-label"
                             style={{ display: 'block', marginBottom: 8 }}
                           >
-                            Prior Leave Records ({detail.data.leave_history.past_requests.length})
+                            Earlier earned leave ({detail.data.leave_history.past_requests.length})
                           </span>
                           <table className="past-requests-table">
                             <thead>
@@ -631,7 +601,7 @@ export function QueuePage({ me }: { me: Me }) {
                         </div>
                       ) : (
                         <p className="note" style={{ margin: 0, fontStyle: 'italic' }}>
-                          No prior leave records found for this employee.
+                          No earlier earned leave.
                         </p>
                       )}
                     </div>

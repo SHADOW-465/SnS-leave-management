@@ -1,7 +1,9 @@
 /**
  * Administrator controls: who approves whom, and who can do what.
  *
- * The approval chain (`approval.routing.manage`) is the administrator's.
+ * Reporting-manager assignment is HR or an administrator. Appointing team leads and
+ * department heads, cover while someone is away, and reassigning a stuck request stay
+ * on `approval.routing.manage` (administrator only).
  * Sign-in accounts (`user.account.create`, `role.assign`, `user.account.disable`) are
  * HR and the administrator. Only an administrator may grant or remove the administrator role.
  */
@@ -19,6 +21,16 @@ import {
 } from '@sns/domain';
 import { authorizeAction, requirePrincipal, type RequestContext } from '../ctx.js';
 import { audit, notify, requesterKindOf, resolveApprover } from './leave.js';
+
+/**
+ * Who someone reports to. HR holds `employee.update` at company scope; an administrator
+ * holds `approval.routing.manage`. Leads, heads, and cover do not use this check.
+ */
+export async function authorizeReportingManagers(ctx: RequestContext): Promise<void> {
+  const p = requirePrincipal(ctx);
+  if (p.permissions.includes('approval.routing.manage:company')) return;
+  await authorizeAction(ctx, 'employee.update', null);
+}
 
 type EmployeeRow = {
   id: string;
@@ -85,8 +97,7 @@ async function requireSignInAccount(
  * same code that routes a real request, so the screen can never disagree with reality.
  */
 export async function approvalMap(ctx: RequestContext) {
-  requirePrincipal(ctx);
-  await authorizeAction(ctx, 'approval.routing.manage', null);
+  await authorizeReportingManagers(ctx);
 
   const people = (await ctx.sqlite
     .prepare(
@@ -422,7 +433,7 @@ export async function changeReportingManager(
   },
 ): Promise<{ ok: true; changed: boolean; message: string }> {
   const p = requirePrincipal(ctx);
-  await authorizeAction(ctx, 'approval.routing.manage', null);
+  await authorizeReportingManagers(ctx);
   const person = (await ctx.sqlite
     .prepare(
       `SELECT e.id, e.first_name || ' ' || e.last_name AS name, e.status, e.joined_on AS "joinedOn",
@@ -579,8 +590,7 @@ export async function assignReportingManager(
     reason?: string | null;
   },
 ) {
-  requirePrincipal(ctx);
-  await authorizeAction(ctx, 'approval.routing.manage', null);
+  await authorizeReportingManagers(ctx);
   let changed = 0;
   const failed: { employeeId: string; reason: string }[] = [];
   for (const employeeId of [...new Set(input.employeeIds)]) {

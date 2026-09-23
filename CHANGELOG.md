@@ -7,6 +7,10 @@
 - **Loss of pay** is the part of a request that earned leave does not cover. It is shown on the apply summary, on the employee dashboard, in the month-by-month summary, and in the monthly payroll report. The employee is notified when they apply and again when it is approved. It is not deducted from the earned balance.
 - **Permission** is 2 hours a month, taken as 1 hour or 2 hours, from the employee dashboard. The approver and the employee are notified. The monthly report includes the hours taken.
 - The monthly payroll report column is **Leave taken**, with **Loss of pay** and **Permission hours** beside it.
+- A pending request’s leave context shows earned leave taken, loss of pay, and earned leave left. Casual leave, sick leave, and a loss-of-pay balance are not listed there, and a request of those types does not push the earned balance below zero.
+- Leave allowances stacks the yearly allowance and the days left, and shows Annual Leave only when that type exists.
+- Clicking an employee on Employees or Leave allowances opens their leave overview: earned, taken, waiting, left, loss of pay, permission hours this month, the year month by month, and recent earned leave.
+- **HR** can assign and clear reporting managers. Department heads, team leads, cover while away, and reassigning a stuck request stay with the administrator.
 
 ## 0.2.1 — 2026-09-22
 

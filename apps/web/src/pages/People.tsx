@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, EmptyState, StatusPill, Select } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
 import { initials, formatDate } from '../format.js';
+import { EmployeeOverview } from './EmployeeOverview.js';
 import {
   Users,
   UserPlus,
@@ -122,8 +123,10 @@ export function PeoplePage({ me }: { me: Me }) {
   const [editingTeam, setEditingTeam] = useState<TeamRecord | null>(null);
   const [managingTeam, setManagingTeam] = useState<TeamRecord | null>(null);
   const [archivingTeam, setArchivingTeam] = useState<TeamRecord | null>(null);
+  const [overviewId, setOverviewId] = useState<string | null>(null);
 
   canRouteNow = can(me, 'approval.routing.manage');
+  const canAssignManager = canRouteNow || can(me, 'employee.update:company');
   const qc = useQueryClient();
 
   const q = useQuery({
@@ -389,16 +392,24 @@ export function PeoplePage({ me }: { me: Me }) {
                   {filteredEmployees.map((emp) => {
                     const isExited = emp.status === 'exited';
                     return (
-                      <tr key={emp.id} className={isExited ? 'row-exited' : ''}>
+                      <tr
+                        key={emp.id}
+                        className={isExited ? 'row-exited' : ''}
+                        onClick={() => setOverviewId(emp.id)}
+                      >
                         <td>
                           <div className="emp-user-cell">
                             <div className="emp-avatar">
                               {initials(`${emp.first_name} ${emp.last_name}`)}
                             </div>
                             <div className="emp-info">
-                              <span className="emp-name">
+                              <button
+                                type="button"
+                                className="emp-name"
+                                onClick={() => setOverviewId(emp.id)}
+                              >
                                 {emp.first_name} {emp.last_name}
-                              </span>
+                              </button>
                               <span className="emp-email">{emp.work_email}</span>
                             </div>
                           </div>
@@ -423,7 +434,7 @@ export function PeoplePage({ me }: { me: Me }) {
                           <StatusPill status={emp.status} />
                         </td>
                         {(canUpdate || canArchive) && (
-                          <td style={{ textAlign: 'right' }}>
+                          <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                             <div className="emp-actions-wrap">
                               {canUpdate && (
                                 <button
@@ -717,13 +728,17 @@ export function PeoplePage({ me }: { me: Me }) {
         </>
       )}
 
+      {overviewId ? (
+        <EmployeeOverview employeeId={overviewId} onClose={() => setOverviewId(null)} />
+      ) : null}
+
       {/* MODALS */}
       {/* 1. Add Employee Modal */}
       {createOpen && org.data && (
         <CreateEmployeeModal
           org={org.data}
           employees={employees}
-          canRoute={can(me, 'approval.routing.manage')}
+          canRoute={canAssignManager}
           onClose={() => setCreateOpen(false)}
           onSuccess={() => {
             setCreateOpen(false);
@@ -742,7 +757,7 @@ export function PeoplePage({ me }: { me: Me }) {
           emp={editingEmp}
           org={org.data}
           employees={employees}
-          canRoute={can(me, 'approval.routing.manage')}
+          canRoute={canAssignManager}
           onClose={() => setEditingEmp(null)}
           onSuccess={() => {
             setEditingEmp(null);
@@ -1097,10 +1112,18 @@ export function PeoplePage({ me }: { me: Me }) {
           display: flex;
           flex-direction: column;
         }
+        .people-table tbody tr { cursor: pointer; }
         .emp-name {
+          font: inherit;
           font-weight: 600;
           color: var(--fg, #0f172a);
+          background: none;
+          border: 0;
+          padding: 0;
+          cursor: pointer;
+          text-align: left;
         }
+        .emp-name:hover { text-decoration: underline; }
         .emp-email {
           font-size: 12px;
           color: var(--muted, #64748b);
@@ -1615,8 +1638,8 @@ function CreateEmployeeModal({
                   />
                 ) : (
                   <p className="field-hint" style={{ margin: 0 }}>
-                    An administrator sets this on Reporting managers. Until then their team lead
-                    approves.
+                    HR or an administrator sets this on Reporting managers. Until then their team
+                    lead approves.
                   </p>
                 )}
               </div>
@@ -1907,7 +1930,7 @@ function EditEmployeeModal({
                   </>
                 ) : (
                   <p className="field-hint" style={{ margin: 0 }}>
-                    {emp.manager_name ?? 'Not set'} — only an administrator changes this, on
+                    {emp.manager_name ?? 'Not set'} — HR or an administrator changes this, on
                     Reporting managers.
                   </p>
                 )}

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, ErrorState, Select, Skeleton } from '@sns/ui';
-import { api } from '../api.js';
+import { api, can, type Me } from '../api.js';
 
 type Person = {
   employeeId: string;
@@ -76,8 +76,9 @@ function candidateLabel(c: { name: string; jobTitle: string | null }) {
 const today = () => new Date().toISOString().slice(0, 10);
 type Tab = 'managers' | 'fallback' | 'cover';
 
-export function ApprovalRoutingPage() {
+export function ApprovalRoutingPage({ me }: { me: Me }) {
   const qc = useQueryClient();
+  const canStructure = can(me, 'approval.routing.manage');
   const q = useQuery({
     queryKey: ['approval-map'],
     queryFn: () => api<MapData>('/api/v1/admin/approval-map'),
@@ -178,33 +179,35 @@ export function ApprovalRoutingPage() {
         </section>
       ) : null}
 
-      <div className="rm-tabs" role="tablist">
-        {(
-          [
-            ['managers', `Reporting managers (${d.people.length})`],
-            ['fallback', 'Department heads & team leads'],
+      {canStructure ? (
+        <div className="rm-tabs" role="tablist">
+          {(
             [
-              'cover',
-              `Cover while away${d.delegations.length ? ` (${d.delegations.length})` : ''}`,
-            ],
-          ] as [Tab, string][]
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            className={tab === key ? 'is-on' : ''}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+              ['managers', `Reporting managers (${d.people.length})`],
+              ['fallback', 'Department heads & team leads'],
+              [
+                'cover',
+                `Cover while away${d.delegations.length ? ` (${d.delegations.length})` : ''}`,
+              ],
+            ] as [Tab, string][]
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              className={tab === key ? 'is-on' : ''}
+              onClick={() => setTab(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-      {tab === 'managers' ? <ManagersTab d={d} run={run} /> : null}
-      {tab === 'fallback' ? <FallbackTab d={d} run={run} /> : null}
-      {tab === 'cover' ? <CoverTab d={d} run={run} /> : null}
+      {tab === 'managers' || !canStructure ? <ManagersTab d={d} run={run} /> : null}
+      {canStructure && tab === 'fallback' ? <FallbackTab d={d} run={run} /> : null}
+      {canStructure && tab === 'cover' ? <CoverTab d={d} run={run} /> : null}
 
       <style>{`
         .rm { display:flex; flex-direction:column; gap:16px; }

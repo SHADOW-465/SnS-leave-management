@@ -4,7 +4,11 @@ import { DomainError, ROLE_CODES, assertNoManagerCycle, newId, type RoleCode } f
 import { authorizeAction, graphFor, requirePrincipal, type RequestContext } from '../ctx.js';
 import { grantOpeningBalances, currentPeriodId } from './setup.js';
 import { audit } from './leave.js';
-import { assertMayGrantAdmin, changeReportingManager } from './admin.js';
+import {
+  assertMayGrantAdmin,
+  authorizeReportingManagers,
+  changeReportingManager,
+} from './admin.js';
 export async function listEmployees(ctx: RequestContext, q: string) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'employee.read', p.employeeId);
@@ -125,12 +129,12 @@ export async function updateEmployee(
     );
   }
 
-  // Who approves whose leave is the administrator's decision, and every change is kept
-  // with the date it took effect — so it goes through the same path as Reporting managers.
+  // Who approves whose leave is kept with the date it took effect, on the same path as
+  // Reporting managers. HR and an administrator may change it; leads and cover may not.
   const managerChanging =
     input.managerEmployeeId !== undefined &&
     (input.managerEmployeeId ?? null) !== (existing.manager_employee_id ?? null);
-  if (managerChanging) await authorizeAction(ctx, 'approval.routing.manage', null);
+  if (managerChanging) await authorizeReportingManagers(ctx);
 
   // Check unique constraints if employeeCode or workEmail changed
   if (input.employeeCode && input.employeeCode !== existing.employee_code) {
@@ -300,7 +304,7 @@ export async function createEmployee(
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'employee.create', null);
-  if (input.managerEmployeeId) await authorizeAction(ctx, 'approval.routing.manage', null);
+  if (input.managerEmployeeId) await authorizeReportingManagers(ctx);
   const accountRoles: RoleCode[] = input.createAccount
     ? [
         ...new Set(

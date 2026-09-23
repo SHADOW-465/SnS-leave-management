@@ -5,12 +5,7 @@ import {
   monthlyRateHalfDays,
 } from '@sns/domain';
 import { authorizeAction, graphFor, requirePrincipal, type RequestContext } from './ctx.js';
-import {
-  availableHalfDays,
-  currentPolicy,
-  describeRouteFor,
-  holidaysForEmployee,
-} from './usecases/leave.js';
+import { currentPolicy, describeRouteFor, holidaysForEmployee } from './usecases/leave.js';
 import { currentPeriodId } from './usecases/setup.js';
 export async function dashboard(ctx: RequestContext) {
   requirePrincipal(ctx);
@@ -131,6 +126,33 @@ function daysWaiting(submittedAt: string, now: string): string {
 const CREDIT_TYPES = `('OPENING','ACCRUAL','ENTITLEMENT_GRANT','CARRY_FORWARD','MIGRATION_OPENING','ADJUSTMENT')`;
 const USED_TYPES = `('DEDUCTION','ENCASHMENT','EXPIRY')`;
 const PENDING_TYPES = `('PENDING_HOLD','HOLD_RELEASE')`;
+
+const SKIP_LEAVE_CODES = new Set(['CL', 'SL', 'LOP']);
+
+/** Casual, sick, and loss-of-pay-as-a-type are not part of the company schedule. */
+function isCompanyEarnedLeave(code: string, name: string): boolean {
+  if (SKIP_LEAVE_CODES.has(code.toUpperCase())) return false;
+  const n = name.toLowerCase();
+  return !(
+    n.includes('casual') ||
+    n.includes('sick') ||
+    n.includes('loss of pay') ||
+    n.includes('unpaid')
+  );
+}
+
+/**
+ * The leave type the company actually uses. Annual Leave wins when it exists, so an
+ * older "Earned leave" type left over from a previous setup is not added on top.
+ */
+function pickEarnedTypes<T extends { code: string; name: string }>(types: T[]): T[] {
+  const live = types.filter((t) => isCompanyEarnedLeave(t.code, t.name));
+  const annual = live.filter((t) => t.code === 'AL');
+  if (annual.length > 0) return annual;
+  const earned = live.filter((t) => t.code === 'EL');
+  if (earned.length > 0) return earned;
+  return live;
+}
 
 export async function myHome(ctx: RequestContext) {
   const p = requirePrincipal(ctx);
@@ -573,7 +595,8 @@ export async function requestDetail(ctx: RequestContext, id: string) {
   const p = requirePrincipal(ctx);
   const r = (await ctx.sqlite
     .prepare(
-      `SELECT r.*, t.name AS type_name, e.first_name || ' ' || e.last_name AS employee_name,
+      `SELECT r.*, t.name AS type_name, t.code AS type_code, t.is_paid AS type_is_paid,
+              e.first_name || ' ' || e.last_name AS employee_name,
               e.department_id, d.name AS dept, m.first_name || ' ' || m.last_name AS manager_name,
               att.original_name AS attachment_name, att.size_bytes AS attachment_size, att.mime_type AS attachment_mime_type
        FROM leave_request r
@@ -617,19 +640,23 @@ export async function requestDetail(ctx: RequestContext, id: string) {
       p.permissions.includes('leave.request.approve:company') ||
       (isOwn && p.permissions.includes('leave.request.self_approve:self')));
 
-  // Calculate prior leave history and balance context for the employee
+  // Earned leave only. Casual, sick, and a loss-of-pay balance type are not shown here,
+  // and a request of those types does not reduce the earned balance on this panel.
   const periodId = await currentPeriodId(ctx);
-  const types = (await ctx.sqlite.prepare(`SELECT id, name, code FROM leave_type`).all()) as {
-    id: string;
-    name: string;
-    code: string;
-  }[];
+  const period = (await ctx.sqlite
+    .prepare(`SELECT starts_on, ends_on FROM leave_period WHERE id = ?`)
+    .get(periodId)) as { starts_on: string; ends_on: string } | undefined;
+  const types = (await ctx.sqlite
+    .prepare(
+      `SELECT id, name, code FROM leave_type WHERE archived_at IS NULL AND is_paid = 1 ORDER BY name`,
+    )
+    .all()) as { id: string; name: string; code: string }[];
+  const earnedTypes = pickEarnedTypes(types);
+  const earnedIds = new Set(earnedTypes.map((t) => t.id));
 
-  let totalTakenHalfDaysThisPeriod = 0;
-  let requestedTypeTakenHalfDays = 0;
-  let requestedTypeGrantedHalfDays = 0;
-  let requestedTypeAvailableHalfDays = 0;
-
+  let takenHalf = 0;
+  let grantedHalf = 0;
+  let availableHalf = 0;
   const balances: Array<{
     id: string;
     name: string;
@@ -639,88 +666,280 @@ export async function requestDetail(ctx: RequestContext, id: string) {
     taken: string;
     isCurrentType: boolean;
   }> = [];
-
-  for (const t of types) {
+  for (const t of earnedTypes) {
     const granted = (await ctx.sqlite
       .prepare(
         `SELECT COALESCE(SUM(quantity_half_days), 0) AS n FROM balance_ledger
          WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?
-           AND entry_type IN ('OPENING','ACCRUAL','ENTITLEMENT_GRANT','CARRY_FORWARD','MIGRATION_OPENING','ADJUSTMENT')`,
+           AND entry_type IN ${CREDIT_TYPES}`,
       )
       .get(empId, t.id, periodId)) as { n: number };
     const used = (await ctx.sqlite
       .prepare(
         `SELECT COALESCE(SUM(-quantity_half_days), 0) AS n FROM balance_ledger
          WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?
-           AND entry_type IN ('DEDUCTION','ENCASHMENT','EXPIRY')`,
+           AND entry_type IN ${USED_TYPES}`,
       )
       .get(empId, t.id, periodId)) as { n: number };
-
-    totalTakenHalfDaysThisPeriod += used.n;
-    const avail = await availableHalfDays(ctx, empId, t.id, periodId);
-
-    if (t.id === r.leave_type_id) {
-      requestedTypeTakenHalfDays = used.n;
-      requestedTypeGrantedHalfDays = granted.n;
-      requestedTypeAvailableHalfDays = avail;
-    }
-
-    if (granted.n > 0 || used.n > 0 || t.id === r.leave_type_id) {
-      balances.push({
-        id: t.id,
-        name: t.name,
-        code: t.code,
-        left: formatHalfDays(avail),
-        total: formatHalfDays(granted.n),
-        taken: formatHalfDays(used.n),
-        isCurrentType: t.id === r.leave_type_id,
-      });
-    }
+    takenHalf += Number(used.n);
+    grantedHalf += Number(granted.n);
+    availableHalf += Number(granted.n) - Number(used.n);
+    balances.push({
+      id: t.id,
+      name: t.name,
+      code: t.code,
+      left: formatHalfDays(Number(granted.n) - Number(used.n)),
+      total: formatHalfDays(Number(granted.n)),
+      taken: formatHalfDays(Number(used.n)),
+      isCurrentType: t.id === r.leave_type_id,
+    });
   }
 
-  const pastRequests = (await ctx.sqlite
+  const earnedIdList = [...earnedIds];
+  const pastRequests =
+    earnedIdList.length === 0
+      ? []
+      : ((await ctx.sqlite
+          .prepare(
+            `SELECT r.id, r.start_date, r.end_date, r.total_half_days, r.status,
+                    t.name AS type_name, r.reason
+             FROM leave_request r
+             JOIN leave_type t ON t.id = r.leave_type_id
+             WHERE r.employee_id = ? AND r.id != ?
+               AND t.id IN (${earnedIdList.map(() => '?').join(',')})
+             ORDER BY r.start_date DESC
+             LIMIT 6`,
+          )
+          .all(empId, id, ...earnedIdList)) as Array<{
+          id: string;
+          start_date: string;
+          end_date: string;
+          total_half_days: number;
+          status: string;
+          type_name: string;
+          reason: string;
+        }>);
+
+  const countsAsEarned =
+    Number(r.type_is_paid ?? 1) !== 0 &&
+    isCompanyEarnedLeave(String(r.type_code ?? ''), String(r.type_name ?? '')) &&
+    (earnedIds.size === 0 || earnedIds.has(String(r.leave_type_id)));
+  const countedHalf = Number(r.total_half_days ?? 0);
+  const storedLopHalf = Number(r.lop_half_days ?? 0);
+  let paidHalf = countsAsEarned ? Math.max(0, countedHalf - storedLopHalf) : 0;
+  let afterHalf = availableHalf - paidHalf;
+  let thisLopHalf = countsAsEarned ? storedLopHalf : 0;
+  if (afterHalf < 0) {
+    thisLopHalf += -afterHalf;
+    afterHalf = 0;
+  }
+  const yearStart = period?.starts_on ?? `${ctx.today.slice(0, 4)}-01-01`;
+  const yearEnd = period?.ends_on ?? `${ctx.today.slice(0, 4)}-12-31`;
+  const lopTaken = (await ctx.sqlite
     .prepare(
-      `SELECT r.id, r.start_date, r.end_date, r.total_half_days, r.status, r.created_at,
-              t.name AS type_name, r.reason
-       FROM leave_request r
-       JOIN leave_type t ON t.id = r.leave_type_id
-       WHERE r.employee_id = ? AND r.id != ?
-       ORDER BY r.start_date DESC
-       LIMIT 6`,
+      `SELECT COALESCE(SUM(lop_half_days), 0) AS half FROM leave_request
+        WHERE employee_id = ? AND status = 'approved'
+          AND start_date >= ? AND start_date <= ?`,
     )
-    .all(empId, id)) as Array<{
-    id: string;
-    start_date: string;
-    end_date: string;
-    total_half_days: number;
-    status: string;
-    type_name: string;
-    reason: string;
-  }>;
-
-  const currentReqHalfDays = Number(r.total_half_days ?? 0);
-  const remainingAfterApproval = requestedTypeAvailableHalfDays - currentReqHalfDays;
-
+    .get(empId, yearStart, yearEnd)) as { half: number };
   const leave_history = {
-    total_taken_days: formatHalfDays(totalTakenHalfDaysThisPeriod),
-    requested_type_taken_days: formatHalfDays(requestedTypeTakenHalfDays),
-    requested_type_total_days: formatHalfDays(requestedTypeGrantedHalfDays),
-    requested_type_remaining_days: formatHalfDays(requestedTypeAvailableHalfDays),
-    projected_remaining_days: formatHalfDays(remainingAfterApproval),
+    total_taken_days: formatHalfDays(takenHalf),
+    requested_type_taken_days: formatHalfDays(Number(lopTaken.half)),
+    requested_type_total_days: formatHalfDays(grantedHalf),
+    requested_type_remaining_days: formatHalfDays(availableHalf),
+    projected_remaining_days: formatHalfDays(afterHalf),
+    counts_as_earned_leave: countsAsEarned,
+    this_request_loss_of_pay_days: formatHalfDays(thisLopHalf),
     balances,
-    past_requests: pastRequests.map((p) => ({
-      id: p.id,
-      start_date: p.start_date,
-      end_date: p.end_date,
-      days_count: formatHalfDays(p.total_half_days),
-      status: p.status,
-      type_name: p.type_name,
-      reason: p.reason,
+    past_requests: pastRequests.map((row) => ({
+      id: row.id,
+      start_date: row.start_date,
+      end_date: row.end_date,
+      days_count: formatHalfDays(row.total_half_days),
+      status: row.status,
+      type_name: row.type_name,
+      reason: row.reason,
     })),
   };
 
   return { ...r, trail, days, canAct, leave_history };
 }
+
+/**
+ * Leave figures for one person, opened from the employee list. Earned leave only:
+ * casual, sick, and loss of pay as a balance type are left out.
+ */
+export async function employeeLeaveOverview(ctx: RequestContext, employeeId: string) {
+  requirePrincipal(ctx);
+  await authorizeAction(ctx, 'employee.read', employeeId);
+  const person = (await ctx.sqlite
+    .prepare(
+      `SELECT e.id, e.employee_code AS code, e.first_name, e.last_name, e.status, e.joined_on,
+              e.work_email, d.name AS department, t.name AS team, j.name AS job_title,
+              m.first_name || ' ' || m.last_name AS manager
+         FROM employee e
+         JOIN department d ON d.id = e.department_id
+         LEFT JOIN team t ON t.id = e.team_id
+         LEFT JOIN job_title j ON j.id = e.job_title_id
+         LEFT JOIN employee m ON m.id = e.manager_employee_id
+        WHERE e.id = ?`,
+    )
+    .get(employeeId)) as
+    | {
+        id: string;
+        code: string;
+        first_name: string;
+        last_name: string;
+        status: string;
+        joined_on: string;
+        work_email: string;
+        department: string;
+        team: string | null;
+        job_title: string | null;
+        manager: string | null;
+      }
+    | undefined;
+  if (!person) throw new DomainError('NOT_FOUND', 'Employee not found.', { httpStatus: 404 });
+
+  const periodId = await currentPeriodId(ctx);
+  const period = (await ctx.sqlite
+    .prepare(`SELECT label, starts_on, ends_on FROM leave_period WHERE id = ?`)
+    .get(periodId)) as { label: string; starts_on: string; ends_on: string } | undefined;
+  const types = (await ctx.sqlite
+    .prepare(
+      `SELECT id, name, code FROM leave_type WHERE archived_at IS NULL AND is_paid = 1 ORDER BY name`,
+    )
+    .all()) as { id: string; name: string; code: string }[];
+  const earnedTypes = pickEarnedTypes(types);
+  let grantedHalf = 0;
+  let takenHalf = 0;
+  let pendingHalf = 0;
+  for (const t of earnedTypes) {
+    const granted = (await ctx.sqlite
+      .prepare(
+        `SELECT COALESCE(SUM(quantity_half_days), 0) AS n FROM balance_ledger
+          WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?
+            AND entry_type IN ${CREDIT_TYPES}`,
+      )
+      .get(employeeId, t.id, periodId)) as { n: number };
+    const used = (await ctx.sqlite
+      .prepare(
+        `SELECT COALESCE(SUM(-quantity_half_days), 0) AS n FROM balance_ledger
+          WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?
+            AND entry_type IN ${USED_TYPES}`,
+      )
+      .get(employeeId, t.id, periodId)) as { n: number };
+    const pending = (await ctx.sqlite
+      .prepare(
+        `SELECT COALESCE(SUM(-quantity_half_days), 0) AS n FROM balance_ledger
+          WHERE employee_id = ? AND leave_type_id = ? AND period_id = ?
+            AND entry_type = 'PENDING_HOLD'`,
+      )
+      .get(employeeId, t.id, periodId)) as { n: number };
+    grantedHalf += Number(granted.n);
+    takenHalf += Number(used.n);
+    pendingHalf += Math.max(0, Number(pending.n));
+  }
+  const yearStart = period?.starts_on ?? `${ctx.today.slice(0, 4)}-01-01`;
+  const yearEnd = period?.ends_on ?? `${ctx.today.slice(0, 4)}-12-31`;
+  const lopRows = (await ctx.sqlite
+    .prepare(
+      `SELECT status, COALESCE(SUM(lop_half_days), 0) AS half
+         FROM leave_request
+        WHERE employee_id = ? AND status IN ('pending_approval', 'approved')
+          AND start_date >= ? AND start_date <= ?
+        GROUP BY status`,
+    )
+    .all(employeeId, yearStart, yearEnd)) as { status: string; half: number }[];
+  const lopDays = (status: string) =>
+    Number(lopRows.find((row) => row.status === status)?.half ?? 0) / 2;
+  const monthStart = `${ctx.today.slice(0, 7)}-01`;
+  const monthNumber = Number(ctx.today.slice(5, 7));
+  const permUntil =
+    monthNumber === 12
+      ? `${Number(ctx.today.slice(0, 4)) + 1}-01-01`
+      : `${ctx.today.slice(0, 4)}-${String(monthNumber + 1).padStart(2, '0')}-01`;
+  const permissionHours = (await ctx.sqlite
+    .prepare(
+      `SELECT COALESCE(SUM(hours), 0) AS hours FROM permission_request
+        WHERE employee_id = ? AND status IN ('pending_approval', 'approved')
+          AND on_date >= ? AND on_date < ?`,
+    )
+    .get(employeeId, monthStart, permUntil)) as { hours: number };
+  const focus = earnedTypes[0];
+  const monthly = focus
+    ? await monthlySummaryFor(ctx, employeeId, periodId, period, [
+        { id: focus.id, code: focus.code, earnedHalfDays: grantedHalf },
+      ])
+    : [];
+  const earnedIdList = earnedTypes.map((t) => t.id);
+  const recent =
+    earnedIdList.length === 0
+      ? []
+      : ((await ctx.sqlite
+          .prepare(
+            `SELECT r.id, r.start_date AS "startDate", r.end_date AS "endDate",
+                    r.total_half_days AS "halfDays", r.lop_half_days AS "lopHalf",
+                    r.status, t.name AS "typeName"
+               FROM leave_request r
+               JOIN leave_type t ON t.id = r.leave_type_id
+              WHERE r.employee_id = ?
+                AND t.id IN (${earnedIdList.map(() => '?').join(',')})
+              ORDER BY r.start_date DESC
+              LIMIT 8`,
+          )
+          .all(employeeId, ...earnedIdList)) as {
+          id: string;
+          startDate: string;
+          endDate: string;
+          halfDays: number;
+          lopHalf: number;
+          status: string;
+          typeName: string;
+        }[]);
+  const days = (half: number) => half / 2;
+  return {
+    person: {
+      id: person.id,
+      name: `${person.first_name} ${person.last_name}`,
+      code: person.code,
+      department: person.department,
+      team: person.team,
+      jobTitle: person.job_title,
+      manager: person.manager,
+      status: person.status,
+      joinedOn: person.joined_on,
+      email: person.work_email,
+    },
+    year: period?.label ?? ctx.today.slice(0, 4),
+    leaveType: focus?.name ?? 'Earned leave',
+    earned: {
+      granted: days(grantedHalf),
+      taken: days(takenHalf),
+      pending: days(pendingHalf),
+      available: days(grantedHalf - takenHalf),
+    },
+    lossOfPay: { approved: lopDays('approved'), pending: lopDays('pending_approval') },
+    permission: { usedHours: Number(permissionHours.hours) || 0, limitHours: 2 },
+    monthly: monthly.map((m) => ({
+      label: m.label,
+      earned: m.earned,
+      taken: m.used,
+      lossOfPay: m.lossOfPay,
+      balance: m.balance,
+    })),
+    recent: recent.map((row) => ({
+      id: row.id,
+      startDate: row.startDate,
+      endDate: row.endDate,
+      days: days(Number(row.halfDays)),
+      lossOfPay: days(Number(row.lopHalf ?? 0)),
+      status: row.status,
+      typeName: row.typeName,
+    })),
+  };
+}
+
 const ENTRY_LABEL: Record<string, string> = {
   OPENING: 'Opening balance',
   MIGRATION_OPENING: 'Opening balance (imported)',

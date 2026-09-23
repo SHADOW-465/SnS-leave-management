@@ -155,9 +155,12 @@ describe('the approval map', () => {
     expect(john?.route?.approverName).toBe('David Fernandes');
   });
 
-  it('is refused to HR — deciding the hierarchy is the administrator’s', async () => {
+  it('lets HR open reporting managers', async () => {
     const helen = await signIn('anitha@sns.test');
-    expect((await call(helen, 'GET', '/api/v1/admin/approval-map')).statusCode).toBe(403);
+    const res = await call(helen, 'GET', '/api/v1/admin/approval-map');
+    expect(res.statusCode).toBe(200);
+    const people = (res.json() as { data: { people: { name: string }[] } }).data.people;
+    expect(people.some((p) => p.name === 'Vijay Anand')).toBe(true);
   });
 
   it('warns about a team with no lead only when someone relies on it', async () => {
@@ -296,12 +299,88 @@ describe('reporting managers', () => {
     ).toMatch(/managing director or an administrator/);
   });
 
-  it('is refused to HR', async () => {
+  it('lets HR assign a reporting manager one level up', async () => {
     const anitha = await signIn('anitha@sns.test');
     const res = await call(anitha, 'PUT', '/api/v1/admin/reporting-managers', {
       employeeIds: [await employeeId('vijay@sns.test')],
-      managerEmployeeId: await employeeId('david@sns.test'),
+      managerEmployeeId: await employeeId('john@sns.test'),
     });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { data: { failed: unknown[] } }).data.failed).toEqual([]);
+  });
+
+  it('still refuses HR when appointing a team lead', async () => {
+    const anitha = await signIn('anitha@sns.test');
+    const team = (await sqlite.prepare(`SELECT id FROM team WHERE name = 'Printing'`).get()) as {
+      id: string;
+    };
+    const res = await call(anitha, 'PUT', `/api/v1/admin/teams/${team.id}/lead`, {
+      employeeId: await employeeId('ramesh@sns.test'),
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('earned leave context', () => {
+  it('hides casual and sick leave from a pending request and the employee overview', async () => {
+    const vijay = await employeeId('vijay@sns.test');
+    const requestId = await apply(await signIn('vijay@sns.test'), '2026-10-05', '2026-10-06');
+    await sqlite.exec(
+      `INSERT INTO leave_type (id, code, name, colour_token, is_paid, created_at, created_by, updated_at, updated_by)
+       VALUES ('lt-sick-x', 'SL', 'Sick leave', 'accent', 1, '2026-01-01', 'x', '2026-01-01', 'x')`,
+    );
+    await sqlite.exec(
+      `INSERT INTO leave_request (
+         id, employee_id, leave_type_id, policy_version_id, start_date, end_date, total_half_days,
+         reason, status, submitted_by, created_at, created_by, updated_at, updated_by
+       )
+       SELECT 'req-sick-x', employee_id, 'lt-sick-x', policy_version_id, '2026-09-01', '2026-09-01', 2,
+              'Old sick day', 'approved', submitted_by, created_at, created_by, updated_at, updated_by
+         FROM leave_request WHERE id = '${requestId}'`,
+    );
+    const detail = await call(admin, 'GET', `/api/v1/leave-requests/${requestId}`);
+    expect(detail.statusCode).toBe(200);
+    const history = (
+      detail.json() as {
+        data: {
+          leave_history: {
+            past_requests: { type_name: string }[];
+            projected_remaining_days: string;
+            balances: { name: string }[];
+            counts_as_earned_leave: boolean;
+          };
+        };
+      }
+    ).data.leave_history;
+    expect(JSON.stringify(history)).not.toMatch(/sick|casual/i);
+    expect(Number(history.projected_remaining_days)).toBeGreaterThanOrEqual(0);
+    expect(history.counts_as_earned_leave).toBe(true);
+    expect(history.balances.every((b) => b.name === 'Annual Leave')).toBe(true);
+
+    const overview = await call(admin, 'GET', `/api/v1/employees/${vijay}/leave-overview`);
+    expect(overview.statusCode).toBe(200);
+    const data = (
+      overview.json() as {
+        data: {
+          person: { name: string };
+          permission: { limitHours: number };
+          recent: { typeName: string }[];
+          earned: { available: number };
+          leaveType: string;
+        };
+      }
+    ).data;
+    expect(data.person.name).toBe('Vijay Anand');
+    expect(data.leaveType).toBe('Annual Leave');
+    expect(data.permission.limitHours).toBe(2);
+    expect(JSON.stringify(data.recent)).not.toMatch(/sick|casual/i);
+    expect(data.earned.available).toBeGreaterThanOrEqual(0);
+  });
+
+  it('refuses an employee from opening someone else’s leave overview', async () => {
+    const vijay = await signIn('vijay@sns.test');
+    const other = await employeeId('ramesh@sns.test');
+    const res = await call(vijay, 'GET', `/api/v1/employees/${other}/leave-overview`);
     expect(res.statusCode).toBe(403);
   });
 });

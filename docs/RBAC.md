@@ -70,7 +70,9 @@ The approval hierarchy is positional and enforced: **Administrator / Managing Di
 Manager (department head) → Team lead → Employee**. A request is always decided one level up;
 a reporting manager can only be someone at the next level; HR and administrators can override
 only for people below them, so HR's leave is decided only by the Managing Director or an
-administrator.
+administrator. HR can assign and clear reporting managers. Appointing department heads and
+team leads, arranging cover, and reassigning a stuck request stay with the administrator
+(`approval.routing.manage`).
 
 Roles are editable data, not code. A company can create "HR Manager (Bangalore)" as HR
 Officer permissions at `location` scope instead of `company`.

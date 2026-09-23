@@ -54,9 +54,9 @@ export const PERMISSIONS = [
   'holiday.calendar.read:company',
   'holiday.calendar.manage:company',
   'approval.workflow.manage:company',
-  // Who approves whom: overrides, cover while someone is away, appointing leads and heads,
-  // and reassigning a stuck request. Deliberately separate from org.structure.manage so
-  // HR can maintain departments and teams without deciding the approval chain.
+  // Appointing leads and heads, cover while someone is away, and reassigning a stuck
+  // request. Reporting-manager assignment is also open to HR via employee.update.
+  // Separate from org.structure.manage so maintaining departments does not appoint a lead.
   'approval.routing.manage:company',
   'team.availability.read:team',
   'team.availability.read:reports_recursive',

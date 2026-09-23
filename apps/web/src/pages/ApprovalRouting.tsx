@@ -13,6 +13,8 @@ type Person = {
   departmentName: string;
   hasAccount: boolean;
   position: string;
+  kind: string;
+  allowedManagerKinds: string[];
   reportingManager: { employeeId: string; name: string; since: string } | null;
   route: {
     approverName: string;
@@ -44,7 +46,14 @@ type MapData = {
     active: boolean;
   }[];
   warnings: { level: 'problem' | 'notice'; text: string }[];
-  candidates: { id: string; name: string; jobTitle: string | null; team: string | null }[];
+  candidates: {
+    id: string;
+    name: string;
+    jobTitle: string | null;
+    team: string | null;
+    kind: string;
+    position: string;
+  }[];
 };
 type History = {
   effectiveFrom: string;
@@ -117,28 +126,33 @@ export function ApprovalRoutingPage() {
       </header>
 
       <section className="card rm-flow" aria-label="How leave is routed">
-        <p className="rm-flow-title">Where a leave request goes</p>
+        <p className="rm-flow-title">The approval hierarchy — leave always goes one level up</p>
         <ol>
-          <li className="is-main">
-            <strong>Reporting manager</strong>
-            <span>Set below. Decides first.</span>
+          <li>
+            <strong>Administrator / Managing Director</strong>
+            <span>Approve HR’s leave. The MD’s leave goes to an administrator.</span>
+          </li>
+          <li>
+            <strong>HR</strong>
+            <span>Approves managers’ leave. HR’s own leave never goes to a manager.</span>
+          </li>
+          <li>
+            <strong>Manager</strong>
+            <span>Department head. Approves team leads (and staff with no team lead).</span>
           </li>
           <li>
             <strong>Team lead</strong>
-            <span>If no manager is set, or they are away</span>
+            <span>Approves their team members.</span>
           </li>
-          <li>
-            <strong>Department head</strong>
-            <span>If there is no team lead</span>
-          </li>
-          <li>
-            <strong>HR, then Administrator</strong>
-            <span>Last resort</span>
+          <li className="is-main">
+            <strong>Employee</strong>
+            <span>Applies for leave.</span>
           </li>
         </ol>
         <p className="muted small">
-          Someone on approved leave today is skipped automatically, unless you arrange cover for
-          them. Nobody ever approves their own leave.
+          The reporting manager below says exactly who at the next level decides. You can only
+          choose someone one level up. If they are away, not set, or it is their own leave, it moves
+          up the hierarchy. HR and administrators can step in only for people below them.
         </p>
       </section>
 
@@ -200,7 +214,7 @@ export function ApprovalRoutingPage() {
         .rm .small { font-size:12.5px; }
         .rm .card { background:#fff; border:1px solid var(--border-subtle); border-radius:12px; padding:16px 18px; }
         .rm-flow-title { margin:0 0 10px; font-weight:600; font-size:13.5px; }
-        .rm-flow ol { list-style:none; margin:0 0 10px; padding:0; display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; counter-reset:step; }
+        .rm-flow ol { list-style:none; margin:0 0 10px; padding:0; display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; counter-reset:step; }
         .rm-flow li { position:relative; border:1px solid var(--border-subtle); border-radius:10px; padding:10px 12px 10px 38px; font-size:13px; display:flex; flex-direction:column; gap:2px; counter-increment:step; }
         .rm-flow li::before { content:counter(step); position:absolute; left:10px; top:10px; width:20px; height:20px; border-radius:50%; background:#f1f1ee; font-size:11.5px; font-weight:600; display:grid; place-items:center; }
         .rm-flow li.is-main { background:#eef2ff; border-color:#c7d2fe; }
@@ -267,12 +281,25 @@ function ManagersTab({ d, run }: { d: MapData; run: Run }) {
     );
   }, [d.people, filter, dept]);
 
-  const managerOptions = (exclude?: string) => [
-    { value: NONE, label: 'Not set' },
-    ...d.candidates
-      .filter((c) => c.id !== exclude)
-      .map((c) => ({ value: c.id, label: candidateLabel(c) })),
-  ];
+  // Only people one level up can be chosen: a team lead or manager for an employee, a
+  // manager for a team lead, HR for a manager, the MD or an administrator for HR.
+  const managerOptions = (forPeople: Person[]) => {
+    const allowed = forPeople.length
+      ? forPeople
+          .map((p) => new Set(p.allowedManagerKinds))
+          .reduce((a, b) => new Set([...a].filter((k) => b.has(k))))
+      : new Set<string>();
+    const ids = new Set(forPeople.map((p) => p.employeeId));
+    return [
+      { value: NONE, label: 'Not set (goes up the hierarchy)' },
+      ...d.candidates
+        .filter((c) => !ids.has(c.id) && allowed.has(c.kind))
+        .map((c) => ({
+          value: c.id,
+          label: candidateLabel({ ...c, jobTitle: c.jobTitle ?? c.position }),
+        })),
+    ];
+  };
   const allShown = people.length > 0 && people.every((p) => picked.has(p.employeeId));
 
   async function assign(ids: string[], manager: string, from: string) {
@@ -316,7 +343,7 @@ function ManagersTab({ d, run }: { d: MapData; run: Run }) {
             placeholder="Choose…"
             value={bulkManager}
             onChange={setBulkManager}
-            options={managerOptions()}
+            options={managerOptions(d.people.filter((x) => picked.has(x.employeeId)))}
           />
           <span>from</span>
           <input
@@ -403,7 +430,7 @@ function ManagersTab({ d, run }: { d: MapData; run: Run }) {
                     size="sm"
                     aria-label={`Reporting manager for ${p.name}`}
                     value={p.reportingManager?.employeeId ?? NONE}
-                    options={managerOptions(p.employeeId)}
+                    options={managerOptions([p])}
                     onChange={(v) => void assign([p.employeeId], v, today())}
                   />
                   <div className="muted small" style={{ marginTop: 3 }}>

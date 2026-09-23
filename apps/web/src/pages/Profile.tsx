@@ -30,6 +30,7 @@ const ROLE_NAMES: Record<string, string> = {
   hr_officer: 'HR',
   payroll_officer: 'Payroll',
   admin: 'Administrator',
+  director: 'Managing Director',
   auditor: 'Auditor',
 };
 

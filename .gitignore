@@ -29,3 +29,4 @@ graphify-out
 # sees a Serverless Function before the build overwrites the stub).
 public/
 .tmp-pgtest/
+.claude/

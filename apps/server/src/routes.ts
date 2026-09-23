@@ -20,6 +20,8 @@ import {
   rejectLeaveBodySchema,
   setupBodySchema,
   submitLeaveBodySchema,
+  submitPermissionBodySchema,
+  decidePermissionBodySchema,
   teamMembersBodySchema,
   updateDepartmentBodySchema,
   updateEmployeeBodySchema,
@@ -54,6 +56,7 @@ import {
   submitLeave,
   withdrawLeave,
 } from './usecases/leave.js';
+import { decidePermission, submitPermission } from './usecases/permission.js';
 import {
   archiveDepartment,
   archiveTeam,
@@ -249,6 +252,25 @@ export async function registerRoutes(app: FastifyInstance) {
         idempotencyKey: typeof idem === 'string' ? idem : undefined,
       });
       return reply.status(201).send(ok(data, req.ctx.requestId));
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.post('/api/v1/permissions', async (req, reply) => {
+    try {
+      const body = parse(submitPermissionBodySchema, req.body);
+      return reply.status(201).send(ok(await submitPermission(req.ctx, body), req.ctx.requestId));
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.post('/api/v1/permissions/:id/decide', async (req, reply) => {
+    try {
+      const body = parse(decidePermissionBodySchema, req.body);
+      const { id } = req.params as { id: string };
+      return reply.send(
+        ok(await decidePermission(req.ctx, id, body.decision, body.note), req.ctx.requestId),
+      );
     } catch (err) {
       return sendError(req, reply, err);
     }
@@ -874,7 +896,9 @@ export async function registerRoutes(app: FastifyInstance) {
         'Department',
         'Opening',
         'Earned',
-        'Used',
+        'Leave taken',
+        'Loss of pay',
+        'Permission hours',
         'Pending',
         'Closing',
       ];
@@ -884,7 +908,9 @@ export async function registerRoutes(app: FastifyInstance) {
         r.department,
         r.opening,
         r.earned,
-        r.used,
+        r.leaveTaken ?? r.used,
+        r.lossOfPay,
+        r.permissionHours,
         r.pending,
         r.closing,
       ]);
@@ -1495,10 +1521,10 @@ export async function registerRoutes(app: FastifyInstance) {
       const data = await reports(req.ctx, reportOpts(req));
       const lines = [
         `Monthly payroll leave — ${data.payroll.label}`,
-        'Employee ID,Employee,Department,Opening,Earned,Used,Pending,Closing',
+        'Employee ID,Employee,Department,Opening,Earned,Leave taken,Loss of pay,Permission hours,Pending,Closing',
         ...data.payroll.rows.map(
           (r) =>
-            `${csvSafe(r.employeeCode)},${csvSafe(r.name)},${csvSafe(r.department)},${r.opening},${r.earned},${r.used},${r.pending},${r.closing}`,
+            `${csvSafe(r.employeeCode)},${csvSafe(r.name)},${csvSafe(r.department)},${r.opening},${r.earned},${r.leaveTaken ?? r.used},${r.lossOfPay},${r.permissionHours},${r.pending},${r.closing}`,
         ),
         '',
         'Employee Code,Employee Name,Department,Team,Status,Joined Date,Entitlement Days,Taken Days,Remaining Days,Pending Days',

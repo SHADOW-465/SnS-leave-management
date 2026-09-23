@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDate, ulid } from './common.js';
+import { isoDate, policyRulesSchema, ulid } from './common.js';
 
 const note = z.string().trim().max(300).nullable().optional();
 
@@ -41,7 +41,17 @@ export const reassignRequestBodySchema = z
 export const setRolesBodySchema = z
   .object({
     roles: z
-      .array(z.enum(['employee', 'manager', 'hr_officer', 'payroll_officer', 'admin', 'auditor']))
+      .array(
+        z.enum([
+          'employee',
+          'manager',
+          'hr_officer',
+          'payroll_officer',
+          'admin',
+          'auditor',
+          'director',
+        ]),
+      )
       .min(1, 'Choose at least one role.'),
   })
   .strict();
@@ -74,7 +84,17 @@ export const createLoginBodySchema = z
     employeeId: ulid,
     email: z.string().trim().email().max(254).nullable().optional(),
     roles: z
-      .array(z.enum(['employee', 'manager', 'hr_officer', 'payroll_officer', 'admin', 'auditor']))
+      .array(
+        z.enum([
+          'employee',
+          'manager',
+          'hr_officer',
+          'payroll_officer',
+          'admin',
+          'auditor',
+          'director',
+        ]),
+      )
       .max(6),
   })
   .strict();
@@ -84,8 +104,10 @@ export const createLeaveTypeBodySchema = z
     name: z.string().trim().min(2).max(60),
     code: z.string().trim().min(2).max(8),
     isPaid: z.boolean(),
-    /** Start from a template's rules (AL, CL, SL, EL, LOP), or null for none. */
+    /** Start from a template's rules (AL), or null for a custom type. */
     template: z.string().trim().max(8).nullable(),
+    /** For a custom type: its rules straight away, instead of publishing them afterwards. */
+    rules: policyRulesSchema.optional(),
     colour: z.string().max(40).optional(),
   })
   .strict();

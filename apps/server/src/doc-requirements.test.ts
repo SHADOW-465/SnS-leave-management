@@ -335,14 +335,29 @@ describe('sample organisation', () => {
 });
 
 describe('yearly entitlement is credited once', () => {
-  // Casual Leave (12 days given at the start of the year) is added from Leave types.
+  // A custom type given once a year (12 days), added on Leave types.
   const addCasual = async () => {
     const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
     const res = await call(admin, 'POST', '/api/v1/admin/leave-types', {
       name: 'Casual Leave',
       code: 'CL',
       isPaid: true,
-      template: 'CL',
+      template: null,
+      rules: {
+        entitlementHalfDays: 24,
+        accrualMethod: 'annual_grant',
+        accrualCadenceMonths: 12,
+        midYearProrate: true,
+        carryForwardCapHalfDays: 10,
+        carryForwardExpiryMonths: 3,
+        probationRestriction: 'none',
+        probationMaxHalfDays: 0,
+        halfDaysAllowed: true,
+        minNoticeDays: 0,
+        maxConsecutiveDays: 15,
+        negativeBalanceAllowed: false,
+        attachmentRequiredAfterHalfDays: null,
+      },
     });
     expect(res.statusCode).toBe(200);
   };
@@ -416,26 +431,55 @@ describe('leave types (Leave types screen)', () => {
     expect(d.types[0]!.summary).toBe('2 days credited every month (24 a year)');
   });
 
-  it('adds a type from a template and everyone can use it at once', async () => {
+  it('adds a custom type and everyone can use it at once; only Annual Leave is a template', async () => {
     await boot();
     const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
+    const templates = data<{ templates: { code: string }[] }>(
+      await call(admin, 'GET', '/api/v1/admin/leave-types'),
+    ).templates;
+    expect(templates.map((t) => t.code)).toEqual(['AL']);
+    expect(
+      (
+        await call(admin, 'POST', '/api/v1/admin/leave-types', {
+          name: 'Sick Leave',
+          code: 'SL',
+          isPaid: true,
+          template: 'SL',
+        })
+      ).statusCode,
+    ).toBe(400);
     const res = await call(admin, 'POST', '/api/v1/admin/leave-types', {
-      name: 'Sick Leave',
-      code: 'sl',
+      name: 'Bereavement Leave',
+      code: 'BL',
       isPaid: true,
-      template: 'SL',
+      template: null,
+      rules: {
+        entitlementHalfDays: 10,
+        accrualMethod: 'annual_grant',
+        accrualCadenceMonths: 12,
+        midYearProrate: true,
+        carryForwardCapHalfDays: 10,
+        carryForwardExpiryMonths: 3,
+        probationRestriction: 'none',
+        probationMaxHalfDays: 0,
+        halfDaysAllowed: true,
+        minNoticeDays: 0,
+        maxConsecutiveDays: 15,
+        negativeBalanceAllowed: false,
+        attachmentRequiredAfterHalfDays: null,
+      },
     });
     expect(res.statusCode).toBe(200);
     const vijay = await signIn('vijay@sns.test');
     const home = data<{ balances: { code: string; left: string }[] }>(
       await call(vijay, 'GET', '/api/v1/home'),
     );
-    expect(home.balances.find((b) => b.code === 'SL')?.left).toBe('12');
+    expect(home.balances.find((b) => b.code === 'BL')?.left).toBe('5');
     const dup = await call(admin, 'POST', '/api/v1/admin/leave-types', {
-      name: 'Sick Leave',
-      code: 'SL',
+      name: 'Bereavement Leave',
+      code: 'BL',
       isPaid: true,
-      template: 'SL',
+      template: null,
     });
     expect(dup.statusCode).toBe(409);
   });
@@ -448,7 +492,7 @@ describe('leave types (Leave types screen)', () => {
         name: 'Loss of Pay',
         code: 'LOP',
         isPaid: false,
-        template: 'LOP',
+        template: null,
       }),
     );
     const renamed = await app.inject({
@@ -502,5 +546,55 @@ describe('leave types (Leave types screen)', () => {
       template: null,
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('earned leave, loss of pay and permission', () => {
+  it('records the shortfall as loss of pay, tells the employee, and caps permission at 2 hours', async () => {
+    await boot();
+    const vijay = await signIn('vijay@sns.test');
+    const submitted = await call(vijay, 'POST', '/api/v1/leave-requests', {
+      leaveTypeId: await typeId('AL'),
+      startDate: '2026-10-01',
+      endDate: '2026-11-11',
+      reason: 'A long absence past the earned balance',
+    });
+    expect(submitted.statusCode).toBe(201);
+    const row = (await sqlite
+      .prepare(
+        `SELECT lop_half_days AS lop, total_half_days AS total FROM leave_request WHERE id = ?`,
+      )
+      .get(data<{ id: string }>(submitted).id)) as { lop: number; total: number };
+    expect(Number(row.lop)).toBeGreaterThan(0);
+    expect(Number(row.lop)).toBeLessThan(Number(row.total));
+    const note = (await sqlite
+      .prepare(
+        `SELECT title FROM notification n
+           JOIN user_account u ON u.id = n.recipient_user_id
+          WHERE u.email = 'vijay@sns.test' AND n.kind = 'leave.loss_of_pay'`,
+      )
+      .get()) as { title: string } | undefined;
+    expect(note?.title).toBe('Loss of pay on this request');
+    const home = await call(vijay, 'GET', '/api/v1/home');
+    expect(data<{ lossOfPay: { pending: number } }>(home).lossOfPay.pending).toBeGreaterThan(0);
+
+    const first = await call(vijay, 'POST', '/api/v1/permissions', {
+      onDate: '2026-10-06',
+      hours: 1,
+      reason: 'Bank appointment',
+    });
+    expect(first.statusCode).toBe(201);
+    const second = await call(vijay, 'POST', '/api/v1/permissions', {
+      onDate: '2026-10-07',
+      hours: 1,
+      reason: 'School appointment',
+    });
+    expect(second.statusCode).toBe(201);
+    const third = await call(vijay, 'POST', '/api/v1/permissions', {
+      onDate: '2026-10-08',
+      hours: 1,
+      reason: 'One hour too many',
+    });
+    expect(third.statusCode).toBe(409);
   });
 });

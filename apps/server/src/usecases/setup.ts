@@ -15,7 +15,9 @@ import {
   DEMO_ADMIN,
   DEMO_DOMAIN,
   DEMO_PASSWORD,
+  adoptAnnualLeave,
   ensureDemoOrganisation,
+  openDemoBalances,
   seedDemoActivity,
 } from './demo.js';
 import { creditMonth } from '../jobs/balance.js';
@@ -96,7 +98,7 @@ export async function demoAccounts(ctx: RequestContext): Promise<{
 export async function ensureDemoHierarchy(ctx: RequestContext): Promise<void> {
   if (!(await isBootstrapped(ctx.sqlite))) return;
   const done = await ctx.sqlite
-    .prepare(`SELECT key FROM app_setting WHERE key = 'demo.version' AND value_json = '2'`)
+    .prepare(`SELECT key FROM app_setting WHERE key = 'demo.version' AND value_json = '3'`)
     .get();
   if (done) return;
   const hasDemo = await ctx.sqlite
@@ -114,7 +116,11 @@ export async function ensureDemoHierarchy(ctx: RequestContext): Promise<void> {
     )
     .get()) as { id: string } | undefined;
   if (!actor) return;
+  // Version 3: the framework's single Annual Leave, and ADMIN/MD → HR → manager → team
+  // lead → employee (the MD gets the Managing Director role; managers report to HR).
+  await adoptAnnualLeave(ctx, actor.id);
   await ensureDemoOrganisation(ctx, actor.id, { upgradeLegacy: true });
+  await openDemoBalances(ctx, actor.id);
   await markDemoVersion(ctx, actor.id);
 }
 
@@ -122,7 +128,7 @@ async function markDemoVersion(ctx: RequestContext, actorId: string) {
   await ctx.sqlite.prepare(`DELETE FROM app_setting WHERE key = 'demo.version'`).run();
   await ctx.sqlite
     .prepare(
-      `INSERT INTO app_setting (key, value_json, updated_by, updated_at) VALUES ('demo.version', '2', ?, ?)`,
+      `INSERT INTO app_setting (key, value_json, updated_by, updated_at) VALUES ('demo.version', '3', ?, ?)`,
     )
     .run(actorId, ctx.now);
 }

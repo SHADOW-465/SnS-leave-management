@@ -35,7 +35,7 @@ describe('database', () => {
     expect(await integrityCheck(sqlite)).toBe('ok');
     await seedSystem(sqlite);
     const roles = (await sqlite.prepare('SELECT COUNT(*) AS n FROM role').get()) as { n: number };
-    expect(roles.n).toBe(6);
+    expect(roles.n).toBe(7); // includes the Managing Director
     await sqlite.close();
   });
 

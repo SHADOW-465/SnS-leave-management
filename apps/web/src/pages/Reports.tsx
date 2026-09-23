@@ -87,6 +87,9 @@ type ReportsResponse = {
       opening: number;
       earned: number;
       used: number;
+      leaveTaken?: number;
+      lossOfPay?: number;
+      permissionHours?: number;
       pending: number;
       closing: number;
     }[];
@@ -1265,7 +1268,9 @@ export function ReportsPage() {
                       <th>Department</th>
                       <th>Opening</th>
                       <th>Earned</th>
-                      <th>Used</th>
+                      <th>Leave taken</th>
+                      <th>Loss of pay</th>
+                      <th>Permission (hours)</th>
                       <th>Pending</th>
                       <th>Closing</th>
                     </tr>
@@ -1280,7 +1285,9 @@ export function ReportsPage() {
                         <td>{r.department}</td>
                         <td className="mono">{r.opening}</td>
                         <td className="mono">{r.earned}</td>
-                        <td className="mono">{r.used}</td>
+                        <td className="mono">{r.leaveTaken ?? r.used}</td>
+                        <td className="mono">{r.lossOfPay ?? 0}</td>
+                        <td className="mono">{r.permissionHours ?? 0}</td>
                         <td className="mono">{r.pending}</td>
                         <td className="mono">
                           <strong>{r.closing}</strong>

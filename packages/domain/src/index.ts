@@ -39,6 +39,8 @@ export {
   DEFAULT_POLICY,
   LEAVE_TYPE_TEMPLATES,
   defaultRulesForCode,
+  splitLossOfPay,
+  withCompanyEarnedLeave,
   parseRules,
   validatePolicyAgainstRequest,
   type JoinMonthAccrual,
@@ -60,6 +62,7 @@ export {
 export { periodBounds, type LeaveYearBoundary } from './leave/period.js';
 export {
   capAccrual,
+  completedServiceYears,
   monthCreditHalfDays,
   monthlyAccrualHalfDays,
   monthlyRateHalfDays,
@@ -68,7 +71,11 @@ export {
 } from './leave/accrual.js';
 export {
   NoApproverError,
+  HIERARCHY_LEVEL,
+  allowedManagerKinds,
   approvalLadder,
+  mayOverride,
+  positionName,
   describeApprover,
   describeEscalation,
   requesterKindFrom,

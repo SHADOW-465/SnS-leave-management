@@ -37,6 +37,18 @@ export type LeavePolicyRules = {
   probationMonthlyHalfDays: number | null;
   /** Accrual stops once the balance reaches this; 0 = no ceiling. */
   maxBalanceHalfDays: number;
+  /** Completed years of service at which the higher confirmed rate starts. */
+  confirmedTenureYears: number;
+  /** Monthly credit for a confirmed employee below that tenure. Null = use the standard rate. */
+  confirmedUnderMonthlyHalfDays: number | null;
+  /** Monthly credit once that tenure is completed. */
+  confirmedFromMonthlyHalfDays: number | null;
+  /** Monthly credit for an experienced hire still on probation. */
+  probationExperiencedMonthlyHalfDays: number | null;
+  /** Monthly credit for a fresher on probation. */
+  probationFresherMonthlyHalfDays: number | null;
+  /** A request past the balance is allowed; the shortfall is loss of pay. */
+  lossOfPayOnShortfall: boolean;
 };
 
 export const DEFAULT_POLICY: LeavePolicyRules = {
@@ -59,6 +71,12 @@ export const DEFAULT_POLICY: LeavePolicyRules = {
   categoryMonthlyHalfDays: {},
   probationMonthlyHalfDays: null,
   maxBalanceHalfDays: 0,
+  confirmedTenureYears: 3,
+  confirmedUnderMonthlyHalfDays: null,
+  confirmedFromMonthlyHalfDays: null,
+  probationExperiencedMonthlyHalfDays: null,
+  probationFresherMonthlyHalfDays: null,
+  lossOfPayOnShortfall: false,
 };
 
 /**
@@ -68,6 +86,50 @@ export const DEFAULT_POLICY: LeavePolicyRules = {
 export function parseRules(raw: string | Partial<LeavePolicyRules>): LeavePolicyRules {
   const obj = (typeof raw === 'string' ? JSON.parse(raw) : raw) as Partial<LeavePolicyRules>;
   return { ...DEFAULT_POLICY, ...obj, categoryMonthlyHalfDays: obj.categoryMonthlyHalfDays ?? {} };
+}
+
+/**
+ * Annual and earned leave follow the company schedule when a published policy has not
+ * set these rates itself. A staff-category rate that is only the old management example
+ * (2.5 days) is dropped so tenure applies.
+ */
+export function withCompanyEarnedLeave(
+  rules: LeavePolicyRules,
+  code: string | null,
+  raw: string,
+): LeavePolicyRules {
+  if (code !== 'AL' && code !== 'EL') return rules;
+  let parsed: Partial<LeavePolicyRules> = {};
+  try {
+    parsed = JSON.parse(raw) as Partial<LeavePolicyRules>;
+  } catch {
+    parsed = {};
+  }
+  if (parsed.confirmedUnderMonthlyHalfDays != null) return rules;
+  const company = defaultRulesForCode('AL');
+  const categories = { ...rules.categoryMonthlyHalfDays };
+  if (Object.keys(categories).length === 1 && categories.MGMT === 5) {
+    delete categories.MGMT;
+  }
+  return {
+    ...rules,
+    categoryMonthlyHalfDays: categories,
+    confirmedTenureYears: company.confirmedTenureYears,
+    confirmedUnderMonthlyHalfDays: company.confirmedUnderMonthlyHalfDays,
+    confirmedFromMonthlyHalfDays: company.confirmedFromMonthlyHalfDays,
+    probationExperiencedMonthlyHalfDays: company.probationExperiencedMonthlyHalfDays,
+    probationFresherMonthlyHalfDays: company.probationFresherMonthlyHalfDays,
+    lossOfPayOnShortfall: parsed.lossOfPayOnShortfall ?? true,
+  };
+}
+
+export function splitLossOfPay(
+  countedHalfDays: number,
+  availableHalfDays: number,
+): { paidHalfDays: number; lopHalfDays: number } {
+  const available = Math.max(0, availableHalfDays);
+  const paidHalfDays = Math.min(countedHalfDays, available);
+  return { paidHalfDays, lopHalfDays: countedHalfDays - paidHalfDays };
 }
 
 export function defaultRulesForCode(code: string): LeavePolicyRules {
@@ -92,30 +154,14 @@ export function defaultRulesForCode(code: string): LeavePolicyRules {
         excludeWeekends: true,
         excludeHolidays: true,
         joinMonthAccrual: 'prorated',
-      };
-    case 'CL':
-      return { ...base, entitlementHalfDays: 24, attachmentRequiredAfterHalfDays: null };
-    case 'SL':
-      return { ...base, entitlementHalfDays: 24, attachmentRequiredAfterHalfDays: 6 };
-    case 'EL':
-      return {
-        ...base,
-        // Functional framework default: 2 days credited each month, 24 days a year.
-        entitlementHalfDays: 48,
-        accrualMethod: 'monthly',
-        accrualCadenceMonths: 1,
-        halfDaysAllowed: false,
-        minNoticeDays: 7,
-        attachmentRequiredAfterHalfDays: null,
-      };
-    case 'LOP':
-      return {
-        ...base,
-        entitlementHalfDays: 0,
-        accrualMethod: 'none',
-        negativeBalanceAllowed: true,
-        probationRestriction: 'none',
-        attachmentRequiredAfterHalfDays: null,
+        // Confirmed staff: 1.5 days a month until 3 years, then 2. Experienced hires on
+        // probation earn 1 day; freshers earn none. Shortfall is loss of pay.
+        confirmedTenureYears: 3,
+        confirmedUnderMonthlyHalfDays: 3,
+        confirmedFromMonthlyHalfDays: 4,
+        probationExperiencedMonthlyHalfDays: 2,
+        probationFresherMonthlyHalfDays: 0,
+        lossOfPayOnShortfall: true,
       };
     default:
       return base;
@@ -200,7 +246,11 @@ export function validatePolicyAgainstRequest(input: {
     );
   }
 
-  if (!rules.negativeBalanceAllowed && input.countedHalfDays > input.availableHalfDays) {
+  if (
+    !rules.lossOfPayOnShortfall &&
+    !rules.negativeBalanceAllowed &&
+    input.countedHalfDays > input.availableHalfDays
+  ) {
     const short = (input.countedHalfDays - input.availableHalfDays) / 2;
     throw new DomainError('LEAVE_INSUFFICIENT_BALANCE', 'Not enough leave for these dates.', {
       details: [
@@ -231,30 +281,6 @@ export const LEAVE_TYPE_TEMPLATES: {
     name: 'Annual Leave',
     isPaid: true,
     summary:
-      'The framework default: 2 days credited every month (24 a year). Unused days carry forward. Weekends and holidays are not counted.',
-  },
-  {
-    code: 'CL',
-    name: 'Casual Leave',
-    isPaid: true,
-    summary: '12 days given at the start of the year for short personal needs. Half days allowed.',
-  },
-  {
-    code: 'SL',
-    name: 'Sick Leave',
-    isPaid: true,
-    summary: '12 days a year. A medical certificate is required for 3 days or more.',
-  },
-  {
-    code: 'EL',
-    name: 'Earned Leave',
-    isPaid: true,
-    summary: '2 days a month for planned leave. Full days only, applied for 7 days ahead.',
-  },
-  {
-    code: 'LOP',
-    name: 'Loss of Pay',
-    isPaid: false,
-    summary: 'Unpaid leave with no balance. Days taken are deducted from pay.',
+      'As the Leave Tracker framework describes it: 2 days credited every month (24 a year). Unused days carry forward. Weekends and holidays are not counted.',
   },
 ];

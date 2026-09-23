@@ -66,6 +66,7 @@ const DEFAULT_DEMO_ACCOUNTS: DemoAccountItem[] = [
 
 const ROLE_LABEL: Record<string, string> = {
   admin: 'Administrator',
+  director: 'Managing Director',
   hr_officer: 'HR',
   manager: 'Manager',
   employee: 'Employee',
@@ -76,10 +77,11 @@ const ROLE_LABEL: Record<string, string> = {
 /** What each demo person is useful for testing, in a few words. */
 function demoHint(a: DemoAccountItem): string {
   if (a.roles.includes('admin')) return 'Reporting managers, users, leave configuration';
+  if (a.roles.includes('director')) return 'Approves HR’s leave; sees leave across the company';
   if (a.roles.includes('hr_officer')) return 'Employees, holidays, payroll reports';
   if (a.roles.includes('payroll_officer')) return 'Monthly payroll report and export';
   if (a.roles.includes('auditor')) return 'Read-only access and the audit log';
-  if (a.roles.includes('manager')) return 'Approves their team’s leave';
+  if (a.roles.includes('manager')) return 'Approves their team’s leave; their own goes to HR';
   return 'Applies for leave, sees balance and history';
 }
 

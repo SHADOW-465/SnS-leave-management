@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { EmptyState, ErrorState, Skeleton, StatusPill } from '@sns/ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button, EmptyState, ErrorState, Skeleton, StatusPill } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
 import { dayCount, daysLabel, formatRange, initials } from '../format.js';
 
@@ -41,9 +42,18 @@ type HomeData = {
   period: { label: string } | null;
   balances: HomeBalance[];
   requests: HomeRequest[];
-  monthly: { ym: string; label: string; earned: number; used: number; balance: number }[];
+  monthly: {
+    ym: string;
+    label: string;
+    earned: number;
+    used: number;
+    balance: number;
+    lossOfPay?: number;
+  }[];
   upcomingApproved: HomeRequest[];
   holidays: { date: string; name: string; kind: string }[];
+  lossOfPay?: { approved: number; pending: number };
+  permission?: { usedHours: number; limitHours: number };
   probation: { title: string; body: string } | null;
 };
 
@@ -55,6 +65,11 @@ export function HomePage({ me }: { me: Me }) {
 }
 
 function EmpHome({ me }: { me: Me }) {
+  const qc = useQueryClient();
+  const [permHours, setPermHours] = useState<1 | 2>(1);
+  const [permDate, setPermDate] = useState('');
+  const [permReason, setPermReason] = useState('');
+  const [permNote, setPermNote] = useState<string | null>(null);
   const q = useQuery({
     queryKey: ['home'],
     queryFn: () => api<HomeData>('/api/v1/home'),
@@ -187,6 +202,78 @@ function EmpHome({ me }: { me: Me }) {
           <p className="big">{headline.left}</p>
           <p className="note">Does not drop until leave is approved</p>
         </div>
+        <div className="card">
+          <p className="muted">Loss of pay</p>
+          <p className="big">{formatDays(data.lossOfPay?.approved ?? 0)}</p>
+          <p className="note">
+            {(data.lossOfPay?.pending ?? 0) > 0
+              ? `${formatDays(data.lossOfPay?.pending ?? 0)} more waiting on a decision`
+              : 'Days not covered by earned leave'}
+          </p>
+        </div>
+      </section>
+
+      <section className="card" aria-label="Permission this month">
+        <h2 style={{ margin: '0 0 6px', fontSize: 15 }}>Permission</h2>
+        <p className="note">
+          {formatDays(data.permission?.usedHours ?? 0)} of {data.permission?.limitHours ?? 2} hours
+          used this month. You can take 1 hour or 2 hours at a time.
+        </p>
+        <form
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPermNote(null);
+            void api<{ remainingHours: number }>('/api/v1/permissions', {
+              method: 'POST',
+              body: JSON.stringify({ onDate: permDate, hours: permHours, reason: permReason }),
+            })
+              .then(async (r) => {
+                setPermNote(`Submitted. ${r.remainingHours} hour(s) left this month.`);
+                setPermReason('');
+                await qc.invalidateQueries({ queryKey: ['home'] });
+              })
+              .catch((err: unknown) =>
+                setPermNote(err instanceof Error ? err.message : 'Could not submit permission.'),
+              );
+          }}
+        >
+          <label>
+            Date
+            <input
+              className="input"
+              type="date"
+              required
+              value={permDate}
+              onChange={(e) => setPermDate(e.target.value)}
+            />
+          </label>
+          <label>
+            Hours
+            <select
+              className="input"
+              value={permHours}
+              onChange={(e) => setPermHours(Number(e.target.value) === 2 ? 2 : 1)}
+            >
+              <option value={1}>1 hour</option>
+              <option value={2}>2 hours</option>
+            </select>
+          </label>
+          <label>
+            Reason
+            <input
+              className="input"
+              required
+              minLength={3}
+              value={permReason}
+              onChange={(e) => setPermReason(e.target.value)}
+            />
+          </label>
+          <Button variant="primary" type="submit">
+            Ask for permission
+          </Button>
+        </form>
+        {permNote ? <p className="note">{permNote}</p> : null}
       </section>
 
       <p className="emp-cta">
@@ -239,7 +326,8 @@ function EmpHome({ me }: { me: Me }) {
                 <tr>
                   <th>Month</th>
                   <th>Earned</th>
-                  <th>Used</th>
+                  <th>Leave taken</th>
+                  <th>Loss of pay</th>
                   <th>Balance</th>
                 </tr>
               </thead>
@@ -249,6 +337,7 @@ function EmpHome({ me }: { me: Me }) {
                     <td>{row.label}</td>
                     <td className="mono">{formatDays(row.earned)}</td>
                     <td className="mono">{formatDays(row.used)}</td>
+                    <td className="mono">{formatDays(row.lossOfPay ?? 0)}</td>
                     <td className="mono">{formatDays(row.balance)}</td>
                   </tr>
                 ))}
@@ -358,18 +447,18 @@ function AdminHome() {
         <div className="card card-flush">
           <div className="card-head">
             <h2>Needs your decision</h2>
-            <Link to="/requests">Open queue</Link>
+            <Link to="/approvals">Open queue</Link>
           </div>
           {d.pendingRows.length === 0 ? (
             <p className="note" style={{ padding: 18 }}>
-              The queue is clear. New requests from employees and managers land here for HR.
+              Nothing is waiting for your decision.
             </p>
           ) : (
             <ul style={{ listStyle: 'none', margin: 0, padding: 8 }}>
               {d.pendingRows.map((r) => (
                 <li key={r.id} style={{ margin: '2px 0' }}>
                   <Link
-                    to={`/requests/${r.id}`}
+                    to={`/approvals/${r.id}`}
                     style={{
                       padding: 12,
                       display: 'flex',

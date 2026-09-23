@@ -124,6 +124,7 @@ export const ROLE_CODES = [
   'payroll_officer',
   'admin',
   'auditor',
+  'director',
 ] as const;
 
 export type RoleCode = (typeof ROLE_CODES)[number];

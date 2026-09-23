@@ -24,9 +24,73 @@ export type EscalationReason =
   | 'no_active_hr'
   | 'all_hr_disabled'
   | 'hr_on_leave'
-  | 'sla_elapsed';
+  | 'sla_elapsed'
+  | 'manager_not_senior';
 
-export type RequesterKind = 'employee' | 'team_lead' | 'department_head' | 'hr_officer' | 'admin';
+export type RequesterKind =
+  'employee' | 'team_lead' | 'department_head' | 'hr_officer' | 'director' | 'admin';
+
+/**
+ * The approval hierarchy, lowest to highest:
+ *
+ *   employee → team lead → manager (department head) → HR → Managing Director / Administrator
+ *
+ * Leave is always decided at a higher level than the person asking. HR's leave in
+ * particular goes only to the Managing Director or an administrator — never to a manager.
+ */
+export const HIERARCHY_LEVEL: Record<RequesterKind, number> = {
+  employee: 1,
+  team_lead: 2,
+  department_head: 3,
+  hr_officer: 4,
+  director: 5,
+  admin: 5,
+};
+
+/** Who can be someone's reporting manager: the next level up (or the one above if it is empty). */
+export function allowedManagerKinds(kind: RequesterKind): RequesterKind[] {
+  switch (kind) {
+    case 'employee':
+      return ['team_lead', 'department_head'];
+    case 'team_lead':
+      return ['department_head'];
+    case 'department_head':
+      return ['hr_officer'];
+    case 'hr_officer':
+      return ['director', 'admin'];
+    case 'director':
+      return ['admin'];
+    case 'admin':
+      return ['director'];
+  }
+}
+
+/**
+ * Whether someone who is not the assigned approver may still decide (an HR or
+ * administrator override). Only a higher level may: HR decides for managers and below, the
+ * administrator for everyone. HR never decides another HR person's leave or the MD's.
+ */
+export function mayOverride(actor: RequesterKind, requester: RequesterKind): boolean {
+  if (actor === 'admin') return true;
+  return HIERARCHY_LEVEL[actor] > HIERARCHY_LEVEL[requester];
+}
+
+export function positionName(kind: RequesterKind): string {
+  switch (kind) {
+    case 'employee':
+      return 'Employee';
+    case 'team_lead':
+      return 'Team lead';
+    case 'department_head':
+      return 'Manager';
+    case 'hr_officer':
+      return 'HR';
+    case 'director':
+      return 'Managing Director';
+    case 'admin':
+      return 'Administrator';
+  }
+}
 
 /**
  * Where a person sits in the approval chain. Position in the org structure decides this,
@@ -41,6 +105,7 @@ export function requesterKindFrom(input: {
   headsDepartmentId: string | null;
 }): RequesterKind {
   if (input.roles.includes('admin')) return 'admin';
+  if (input.roles.includes('director')) return 'director';
   if (input.roles.includes('hr_officer')) return 'hr_officer';
   if (input.headsDepartmentId) return 'department_head';
   if (input.leadsTeamId) return 'team_lead';
@@ -48,37 +113,40 @@ export function requesterKindFrom(input: {
 }
 
 /**
- * The escalation ladder, in order. Each rung is tried in turn; the first that yields a
- * usable approver wins.
+ * The escalation ladder, in order — each rung one level higher. The first rung that yields a
+ * usable approver wins; a rung is skipped only for a real gap (nobody appointed, the person
+ * asking, disabled or on leave).
  *
- * A team member's request is decided by their team lead, so routine leave never reaches
- * HR. A team lead's request goes to their department head, a department head's to HR, and
- * HR's to an administrator. Only genuine gaps — no lead appointed, the lead is the person
- * asking, the lead is away — push a request further up.
+ *   employee        → team lead → manager → HR → Managing Director → administrator
+ *   team lead       → manager → HR → Managing Director → administrator
+ *   manager         → HR → Managing Director → administrator
+ *   HR              → Managing Director → administrator
+ *   Managing Dir.   → administrator
+ *   administrator   → Managing Director → another administrator (else a recorded self-approval)
  */
 export function approvalLadder(kind: RequesterKind): ApproverKind[] {
   switch (kind) {
     case 'employee':
-      return ['team_lead', 'department_head', 'role', 'role'];
+      return ['team_lead', 'department_head', 'role', 'role', 'role'];
     case 'team_lead':
-      return ['department_head', 'role', 'role'];
+      return ['department_head', 'role', 'role', 'role'];
     case 'department_head':
-      return ['role', 'role'];
+      return ['role', 'role', 'role'];
     case 'hr_officer':
+      return ['role', 'role'];
+    case 'director':
       return ['role'];
     case 'admin':
-      return ['role'];
+      return ['role', 'role'];
   }
 }
 
-/**
- * Which role a `role` rung means for this requester. A department head or below escalates
- * to HR first, then to an administrator; HR and administrators go straight to an
- * administrator, because HR must not decide its own leave.
- */
+/** Which role each `role` rung means for this requester, in order. */
 export function roleRungsFor(kind: RequesterKind): RoleCode[] {
-  if (kind === 'hr_officer' || kind === 'admin') return ['admin'];
-  return ['hr_officer', 'admin'];
+  if (kind === 'hr_officer') return ['director', 'admin'];
+  if (kind === 'director') return ['admin'];
+  if (kind === 'admin') return ['director', 'admin'];
+  return ['hr_officer', 'director', 'admin'];
 }
 
 export type ApproverCandidate = {
@@ -128,8 +196,11 @@ export function resolveApproverChain(input: {
     department_head: ApproverCandidate[];
     roles: Record<string, ApproverCandidate[]>;
   };
-  /** The requester's assigned reporting manager, if one is set. */
-  reportingManager?: ApproverCandidate | null;
+  /**
+   * The requester's assigned reporting manager, with their position. It is used only when
+   * they sit at the level directly above the requester; otherwise the ladder decides.
+   */
+  reportingManager?: (ApproverCandidate & { kind: RequesterKind }) | null;
   /** Active cover, keyed by the employee id of the approver who is handing over. */
   delegations?: Record<string, ApproverCandidate>;
 }): ResolvedApprover {
@@ -146,7 +217,13 @@ export function resolveApproverChain(input: {
     return { c, from: null };
   };
 
-  if (input.reportingManager) {
+  if (
+    input.reportingManager &&
+    !allowedManagerKinds(input.requesterKind).includes(input.reportingManager.kind)
+  ) {
+    firstFailure = 'manager_not_senior';
+    usedFirstRung = false;
+  } else if (input.reportingManager) {
     const { c, from } = withCover(input.reportingManager);
     if (usable(c, input.requesterUserId)) {
       return {
@@ -266,7 +343,11 @@ export function describeApprover(kind: ApproverKind, roleCode?: string | null): 
     case 'specific_employee':
       return 'Assigned approver';
     case 'role':
-      return roleCode === 'admin' ? 'Administrator' : 'HR';
+      return roleCode === 'admin'
+        ? 'Administrator'
+        : roleCode === 'director'
+          ? 'Managing Director'
+          : 'HR';
   }
 }
 
@@ -290,5 +371,7 @@ export function describeEscalation(reason: EscalationReason): string {
       return 'HR is on leave';
     case 'sla_elapsed':
       return 'it was not decided in time';
+    case 'manager_not_senior':
+      return 'the assigned reporting manager is not above them in the hierarchy';
   }
 }

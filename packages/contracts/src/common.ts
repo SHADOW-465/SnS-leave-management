@@ -46,5 +46,11 @@ export const policyRulesSchema = z
       .default({}),
     probationMonthlyHalfDays: z.number().int().min(0).max(62).nullable().default(null),
     maxBalanceHalfDays: z.number().int().min(0).max(800).default(0),
+    confirmedTenureYears: z.number().int().min(0).max(40).default(3),
+    confirmedUnderMonthlyHalfDays: z.number().int().min(0).max(62).nullable().default(null),
+    confirmedFromMonthlyHalfDays: z.number().int().min(0).max(62).nullable().default(null),
+    probationExperiencedMonthlyHalfDays: z.number().int().min(0).max(62).nullable().default(null),
+    probationFresherMonthlyHalfDays: z.number().int().min(0).max(62).nullable().default(null),
+    lossOfPayOnShortfall: z.boolean().default(false),
   })
   .strict();

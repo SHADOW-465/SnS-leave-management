@@ -283,13 +283,17 @@ describe('reporting managers', () => {
     expect(await approverEmailFor(id)).toBe('john@sns.test');
   });
 
-  it('refuses a manager who would be their own approver, or a loop', async () => {
+  it('refuses a manager who is not one level up, or themselves', async () => {
     const self = await assign(['vijay@sns.test'], 'vijay@sns.test');
     expect((self.json() as { data: { failed: unknown[] } }).data.failed).toHaveLength(1);
-    // John manages Vijay; Vijay cannot then manage John.
-    const loop = await assign(['john@sns.test'], 'vijay@sns.test');
-    const failed = (loop.json() as { data: { failed: { reason: string }[] } }).data.failed;
-    expect(failed[0]?.reason).toMatch(/already reports/);
+    // An employee cannot manage a team lead; HR's manager must be the MD or an administrator.
+    const down = await assign(['john@sns.test'], 'vijay@sns.test');
+    const failed = (down.json() as { data: { failed: { reason: string }[] } }).data.failed;
+    expect(failed[0]?.reason).toMatch(/must be a manager/);
+    const hr = await assign(['anitha@sns.test'], 'david@sns.test');
+    expect(
+      (hr.json() as { data: { failed: { reason: string }[] } }).data.failed[0]?.reason,
+    ).toMatch(/managing director or an administrator/);
   });
 
   it('is refused to HR', async () => {

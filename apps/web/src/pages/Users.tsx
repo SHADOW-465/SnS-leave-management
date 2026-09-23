@@ -53,6 +53,7 @@ type NewAccount = {
   employmentTypeId: string;
   locationId: string;
   joinedOn: string;
+  hireBackground: 'fresher' | 'experienced';
   roles: string[];
 };
 type EditDraft = {
@@ -110,6 +111,7 @@ export function UsersPage({ me }: { me: Me }) {
       employmentTypeId: directory?.employmentTypes[0]?.id ?? '',
       locationId: directory?.locations[0]?.id ?? '',
       joinedOn: todayLocal(),
+      hireBackground: 'experienced',
       roles: ['employee'],
     });
   }
@@ -130,6 +132,7 @@ export function UsersPage({ me }: { me: Me }) {
           jobTitleId: adding.jobTitleId,
           employmentTypeId: adding.employmentTypeId,
           createAccount: true,
+          hireBackground: adding.hireBackground,
           roles: adding.roles,
         }),
       });
@@ -471,6 +474,24 @@ export function UsersPage({ me }: { me: Me }) {
                       label: d.name,
                     }))}
                     onChange={(locationId) => setAdding({ ...adding, locationId })}
+                  />
+                </label>
+                <label className="small">
+                  Hired as
+                  <Select
+                    fullWidth
+                    aria-label="Hired as"
+                    value={adding.hireBackground}
+                    options={[
+                      { value: 'experienced', label: 'Experienced (1 day a month on probation)' },
+                      { value: 'fresher', label: 'Fresher (no leave on probation)' },
+                    ]}
+                    onChange={(hireBackground) =>
+                      setAdding({
+                        ...adding,
+                        hireBackground: hireBackground === 'fresher' ? 'fresher' : 'experienced',
+                      })
+                    }
                   />
                 </label>
                 <label className="small">

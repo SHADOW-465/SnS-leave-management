@@ -11,9 +11,12 @@ import {
   newId,
   parseRules,
   releaseQuantity,
+  splitLossOfPay,
+  withCompanyEarnedLeave,
   NoApproverError,
   describeApprover,
   describeEscalation,
+  mayOverride,
   requesterKindFrom,
   resolveApproverChain,
   roleRungsFor,
@@ -42,6 +45,7 @@ type LeaveRow = {
   half_day_start: DayPortion | null;
   half_day_end: DayPortion | null;
   total_half_days: number;
+  lop_half_days?: number;
   reason: string;
   status: string;
   version: number;
@@ -103,19 +107,25 @@ async function currentPolicy(
 }> {
   const row = (await ctx.sqlite
     .prepare(
-      `SELECT id, rules_json FROM leave_policy_version
-       WHERE leave_type_id = ? AND published_at IS NOT NULL AND effective_from <= ?
-       ORDER BY version_no DESC LIMIT 1`,
+      `SELECT v.id, v.rules_json, t.code
+         FROM leave_policy_version v
+         JOIN leave_type t ON t.id = v.leave_type_id
+        WHERE v.leave_type_id = ? AND v.published_at IS NOT NULL AND v.effective_from <= ?
+        ORDER BY v.version_no DESC LIMIT 1`,
     )
     .get(leaveTypeId, ctx.today)) as
     | {
         id: string;
         rules_json: string;
+        code: string;
       }
     | undefined;
   if (!row)
     throw new DomainError('LEAVE_NO_POLICY', 'No published policy exists for this leave type.');
-  return { id: row.id, rules: parseRules(row.rules_json) };
+  return {
+    id: row.id,
+    rules: withCompanyEarnedLeave(parseRules(row.rules_json), row.code, row.rules_json),
+  };
 }
 async function hasOwnOverlappingLeave(
   ctx: RequestContext,
@@ -242,7 +252,14 @@ export async function previewLeave(
     skipped: skippedSummary(days),
     days,
     available: formatHalfDays(available),
-    after: formatHalfDays(available - counted),
+    after: formatHalfDays(
+      previewRules.lossOfPayOnShortfall
+        ? available - splitLossOfPay(counted, available).paidHalfDays
+        : available - counted,
+    ),
+    lossOfPay: formatHalfDays(
+      previewRules.lossOfPayOnShortfall ? splitLossOfPay(counted, available).lopHalfDays : 0,
+    ),
     leaveTypeName: type?.name ?? '',
     ownOverlap,
     overlaps: overlaps.map((o) => ({
@@ -387,6 +404,9 @@ export async function submitLeave(
   const counted = totalCountedHalfDays(days);
   const periodId = await currentPeriodId(ctx);
   const available = await availableHalfDays(ctx, employeeId, input.leaveTypeId, periodId);
+  const split = policy.rules.lossOfPayOnShortfall
+    ? splitLossOfPay(counted, available)
+    : { paidHalfDays: counted, lopHalfDays: 0 };
   validatePolicyAgainstRequest({
     rules: policy.rules,
     countedHalfDays: counted,
@@ -444,9 +464,9 @@ export async function submitLeave(
       .prepare(
         `INSERT INTO leave_request (
            id, employee_id, leave_type_id, policy_version_id, start_date, end_date, half_day_start, half_day_end,
-           total_half_days, reason, status, workflow_id, current_step_no, submitted_at, was_self_approved,
+           total_half_days, lop_half_days, reason, status, workflow_id, current_step_no, submitted_at, was_self_approved,
            escalation_reason, approver_kind, submitted_by, attachment_id, created_at, created_by, updated_at, updated_by
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -458,6 +478,7 @@ export async function submitLeave(
         input.halfDayStart ?? null,
         input.halfDayEnd ?? null,
         counted,
+        split.lopHalfDays,
         input.reason,
         workflow.id,
         ctx.now,
@@ -477,22 +498,24 @@ export async function submitLeave(
     for (const d of days) {
       await insertDay.run(newId(), id, d.date, d.portion, d.isCounted ? 1 : 0, d.skipReason);
     }
-    await ctx.sqlite
-      .prepare(
-        `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, created_by, created_at)
-         VALUES (?, ?, ?, ?, 'PENDING_HOLD', ?, ?, 'leave_request', ?, ?, ?)`,
-      )
-      .run(
-        newId(),
-        employeeId,
-        input.leaveTypeId,
-        periodId,
-        holdQuantity(counted),
-        input.startDate,
-        id,
-        p.userId,
-        ctx.now,
-      );
+    if (split.paidHalfDays > 0) {
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, created_by, created_at)
+           VALUES (?, ?, ?, ?, 'PENDING_HOLD', ?, ?, 'leave_request', ?, ?, ?)`,
+        )
+        .run(
+          newId(),
+          employeeId,
+          input.leaveTypeId,
+          periodId,
+          holdQuantity(split.paidHalfDays),
+          input.startDate,
+          id,
+          p.userId,
+          ctx.now,
+        );
+    }
     await ctx.sqlite
       .prepare(
         `INSERT INTO approval_step_instance (id, leave_request_id, step_no, approver_user_id, approver_employee_id, status, delegated_from)
@@ -517,10 +540,25 @@ export async function submitLeave(
       );
     }
     const when = spokenRange(input.startDate, input.endDate);
+    const lopNote =
+      split.lopHalfDays > 0
+        ? ` ${formatHalfDays(split.lopHalfDays)} of this is loss of pay and is not taken from earned leave.`
+        : '';
+    if (split.lopHalfDays > 0 && empAccount) {
+      await notify(
+        ctx,
+        empAccount.id,
+        'leave.loss_of_pay',
+        'Loss of pay on this request',
+        `Your request for ${when} includes ${formatHalfDays(split.lopHalfDays)} of loss of pay. Earned leave covers ${formatHalfDays(split.paidHalfDays)}. It is waiting for a decision.`,
+        'leave_request',
+        id,
+      );
+    }
     const submitTitle = 'New leave request';
     const submitBody = onBehalf
-      ? `New leave request submitted on behalf of ${emp.first_name} ${emp.last_name} for ${when} (${formatHalfDays(counted)} working days).`
-      : `New leave request submitted by ${emp.first_name} ${emp.last_name} for ${when} (${formatHalfDays(counted)} working days).`;
+      ? `New leave request submitted on behalf of ${emp.first_name} ${emp.last_name} for ${when} (${formatHalfDays(counted)} working days).${lopNote}`
+      : `New leave request submitted by ${emp.first_name} ${emp.last_name} for ${when} (${formatHalfDays(counted)} working days).${lopNote}`;
     await notify(
       ctx,
       routing.approverUserId,
@@ -667,7 +705,12 @@ export async function resolveApprover(
       requesterUserId,
       requesterKind,
       candidatesByKind: { team_lead: teamLead, department_head: departmentHead, roles },
-      reportingManager: managerRows[0] ?? null,
+      reportingManager: managerRows[0]
+        ? {
+            ...managerRows[0],
+            kind: await requesterKindOf(ctx, managerRows[0].employeeId ?? ''),
+          }
+        : null,
       delegations,
     });
   } catch (err) {
@@ -755,6 +798,22 @@ export async function decideLeave(
       input.decision === 'approve' ? 'leave.request.approve' : 'leave.request.reject',
       req.employee_id,
     );
+    // …and only from higher up the hierarchy: HR never decides HR's or the MD's leave.
+    const requesterKind = await requesterKindOf(ctx, req.employee_id);
+    const actorKind: RequesterKind = p.roles.includes('admin')
+      ? 'admin'
+      : p.roles.includes('director')
+        ? 'director'
+        : 'hr_officer';
+    if (!mayOverride(actorKind, requesterKind)) {
+      throw new DomainError(
+        'LEAVE_NOT_YOUR_LEVEL',
+        requesterKind === 'hr_officer'
+          ? 'HR leave is approved by the Managing Director or an administrator.'
+          : 'This request is decided higher up the hierarchy.',
+        { httpStatus: 403 },
+      );
+    }
   }
 
   // Nobody decides their own request. A lone administrator is the documented exception,
@@ -820,22 +879,26 @@ export async function decideLeave(
         );
     }
     if (input.decision === 'approve') {
-      await ctx.sqlite
-        .prepare(
-          `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, created_by, created_at)
-           VALUES (?, ?, ?, ?, 'DEDUCTION', ?, ?, 'leave_request', ?, ?, ?)`,
-        )
-        .run(
-          newId(),
-          req.employee_id,
-          req.leave_type_id,
-          periodId,
-          -Math.abs(req.total_half_days),
-          req.start_date,
-          req.id,
-          p.userId,
-          ctx.now,
-        );
+      const lop = Number(req.lop_half_days ?? 0);
+      const paid = Math.max(0, Number(req.total_half_days) - lop);
+      if (paid > 0) {
+        await ctx.sqlite
+          .prepare(
+            `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, created_by, created_at)
+             VALUES (?, ?, ?, ?, 'DEDUCTION', ?, ?, 'leave_request', ?, ?, ?)`,
+          )
+          .run(
+            newId(),
+            req.employee_id,
+            req.leave_type_id,
+            periodId,
+            -paid,
+            req.start_date,
+            req.id,
+            p.userId,
+            ctx.now,
+          );
+      }
     }
     await ctx.sqlite
       .prepare(
@@ -859,9 +922,15 @@ export async function decideLeave(
       const remark = (
         input.decision === 'approve' ? input.note : (input.reason ?? input.note)
       )?.trim();
+      const lop = Number(req.lop_half_days ?? 0);
+      const paid = Math.max(0, Number(req.total_half_days) - lop);
+      const lopSentence =
+        input.decision === 'approve' && lop > 0
+          ? ` ${formatHalfDays(paid)} comes from earned leave and ${formatHalfDays(lop)} is loss of pay.`
+          : '';
       const body =
         input.decision === 'approve'
-          ? `Your leave request for ${when} has been approved.${remark ? ` Note: ${remark}` : ''}`
+          ? `Your leave request for ${when} has been approved.${lopSentence}${remark ? ` Note: ${remark}` : ''}`
           : `Your leave request for ${when} has been rejected. Reason: ${remark || 'not given'}.`;
       await notify(
         ctx,
@@ -881,102 +950,8 @@ export async function decideLeave(
       );
     }
 
-    if (input.decision === 'approve') {
-      const empDetails = (await ctx.sqlite
-        .prepare(
-          `SELECT e.first_name, e.last_name, e.department_id, d.head_employee_id, lt.name AS leave_type_name
-           FROM employee e
-           LEFT JOIN department d ON d.id = e.department_id
-           LEFT JOIN leave_type lt ON lt.id = ?
-           WHERE e.id = ?`,
-        )
-        .get(req.leave_type_id, req.employee_id)) as
-        | {
-            first_name: string;
-            last_name: string;
-            department_id: string | null;
-            head_employee_id: string | null;
-            leave_type_name: string | null;
-          }
-        | undefined;
-
-      const approverKind = await requesterKindOf(ctx, p.employeeId ?? '');
-      const recipientUserIds = new Set<string>();
-
-      // 1. If approved by Team Lead or Department Head, include Department Head (if different from approver and employee)
-      if (
-        empDetails?.head_employee_id &&
-        empDetails.head_employee_id !== p.employeeId &&
-        empDetails.head_employee_id !== req.employee_id
-      ) {
-        const headAccount = (await ctx.sqlite
-          .prepare(`SELECT id FROM user_account WHERE employee_id = ? AND is_disabled = 0`)
-          .get(empDetails.head_employee_id)) as { id: string } | undefined;
-        if (headAccount) {
-          recipientUserIds.add(headAccount.id);
-        }
-      }
-
-      // 2. If approved by Team Lead, Dept Head, or below, include active HR officers
-      if (
-        approverKind === 'team_lead' ||
-        approverKind === 'department_head' ||
-        approverKind === 'employee'
-      ) {
-        const hrAccounts = (await ctx.sqlite
-          .prepare(
-            `SELECT ua.id FROM user_account ua
-             JOIN user_role ur ON ur.user_account_id = ua.id
-             JOIN role r ON r.id = ur.role_id
-             WHERE r.code = 'hr_officer' AND ua.is_disabled = 0`,
-          )
-          .all()) as { id: string }[];
-        for (const hr of hrAccounts) {
-          if (hr.id !== p.userId && hr.id !== owner?.id) {
-            recipientUserIds.add(hr.id);
-          }
-        }
-      }
-
-      // 3. If approved by Dept Head, HR Officer, or Admin, include Administrators
-      if (
-        approverKind === 'department_head' ||
-        approverKind === 'hr_officer' ||
-        approverKind === 'admin'
-      ) {
-        const adminAccounts = (await ctx.sqlite
-          .prepare(
-            `SELECT ua.id FROM user_account ua
-             JOIN user_role ur ON ur.user_account_id = ua.id
-             JOIN role r ON r.id = ur.role_id
-             WHERE r.code = 'admin' AND ua.is_disabled = 0`,
-          )
-          .all()) as { id: string }[];
-        for (const adm of adminAccounts) {
-          if (adm.id !== p.userId && adm.id !== owner?.id) {
-            recipientUserIds.add(adm.id);
-          }
-        }
-      }
-
-      const empName = empDetails ? `${empDetails.first_name} ${empDetails.last_name}` : 'Employee';
-      const leaveName = empDetails?.leave_type_name ?? 'Leave';
-      const daysCount = (req.total_half_days / 2).toFixed(1).replace(/\.0$/, '');
-      const infoTitle = `Leave Approved: ${empName}`;
-      const infoBody = `${p.email} approved ${leaveName} for ${empName} (${req.start_date} to ${req.end_date}, ${daysCount} days).`;
-
-      for (const recipientId of recipientUserIds) {
-        await notify(
-          ctx,
-          recipientId,
-          'leave.approved.informational',
-          infoTitle,
-          infoBody,
-          'leave_request',
-          req.id,
-        );
-      }
-    }
+    // Only the employee is told of the decision. HR, administrators and managers see
+    // their people's leave on their own dashboards rather than as a stream of notices.
     const auditAction =
       isSelf && input.decision === 'approve'
         ? 'leave.self_approved'
@@ -1089,7 +1064,7 @@ export async function hrCancel(
         req.employee_id,
         req.leave_type_id,
         await currentPeriodId(ctx),
-        Math.abs(req.total_half_days),
+        Math.max(0, Number(req.total_half_days) - Number(req.lop_half_days ?? 0)),
         ctx.today,
         req.id,
         reason,
@@ -1339,22 +1314,36 @@ async function recalculateRequest(
 
     const prevCounted = req.total_half_days;
     if (counted !== prevCounted) {
-      await ctx.sqlite
-        .prepare(
-          `UPDATE leave_request
-           SET total_half_days = ?, updated_at = ?, updated_by = ?
-           WHERE id = ?`,
-        )
-        .run(counted, ctx.now, ctx.principal?.userId ?? 'system', req.id);
-
       const periodId = await currentPeriodId(ctx);
+      let lopHalfDays = Math.max(
+        0,
+        counted - Math.max(0, prevCounted - Number(req.lop_half_days ?? 0)),
+      );
+      let paidNow = Math.min(counted, Math.max(0, prevCounted - Number(req.lop_half_days ?? 0)));
+
       if (req.status === 'pending_approval') {
         const hold = (await ctx.sqlite
           .prepare(
             `SELECT id, quantity_half_days FROM balance_ledger WHERE source_id = ? AND entry_type = 'PENDING_HOLD' ORDER BY created_at DESC LIMIT 1`,
           )
           .get(req.id)) as { id: string; quantity_half_days: number } | undefined;
-        if (hold && hold.quantity_half_days !== -counted) {
+        const curAvail = await availableHalfDays(ctx, req.employee_id, req.leave_type_id, periodId);
+        const effectiveAvail = curAvail + (hold ? -hold.quantity_half_days : 0);
+        const split = rules.lossOfPayOnShortfall
+          ? splitLossOfPay(counted, effectiveAvail)
+          : { paidHalfDays: counted, lopHalfDays: 0 };
+        lopHalfDays = split.lopHalfDays;
+        paidNow = split.paidHalfDays;
+
+        await ctx.sqlite
+          .prepare(
+            `UPDATE leave_request
+             SET total_half_days = ?, lop_half_days = ?, updated_at = ?, updated_by = ?
+             WHERE id = ?`,
+          )
+          .run(counted, lopHalfDays, ctx.now, ctx.principal?.userId ?? 'system', req.id);
+
+        if (hold && hold.quantity_half_days !== -paidNow) {
           await ctx.sqlite
             .prepare(
               `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, reverses_entry_id, created_by, created_at)
@@ -1372,42 +1361,54 @@ async function recalculateRequest(
               ctx.principal?.userId ?? 'system',
               ctx.now,
             );
-          await ctx.sqlite
-            .prepare(
-              `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, created_by, created_at)
-               VALUES (?, ?, ?, ?, 'PENDING_HOLD', ?, ?, 'leave_request', ?, ?, ?)`,
-            )
-            .run(
-              newId(),
-              req.employee_id,
-              req.leave_type_id,
-              periodId,
-              -counted,
-              req.start_date,
-              req.id,
-              ctx.principal?.userId ?? 'system',
-              ctx.now,
-            );
+          if (paidNow > 0) {
+            await ctx.sqlite
+              .prepare(
+                `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, created_by, created_at)
+                 VALUES (?, ?, ?, ?, 'PENDING_HOLD', ?, ?, 'leave_request', ?, ?, ?)`,
+              )
+              .run(
+                newId(),
+                req.employee_id,
+                req.leave_type_id,
+                periodId,
+                -paidNow,
+                req.start_date,
+                req.id,
+                ctx.principal?.userId ?? 'system',
+                ctx.now,
+              );
+          }
         }
-      } else if (req.status === 'approved') {
-        const diff = -(counted - prevCounted);
-        if (diff !== 0) {
-          await ctx.sqlite
-            .prepare(
-              `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, reason, created_by, created_at)
-               VALUES (?, ?, ?, ?, 'ADJUSTMENT', ?, ?, 'leave_request', ?, 'Calendar working day recalculation', ?, ?)`,
-            )
-            .run(
-              newId(),
-              req.employee_id,
-              req.leave_type_id,
-              periodId,
-              diff,
-              ctx.today,
-              req.id,
-              ctx.principal?.userId ?? 'system',
-              ctx.now,
-            );
+      } else {
+        await ctx.sqlite
+          .prepare(
+            `UPDATE leave_request
+             SET total_half_days = ?, lop_half_days = ?, updated_at = ?, updated_by = ?
+             WHERE id = ?`,
+          )
+          .run(counted, lopHalfDays, ctx.now, ctx.principal?.userId ?? 'system', req.id);
+
+        if (req.status === 'approved') {
+          const diff = -(counted - prevCounted);
+          if (diff !== 0) {
+            await ctx.sqlite
+              .prepare(
+                `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, reason, created_by, created_at)
+                 VALUES (?, ?, ?, ?, 'ADJUSTMENT', ?, ?, 'leave_request', ?, 'Calendar working day recalculation', ?, ?)`,
+              )
+              .run(
+                newId(),
+                req.employee_id,
+                req.leave_type_id,
+                periodId,
+                diff,
+                ctx.today,
+                req.id,
+                ctx.principal?.userId ?? 'system',
+                ctx.now,
+              );
+          }
         }
       }
 

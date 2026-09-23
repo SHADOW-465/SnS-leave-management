@@ -10,6 +10,8 @@ import { withTx } from '@sns/database';
 import {
   DomainError,
   ROLE_CODES,
+  allowedManagerKinds,
+  positionName,
   describeApprover,
   describeEscalation,
   newId,
@@ -115,6 +117,7 @@ export async function approvalMap(ctx: RequestContext) {
   const nameOf = new Map(people.map((p) => [p.id, `${p.first_name} ${p.last_name}`]));
   const titleOf = new Map(people.map((p) => [p.id, p.job_title]));
 
+  const kindOf = new Map<string, string>();
   const rows = [];
   for (const person of people) {
     const base = {
@@ -135,16 +138,26 @@ export async function approvalMap(ctx: RequestContext) {
           }
         : null,
     };
+    const kind = await requesterKindOf(ctx, person.id);
+    kindOf.set(person.id, kind);
     if (!person.user_id) {
-      rows.push({ ...base, position: 'Member', route: null, problem: 'No sign-in account' });
+      rows.push({
+        ...base,
+        kind,
+        allowedManagerKinds: allowedManagerKinds(kind),
+        position: 'Member',
+        route: null,
+        problem: 'No sign-in account',
+      });
       continue;
     }
-    const kind = await requesterKindOf(ctx, person.id);
     try {
       const r = await resolveApprover(ctx, person.id, person.user_id, kind);
       const role = describeApprover(r.approverKind, r.approverRole);
       rows.push({
         ...base,
+        kind,
+        allowedManagerKinds: allowedManagerKinds(kind),
         position: positionLabel(kind),
         route: {
           approverEmployeeId: r.approverEmployeeId,
@@ -168,6 +181,8 @@ export async function approvalMap(ctx: RequestContext) {
     } catch (err) {
       rows.push({
         ...base,
+        kind,
+        allowedManagerKinds: allowedManagerKinds(kind),
         position: positionLabel(kind),
         route: null,
         problem: err instanceof Error ? err.message : 'Cannot be routed',
@@ -272,16 +287,20 @@ export async function approvalMap(ctx: RequestContext) {
         name: `${p.first_name} ${p.last_name}`,
         jobTitle: p.job_title,
         team: p.team_name,
+        kind: kindOf.get(p.id) ?? 'employee',
+        position: positionLabel(kindOf.get(p.id) ?? 'employee'),
       })),
   };
 }
 
 function positionLabel(kind: string): string {
   switch (kind) {
+    case 'director':
+      return 'Managing Director';
     case 'team_lead':
       return 'Team lead';
     case 'department_head':
-      return 'Department head';
+      return 'Manager';
     case 'hr_officer':
       return 'HR';
     case 'admin':
@@ -378,6 +397,10 @@ export async function setDepartmentHead(
 // Reporting managers: who approves whose leave, with dated history
 // ---------------------------------------------------------------------------------------
 
+function article(word: string): string {
+  return /^[AEIOU]/i.test(word) ? `an ${word.toLowerCase()}` : `a ${word.toLowerCase()}`;
+}
+
 function dayBefore(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
   return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
@@ -436,6 +459,19 @@ export async function changeReportingManager(
   let managerName: string | null = null;
   if (managerId) {
     managerName = (await requireSignInAccount(ctx, managerId, 'The reporting manager')).name;
+    // Leave is decided one level up: employee → team lead → manager → HR → MD/admin.
+    const personKind = await requesterKindOf(ctx, person.id);
+    const managerKind = await requesterKindOf(ctx, managerId);
+    const allowed = allowedManagerKinds(personKind);
+    if (!allowed.includes(managerKind)) {
+      throw new DomainError(
+        'MANAGER_LEVEL',
+        `${person.name} is ${article(positionName(personKind))}, so their reporting manager must be ${allowed
+          .map((k) => article(positionName(k)))
+          .join(' or ')} — ${managerName} is ${article(positionName(managerKind))}.`,
+        { httpStatus: 400 },
+      );
+    }
     // Walk up from the new manager: reaching this person again would be a loop.
     let cursor: string | null = managerId;
     for (let hops = 0; cursor && hops < 50; hops++) {
@@ -924,6 +960,11 @@ const ROLE_INFO: Record<RoleCode, { name: string; description: string }> = {
   admin: {
     name: 'Administrator',
     description: 'Full control, including who approves whom and who has access.',
+  },
+  director: {
+    name: 'Managing Director',
+    description:
+      'Top of the approval hierarchy with the administrator: approves HR’s leave and sees leave across the company.',
   },
   auditor: {
     name: 'Auditor',

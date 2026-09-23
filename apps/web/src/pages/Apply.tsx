@@ -76,6 +76,7 @@ export function ApplyPage({ me }: { me: Me }) {
         skipped: string;
         after: string;
         available: string;
+        lossOfPay?: string;
         ownOverlap: boolean;
         overlaps: { name: string; when: string }[];
         approver: string;
@@ -280,6 +281,12 @@ export function ApplyPage({ me }: { me: Me }) {
             <dd>{preview.data?.skipped ?? '—'}</dd>
             <dt>Balance after</dt>
             <dd>{preview.data?.after ?? '—'}</dd>
+            <dt>Loss of pay</dt>
+            <dd>
+              {preview.data?.lossOfPay && preview.data.lossOfPay !== '0'
+                ? `${preview.data.lossOfPay} days`
+                : 'None'}
+            </dd>
             <dt>Reporting manager</dt>
             <dd>{preview.data?.approver ?? 'Working it out…'}</dd>
           </dl>

@@ -65,6 +65,8 @@ export async function migrate(db: Db): Promise<void> {
     { id: '0005_approval_controls' },
     { id: '0006_reporting_manager' },
     { id: '0007_fix_double_opening_grant' },
+    { id: '0008_managing_director_role' },
+    { id: '0009_earned_leave_lop_permission' },
   ];
   for (const m of files) {
     if (applied.has(m.id)) continue;

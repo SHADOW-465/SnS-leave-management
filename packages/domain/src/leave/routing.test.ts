@@ -70,9 +70,17 @@ describe('the ladder', () => {
     expect(approvalLadder('team_lead')[0]).toBe('department_head');
   });
 
-  it('sends HR to an administrator and never back to HR', () => {
-    expect(roleRungsFor('hr_officer')).toEqual(['admin']);
-    expect(roleRungsFor('employee')).toEqual(['hr_officer', 'admin']);
+  it('sends HR only to the Managing Director or an administrator, never back to HR', () => {
+    expect(roleRungsFor('hr_officer')).toEqual(['director', 'admin']);
+    expect(roleRungsFor('employee')).toEqual(['hr_officer', 'director', 'admin']);
+    expect(approvalLadder('hr_officer')).not.toContain('department_head');
+    expect(approvalLadder('hr_officer')).not.toContain('team_lead');
+  });
+
+  it('follows ADMIN/MD → HR → manager → team lead → employee', () => {
+    expect(approvalLadder('employee').slice(0, 2)).toEqual(['team_lead', 'department_head']);
+    expect(approvalLadder('department_head')[0]).toBe('role');
+    expect(roleRungsFor('department_head')[0]).toBe('hr_officer');
   });
 });
 
@@ -134,10 +142,33 @@ describe('resolving an approver', () => {
     expect(r.approverUserId).toBe('u-helen');
   });
 
-  it('sends HR to an administrator', () => {
-    const r = chain('u-helen', 'hr_officer', { roles: { admin: [ok('u-ada')] } });
-    expect(r.approverUserId).toBe('u-ada');
-    expect(r.selfApproved).toBe(false);
+  it('sends HR to the Managing Director first, then an administrator', () => {
+    const md = chain('u-helen', 'hr_officer', {
+      department_head: [ok('u-sofia')],
+      roles: { director: [ok('u-rajesh')], admin: [ok('u-ada')] },
+    });
+    expect(md.approverUserId).toBe('u-rajesh');
+    const noMd = chain('u-helen', 'hr_officer', {
+      department_head: [ok('u-sofia')],
+      roles: { admin: [ok('u-ada')] },
+    });
+    expect(noMd.approverUserId).toBe('u-ada');
+    expect(noMd.selfApproved).toBe(false);
+  });
+
+  it('never sends HR leave to a manager, even one assigned as their reporting manager', () => {
+    const r = resolveApproverChain({
+      requesterUserId: 'u-helen',
+      requesterKind: 'hr_officer',
+      candidatesByKind: {
+        team_lead: [],
+        department_head: [ok('u-sofia')],
+        roles: { director: [ok('u-rajesh')], admin: [ok('u-ada')] },
+      },
+      reportingManager: { ...ok('u-sofia'), kind: 'department_head' },
+    });
+    expect(r.approverUserId).toBe('u-rajesh');
+    expect(r.escalation).toBe('manager_not_senior');
   });
 
   it('prefers a second administrator over self-approval', () => {
@@ -183,9 +214,9 @@ describe('administrator controls', () => {
       requesterUserId: 'u-amina',
       requesterKind: 'employee',
       candidatesByKind: org,
-      reportingManager: ok('u-helen'),
+      reportingManager: { ...ok('u-ravi2'), kind: 'department_head' },
     });
-    expect(r.approverUserId).toBe('u-helen');
+    expect(r.approverUserId).toBe('u-ravi2');
     expect(r.approverKind).toBe('reporting_manager');
     expect(r.escalation).toBeNull();
   });
@@ -195,7 +226,7 @@ describe('administrator controls', () => {
       requesterUserId: 'u-amina',
       requesterKind: 'employee',
       candidatesByKind: org,
-      reportingManager: away('u-helen'),
+      reportingManager: { ...away('u-ravi2'), kind: 'department_head' },
     });
     expect(r.approverUserId).toBe('u-ravi');
     expect(r.escalation).toBe('approver_on_leave');
@@ -206,7 +237,7 @@ describe('administrator controls', () => {
       requesterUserId: 'u-amina',
       requesterKind: 'employee',
       candidatesByKind: org,
-      reportingManager: ok('u-amina'),
+      reportingManager: { ...ok('u-amina'), kind: 'team_lead' },
     });
     expect(r.approverUserId).toBe('u-ravi');
   });

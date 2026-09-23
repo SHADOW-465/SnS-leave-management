@@ -120,12 +120,12 @@ describe('routing follows the organisation chart', () => {
     expect(await approverEmailFor(id)).toBe('david@sns.test');
   });
 
-  it('sends a department head to their reporting manager, the MD', async () => {
+  it('sends a manager (department head) to HR', async () => {
     const id = await apply(await signIn('david@sns.test'), '2026-10-19', '2026-10-20');
-    expect(await approverEmailFor(id)).toBe('rajesh@sns.test');
+    expect(await approverEmailFor(id)).toBe('anitha@sns.test');
   });
 
-  it('sends a department head with no reporting manager to HR', async () => {
+  it('sends a manager to HR even with no reporting manager set', async () => {
     await sqlite.exec(
       `UPDATE employee SET manager_employee_id = NULL WHERE work_email = 'david@sns.test'`,
     );
@@ -133,12 +133,64 @@ describe('routing follows the organisation chart', () => {
     expect(await approverEmailFor(id)).toBe('anitha@sns.test');
   });
 
-  it('sends HR with no reporting manager to an administrator', async () => {
+  it('sends HR to the Managing Director', async () => {
+    const id = await apply(await signIn('anitha@sns.test'), '2026-10-26', '2026-10-27');
+    expect(await approverEmailFor(id)).toBe('rajesh@sns.test');
+  });
+
+  it('never sends HR leave to a manager, even if one was set as their reporting manager', async () => {
+    await sqlite.exec(
+      `UPDATE employee SET manager_employee_id = (SELECT id FROM employee WHERE work_email = 'david@sns.test')
+        WHERE work_email = 'anitha@sns.test'`,
+    );
+    const id = await apply(await signIn('anitha@sns.test'), '2026-10-26', '2026-10-27');
+    expect(await approverEmailFor(id)).toBe('rajesh@sns.test');
+  });
+
+  it('sends HR to an administrator when there is no Managing Director', async () => {
     await sqlite.exec(
       `UPDATE employee SET manager_employee_id = NULL WHERE work_email = 'anitha@sns.test'`,
     );
+    await sqlite.exec(
+      `DELETE FROM user_role WHERE role_id = (SELECT id FROM role WHERE code = 'director')`,
+    );
     const id = await apply(await signIn('anitha@sns.test'), '2026-10-26', '2026-10-27');
     expect(await approverEmailFor(id)).toBe('admin@example.invalid');
+  });
+
+  it('HR cannot approve another HR person’s leave, and a manager never sees it', async () => {
+    const hrLeave = await apply(await signIn('anitha@sns.test'), '2026-10-26', '2026-10-27');
+    // A second HR officer.
+    await sqlite.exec(
+      `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
+       SELECT ua.id, r.id, 'test', '2026-01-01' FROM user_account ua, role r
+        WHERE ua.email = 'ramesh@sns.test' AND r.code = 'hr_officer'`,
+    );
+    const ramesh = await signIn('ramesh@sns.test');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${hrLeave}/approve`,
+      headers: auth(ramesh),
+      payload: { expectedVersion: 1 },
+    });
+    expect(res.statusCode).toBe(403);
+    const inbox = await app.inject({
+      method: 'GET',
+      url: '/api/v1/leave-requests?view=approvals',
+      headers: { cookie: ramesh.cookie },
+    });
+    expect((inbox.json() as { data: { id: string }[] }).data.map((r) => r.id)).not.toContain(
+      hrLeave,
+    );
+    const david = await signIn('david@sns.test');
+    const davidInbox = await app.inject({
+      method: 'GET',
+      url: '/api/v1/leave-requests?view=approvals',
+      headers: { cookie: david.cookie },
+    });
+    expect((davidInbox.json() as { data: { id: string }[] }).data.map((r) => r.id)).not.toContain(
+      hrLeave,
+    );
   });
 
   it('records which rung decided, so an escalation is explainable', async () => {
@@ -246,7 +298,7 @@ describe('escalation when a rung is unavailable', () => {
     await sqlite.exec(
       `UPDATE user_account SET is_disabled = 1
         WHERE id IN (SELECT ur.user_account_id FROM user_role ur
-                     JOIN role r ON r.id = ur.role_id WHERE r.code IN ('hr_officer','admin'))`,
+                     JOIN role r ON r.id = ur.role_id WHERE r.code IN ('hr_officer','director','admin'))`,
     );
     const amina = await signIn('vijay@sns.test');
     const res = await app.inject({
@@ -296,7 +348,7 @@ describe('HR and administrators keep their override', () => {
 });
 
 describe('Downstream higher-up notifications and on-behalf leave', () => {
-  it('notifies Dept Head and HR when Team Lead approves leave, but notifies NO higher-up on rejection', async () => {
+  it('tells only the employee about a decision — the manager and HR are not notified', async () => {
     const amina = await signIn('vijay@sns.test');
     const ravi = await signIn('john@sns.test');
 
@@ -328,17 +380,15 @@ describe('Downstream higher-up notifications and on-behalf leave', () => {
       .all(aminaUser.id, idApprove)) as { kind: string }[];
     expect(aminaNotesApprove.map((n) => n.kind)).toContain('leave.approved');
 
-    // Sofia (Department Head) receives informational notification
+    // The manager and HR see it on their dashboards; no notice is sent to them.
     const sofiaNotes = (await sqlite
       .prepare(`SELECT kind FROM notification WHERE recipient_user_id = ? AND entity_id = ?`)
       .all(sofiaUser.id, idApprove)) as { kind: string }[];
-    expect(sofiaNotes.map((n) => n.kind)).toContain('leave.approved.informational');
-
-    // Helen (HR Officer) receives informational notification
+    expect(sofiaNotes).toHaveLength(0);
     const helenNotes = (await sqlite
       .prepare(`SELECT kind FROM notification WHERE recipient_user_id = ? AND entity_id = ?`)
       .all(helenUser.id, idApprove)) as { kind: string }[];
-    expect(helenNotes.map((n) => n.kind)).toContain('leave.approved.informational');
+    expect(helenNotes).toHaveLength(0);
 
     // 2. Amina applies for another period, which Ravi rejects
     const idReject = await apply(amina, '2026-10-12', '2026-10-14');

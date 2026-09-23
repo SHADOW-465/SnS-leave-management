@@ -1,4 +1,9 @@
-import { DomainError, formatHalfDays, monthlyRateHalfDays } from '@sns/domain';
+import {
+  DomainError,
+  completedServiceYears,
+  formatHalfDays,
+  monthlyRateHalfDays,
+} from '@sns/domain';
 import { authorizeAction, graphFor, requirePrincipal, type RequestContext } from './ctx.js';
 import {
   availableHalfDays,
@@ -100,7 +105,10 @@ export async function dashboard(ctx: RequestContext) {
   ];
   return {
     kpis,
-    pendingRows: (await queue(ctx, { status: 'pending_approval', search: '' })).slice(0, 8),
+    // Only what this person can actually decide: HR is never shown HR's or the MD's leave.
+    pendingRows: (
+      await listRequests(ctx, { view: 'approvals', status: 'pending_approval', search: '' })
+    ).slice(0, 8),
     deptStats: deptStats.map((d) => ({
       name: d.name,
       days: formatHalfDays(d.half),
@@ -152,12 +160,20 @@ export async function myHome(ctx: RequestContext) {
     { id: string; label: string; starts_on: string; ends_on: string } | undefined;
   const who = (await ctx.sqlite
     .prepare(
-      `SELECT et.code AS "categoryCode", e.status, e.probation_end_on AS "probationEndOn"
+      `SELECT et.code AS "categoryCode", e.status, e.probation_end_on AS "probationEndOn",
+              e.joined_on AS "joinedOn", e.hire_background AS "hireBackground"
          FROM employee e LEFT JOIN employment_type et ON et.id = e.employment_type_id
         WHERE e.id = ?`,
     )
     .get(p.employeeId)) as
-    { categoryCode: string | null; status: string; probationEndOn: string | null } | undefined;
+    | {
+        categoryCode: string | null;
+        status: string;
+        probationEndOn: string | null;
+        joinedOn: string;
+        hireBackground: string | null;
+      }
+    | undefined;
   const onProbation =
     who?.status === 'probation' || Boolean(who?.probationEndOn && who.probationEndOn > ctx.today);
   const balances = [];
@@ -214,6 +230,8 @@ export async function myHome(ctx: RequestContext) {
           ? monthlyRateHalfDays(rules, {
               categoryCode: who?.categoryCode ?? null,
               onProbation,
+              yearsOfService: who ? completedServiceYears(who.joinedOn, ctx.today) : 0,
+              fresher: who?.hireBackground === 'fresher',
             }) * 12
           : granted.n > 0
             ? granted.n
@@ -271,6 +289,34 @@ export async function myHome(ctx: RequestContext) {
        LIMIT 12`,
     )
     .all(p.employeeId, ctx.today)) as { date: string; name: string; kind: string }[];
+  const lopRows = (await ctx.sqlite
+    .prepare(
+      `SELECT status, COALESCE(SUM(lop_half_days), 0) AS half
+         FROM leave_request
+        WHERE employee_id = ? AND status IN ('pending_approval', 'approved')
+          AND start_date >= ? AND start_date <= ?
+        GROUP BY status`,
+    )
+    .all(
+      p.employeeId,
+      period?.starts_on ?? `${ctx.today.slice(0, 4)}-01-01`,
+      period?.ends_on ?? `${ctx.today.slice(0, 4)}-12-31`,
+    )) as { status: string; half: number }[];
+  const lopDays = (status: string) =>
+    Number(lopRows.find((r) => r.status === status)?.half ?? 0) / 2;
+  const monthStart = `${ctx.today.slice(0, 7)}-01`;
+  const monthNumber = Number(ctx.today.slice(5, 7));
+  const permUntil =
+    monthNumber === 12
+      ? `${Number(ctx.today.slice(0, 4)) + 1}-01-01`
+      : `${ctx.today.slice(0, 4)}-${String(monthNumber + 1).padStart(2, '0')}-01`;
+  const permissionHours = (await ctx.sqlite
+    .prepare(
+      `SELECT COALESCE(SUM(hours), 0) AS hours FROM permission_request
+        WHERE employee_id = ? AND status IN ('pending_approval', 'approved')
+          AND on_date >= ? AND on_date < ?`,
+    )
+    .get(p.employeeId, monthStart, permUntil)) as { hours: number };
   return {
     employee: {
       name: `${emp.first_name} ${emp.last_name}`,
@@ -290,6 +336,8 @@ export async function myHome(ctx: RequestContext) {
     monthly,
     upcomingApproved,
     holidays,
+    lossOfPay: { approved: lopDays('approved'), pending: lopDays('pending_approval') },
+    permission: { usedHours: Number(permissionHours.hours) || 0, limitHours: 2 },
     probation:
       emp.status === 'probation' || (emp.probation_end_on && emp.probation_end_on > ctx.today)
         ? {
@@ -332,7 +380,19 @@ async function monthlySummaryFor(
     earned: number;
     used: number;
     balance: number;
+    lossOfPay: number;
   }[] = [];
+  const lopByMonth = new Map<string, number>();
+  for (const row of (await ctx.sqlite
+    .prepare(
+      `SELECT start_date AS "startDate", lop_half_days AS half
+         FROM leave_request
+        WHERE employee_id = ? AND status = 'approved'`,
+    )
+    .all(employeeId)) as { startDate: string; half: number }[]) {
+    const ym = String(row.startDate).slice(0, 7);
+    lopByMonth.set(ym, (lopByMonth.get(ym) ?? 0) + Number(row.half) / 2);
+  }
   const start = period.starts_on.slice(0, 7);
   const endCap = ctx.today < period.ends_on ? ctx.today : period.ends_on;
   const end = endCap.slice(0, 7);
@@ -373,6 +433,7 @@ async function monthlySummaryFor(
       earned: earned / 2,
       used: used / 2,
       balance: running / 2,
+      lossOfPay: lopByMonth.get(ym) ?? 0,
     });
     m += 1;
     if (m === 13) {
@@ -435,6 +496,21 @@ export async function listRequests(
     ).map((r) => r.id),
   );
 
+  // HR can step in only for people below HR. Leave of HR, the Managing Director and
+  // administrators is decided by the MD or an administrator — never by HR or a manager.
+  const senior = new Set(
+    (
+      (await ctx.sqlite
+        .prepare(
+          `SELECT DISTINCT ua.employee_id AS id FROM user_account ua
+             JOIN user_role ur ON ur.user_account_id = ua.id JOIN role r ON r.id = ur.role_id
+            WHERE r.code IN ('hr_officer', 'director', 'admin') AND ua.employee_id IS NOT NULL`,
+        )
+        .all()) as { id: string }[]
+    ).map((x) => x.id),
+  );
+  const canOverrideFor = (empId: string) => canOverride && (isAdmin || !senior.has(empId));
+
   const out = [];
   for (const r of rows) {
     const empId = String(r.employee_id);
@@ -442,7 +518,7 @@ export async function listRequests(
     const assigned = assignedToMe.has(String(r.id));
 
     if (view === 'mine' && !own) continue;
-    if (view === 'approvals' && (own || !(assigned || canOverride))) continue;
+    if (view === 'approvals' && (own || !(assigned || canOverrideFor(empId)))) continue;
     if (view === 'all' && !canCompany && !own && !graph.recursiveReports.has(empId) && !assigned) {
       continue;
     }
@@ -460,7 +536,9 @@ export async function listRequests(
       waiting_on: r.status === 'pending_approval' ? (r.waiting_on ?? null) : null,
       // Whether *this* person can approve or reject it from the list.
       can_decide:
-        r.status === 'pending_approval' && (pendingWithMe || canOverride) && (!own || isAdmin),
+        r.status === 'pending_approval' &&
+        (pendingWithMe || canOverrideFor(empId)) &&
+        (!own || isAdmin),
       // True when it was routed to them, as opposed to visible through an HR override.
       routed_to_me: pendingWithMe,
     });
@@ -1201,6 +1279,30 @@ async function monthlyPayroll(
     )
     .all()) as { employee_id: string; half: number }[];
   const pendingMap = new Map(pendingByEmp.map((p) => [p.employee_id, Number(p.half) || 0]));
+  const lopByEmp = new Map(
+    (
+      (await ctx.sqlite
+        .prepare(
+          `SELECT employee_id, COALESCE(SUM(lop_half_days), 0) AS half
+             FROM leave_request
+            WHERE status = 'approved' AND start_date >= ? AND start_date < ?
+            GROUP BY employee_id`,
+        )
+        .all(monthStart, nextMonth)) as { employee_id: string; half: number }[]
+    ).map((r) => [r.employee_id, Number(r.half) / 2]),
+  );
+  const permByEmp = new Map(
+    (
+      (await ctx.sqlite
+        .prepare(
+          `SELECT employee_id, COALESCE(SUM(hours), 0) AS hours
+             FROM permission_request
+            WHERE status = 'approved' AND on_date >= ? AND on_date < ?
+            GROUP BY employee_id`,
+        )
+        .all(monthStart, nextMonth)) as { employee_id: string; hours: number }[]
+    ).map((r) => [r.employee_id, Number(r.hours)]),
+  );
 
   const isCredit = (t: string) =>
     [
@@ -1239,8 +1341,11 @@ async function monthlyPayroll(
         opening: openingHalf / 2,
         earned: earnedHalf / 2,
         used: usedHalf / 2,
+        leaveTaken: usedHalf / 2,
         pending: pendingHalf / 2,
         closing: closingHalf / 2,
+        lossOfPay: lopByEmp.get(e.id) ?? 0,
+        permissionHours: permByEmp.get(e.id) ?? 0,
       };
     });
 

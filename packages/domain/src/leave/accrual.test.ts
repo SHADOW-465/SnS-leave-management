@@ -13,6 +13,29 @@ describe('monthly rate by staff category', () => {
     expect(monthlyRateHalfDays(r, { categoryCode: 'MGMT', onProbation: false })).toBe(5);
     expect(monthlyRateHalfDays(r, { categoryCode: 'PERM', onProbation: false })).toBe(4);
   });
+  it('follows tenure and probation background for earned leave', () => {
+    const r = {
+      ...rules,
+      confirmedTenureYears: 3,
+      confirmedUnderMonthlyHalfDays: 3,
+      confirmedFromMonthlyHalfDays: 4,
+      probationExperiencedMonthlyHalfDays: 2,
+      probationFresherMonthlyHalfDays: 0,
+    };
+    expect(
+      monthlyRateHalfDays(r, { categoryCode: null, onProbation: false, yearsOfService: 1 }),
+    ).toBe(3);
+    expect(
+      monthlyRateHalfDays(r, { categoryCode: null, onProbation: false, yearsOfService: 3 }),
+    ).toBe(4);
+    expect(monthlyRateHalfDays(r, { categoryCode: null, onProbation: true, fresher: false })).toBe(
+      2,
+    );
+    expect(monthlyRateHalfDays(r, { categoryCode: null, onProbation: true, fresher: true })).toBe(
+      0,
+    );
+  });
+
   it('uses the probation rate while on probation, whatever the category', () => {
     const r = { ...rules, categoryMonthlyHalfDays: { MGMT: 5 }, probationMonthlyHalfDays: 2 };
     expect(monthlyRateHalfDays(r, { categoryCode: 'MGMT', onProbation: true })).toBe(2);

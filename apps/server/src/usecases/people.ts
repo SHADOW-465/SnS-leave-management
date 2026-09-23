@@ -293,6 +293,7 @@ export async function createEmployee(
     jobTitleId: string;
     employmentTypeId: string;
     phone?: string;
+    hireBackground?: 'fresher' | 'experienced';
     createAccount: boolean;
     roles?: RoleCode[];
   },
@@ -363,8 +364,8 @@ export async function createEmployee(
   await withTx(ctx.sqlite, async () => {
     await ctx.sqlite
       .prepare(
-        `INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, manager_employee_id, job_title_id, employment_type_id, retention_class, created_at, created_by, updated_at, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', ?, ?, ?, ?)`,
+        `INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, manager_employee_id, job_title_id, employment_type_id, hire_background, retention_class, created_at, created_by, updated_at, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -381,6 +382,7 @@ export async function createEmployee(
         input.managerEmployeeId ?? null,
         input.jobTitleId,
         input.employmentTypeId,
+        input.hireBackground ?? 'experienced',
         ctx.now,
         p.userId,
         ctx.now,

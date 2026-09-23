@@ -2,10 +2,12 @@ import type { Db } from '@sns/database';
 import { withTx } from '@sns/database';
 import {
   capAccrual,
+  completedServiceYears,
   monthCreditHalfDays,
   monthlyRateHalfDays,
   newId,
   parseRules,
+  withCompanyEarnedLeave,
   periodBounds,
   planRollover,
   shouldAccrue,
@@ -40,14 +42,15 @@ async function policyFor(
 ): Promise<LeavePolicyRules | null> {
   const row = (await sqlite
     .prepare(
-      `SELECT rules_json FROM leave_policy_version
-        WHERE leave_type_id = ? AND published_at IS NOT NULL AND effective_from <= ?
-        ORDER BY version_no DESC LIMIT 1`,
+      `SELECT v.rules_json, t.code FROM leave_policy_version v
+         JOIN leave_type t ON t.id = v.leave_type_id
+        WHERE v.leave_type_id = ? AND v.published_at IS NOT NULL AND v.effective_from <= ?
+        ORDER BY v.version_no DESC LIMIT 1`,
     )
-    .get(leaveTypeId, onDate)) as { rules_json: string } | undefined;
+    .get(leaveTypeId, onDate)) as { rules_json: string; code: string } | undefined;
   if (!row) return null;
   try {
-    return parseRules(row.rules_json);
+    return withCompanyEarnedLeave(parseRules(row.rules_json), row.code, row.rules_json);
   } catch {
     return null;
   }
@@ -81,7 +84,7 @@ export async function creditMonth(
   const emp = (await sqlite
     .prepare(
       `SELECT e.joined_on AS "joinedOn", e.status, e.probation_end_on AS "probationEndOn",
-              et.code AS "categoryCode"
+              e.hire_background AS "hireBackground", et.code AS "categoryCode"
          FROM employee e LEFT JOIN employment_type et ON et.id = e.employment_type_id
         WHERE e.id = ?`,
     )
@@ -90,16 +93,22 @@ export async function creditMonth(
         joinedOn: string;
         status: string;
         probationEndOn: string | null;
+        hireBackground: string | null;
         categoryCode: string | null;
       }
     | undefined;
   if (!emp) return null;
   const monthEnd = `${input.month}-31`;
+  const monthStart = `${input.month}-01`;
   const onProbation =
-    emp.status === 'probation' ||
-    Boolean(emp.probationEndOn && emp.probationEndOn > `${input.month}-01`);
+    emp.status === 'probation' || Boolean(emp.probationEndOn && emp.probationEndOn > monthStart);
   let quantity = monthCreditHalfDays({
-    rateHalfDays: monthlyRateHalfDays(input.rules, { categoryCode: emp.categoryCode, onProbation }),
+    rateHalfDays: monthlyRateHalfDays(input.rules, {
+      categoryCode: emp.categoryCode,
+      onProbation,
+      yearsOfService: completedServiceYears(emp.joinedOn, monthStart),
+      fresher: emp.hireBackground === 'fresher',
+    }),
     joinMonthAccrual: input.rules.joinMonthAccrual,
     joinedOn: emp.joinedOn,
     monthIso: input.month,

@@ -411,14 +411,14 @@ describe('hosted Postgres: administrator controls', () => {
     expect((history.json() as { data: unknown[] }).data.length).toBeGreaterThan(0);
   });
 
-  it('manages leave types: add from a template, rename, archive, restore', async () => {
+  it('manages leave types: add a custom type, rename, archive, restore', async () => {
     const get = (url: string) =>
       app.inject({ method: 'GET', url, headers: { cookie: admin.cookie } });
     const created = await post(admin, '/api/v1/admin/leave-types', {
-      name: 'Sick Leave (hosted)',
-      code: 'SLH',
+      name: 'Special Leave (hosted)',
+      code: 'SPL',
       isPaid: true,
-      template: 'SL',
+      template: null,
     });
     expect(created.statusCode).toBe(200);
     const id = (created.json() as { data: { id: string } }).data.id;

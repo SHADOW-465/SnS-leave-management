@@ -338,11 +338,22 @@ describe('API slice', () => {
     expect(submitRes.statusCode).toBe(201);
     const reqId = (submitRes.json() as { data: { id: string } }).data.id;
 
-    // Fetch notifications for the approver (Admin)
+    // The administrator's own leave goes to the Managing Director, who is notified.
+    const mdLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'rajesh@sns.test', password: 'ChangeMe_demo_1' },
+    });
+    const mdRaw = mdLogin.headers['set-cookie'];
+    const mdCookie = Array.isArray(mdRaw)
+      ? mdRaw.map((c) => c.split(';')[0]).join('; ')
+      : String(mdRaw);
+    const mdCsrf = /leaveos.csrf=([^;]+)/.exec(mdCookie)?.[1] ?? '';
+    // Fetch notifications for the approver (the MD)
     const notifsRes = await app.inject({
       method: 'GET',
       url: '/api/v1/notifications',
-      headers: { cookie: cookieHeader },
+      headers: { cookie: mdCookie },
     });
     expect(notifsRes.statusCode).toBe(200);
     const notifList = (
@@ -368,7 +379,7 @@ describe('API slice', () => {
     const markSingleRes = await app.inject({
       method: 'POST',
       url: '/api/v1/notifications/read',
-      headers: { cookie: cookieHeader, 'x-csrf-token': csrf },
+      headers: { cookie: mdCookie, 'x-csrf-token': mdCsrf },
       payload: { id: targetNotif!.id },
     });
     expect(markSingleRes.statusCode).toBe(200);
@@ -377,7 +388,7 @@ describe('API slice', () => {
     const refreshedRes = await app.inject({
       method: 'GET',
       url: '/api/v1/notifications',
-      headers: { cookie: cookieHeader },
+      headers: { cookie: mdCookie },
     });
     const refreshedNotif = (
       refreshedRes.json() as {

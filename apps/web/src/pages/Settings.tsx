@@ -23,6 +23,12 @@ type Rules = {
   categoryMonthlyHalfDays: Record<string, number>;
   probationMonthlyHalfDays: number | null;
   maxBalanceHalfDays: number;
+  confirmedTenureYears?: number;
+  confirmedUnderMonthlyHalfDays?: number | null;
+  confirmedFromMonthlyHalfDays?: number | null;
+  probationExperiencedMonthlyHalfDays?: number | null;
+  probationFresherMonthlyHalfDays?: number | null;
+  lossOfPayOnShortfall?: boolean;
 };
 
 /** Versions published before a setting existed lack it; fill the same defaults the server uses. */
@@ -34,6 +40,7 @@ function normalise(json: string): Rules {
     joinMonthAccrual: 'prorated',
     probationMonthlyHalfDays: null,
     maxBalanceHalfDays: 0,
+    lossOfPayOnShortfall: raw.lossOfPayOnShortfall ?? true,
     ...raw,
     categoryMonthlyHalfDays: raw.categoryMonthlyHalfDays ?? {},
   } as Rules;
@@ -322,8 +329,96 @@ function PolicyEditor({ policy, readOnly }: { policy: Policy; readOnly: boolean 
                   );
                 })}
                 <Field
+                  label="Confirmed, under 3 years (days a month)"
+                  hint="Blank uses 1.5 for Annual Leave. Applies after probation."
+                >
+                  <input
+                    type="number"
+                    min={0}
+                    max={31}
+                    step={0.5}
+                    value={
+                      rules.confirmedUnderMonthlyHalfDays == null
+                        ? ''
+                        : days(rules.confirmedUnderMonthlyHalfDays)
+                    }
+                    onChange={(e) =>
+                      set(
+                        'confirmedUnderMonthlyHalfDays',
+                        e.target.value === '' ? null : toHalf(Number(e.target.value)),
+                      )
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Confirmed, 3 years or more (days a month)"
+                  hint="Blank uses 2 for Annual Leave."
+                >
+                  <input
+                    type="number"
+                    min={0}
+                    max={31}
+                    step={0.5}
+                    value={
+                      rules.confirmedFromMonthlyHalfDays == null
+                        ? ''
+                        : days(rules.confirmedFromMonthlyHalfDays)
+                    }
+                    onChange={(e) =>
+                      set(
+                        'confirmedFromMonthlyHalfDays',
+                        e.target.value === '' ? null : toHalf(Number(e.target.value)),
+                      )
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Probation, experienced hire (days a month)"
+                  hint="Blank uses 1 for Annual Leave."
+                >
+                  <input
+                    type="number"
+                    min={0}
+                    max={31}
+                    step={0.5}
+                    value={
+                      rules.probationExperiencedMonthlyHalfDays == null
+                        ? ''
+                        : days(rules.probationExperiencedMonthlyHalfDays)
+                    }
+                    onChange={(e) =>
+                      set(
+                        'probationExperiencedMonthlyHalfDays',
+                        e.target.value === '' ? null : toHalf(Number(e.target.value)),
+                      )
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Probation, fresher (days a month)"
+                  hint="Blank uses 0 for Annual Leave. Mark the person as a fresher on their record."
+                >
+                  <input
+                    type="number"
+                    min={0}
+                    max={31}
+                    step={0.5}
+                    value={
+                      rules.probationFresherMonthlyHalfDays == null
+                        ? ''
+                        : days(rules.probationFresherMonthlyHalfDays)
+                    }
+                    onChange={(e) =>
+                      set(
+                        'probationFresherMonthlyHalfDays',
+                        e.target.value === '' ? null : toHalf(Number(e.target.value)),
+                      )
+                    }
+                  />
+                </Field>
+                <Field
                   label="While on probation (days a month)"
-                  hint="Overrides the category rate until probation ends. Blank = no change."
+                  hint="Older single rate. Blank lets the experienced and fresher rates apply."
                 >
                   <input
                     type="number"
@@ -350,6 +445,12 @@ function PolicyEditor({ policy, readOnly }: { policy: Policy; readOnly: boolean 
           <fieldset disabled={readOnly}>
             <legend>Counting days</legend>
             <div className="fields">
+              <Toggle
+                label="Shortfall is loss of pay"
+                hint="Leave beyond the earned balance is allowed. The extra days are shown as loss of pay and the employee is told."
+                checked={rules.lossOfPayOnShortfall !== false}
+                onChange={(v) => set('lossOfPayOnShortfall', v)}
+              />
               <Toggle
                 label="Weekends are not counted"
                 hint="Leave from Friday to Monday counts 2 days, not 4. The weekend itself is set under Working week."

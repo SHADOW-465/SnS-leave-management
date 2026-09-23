@@ -56,14 +56,21 @@ certificate unless separately granted. This separation is deliberate and is test
 
 ## 2. Default roles
 
-| Role                     | Intent                                                               | Notably does **not** have                                                                                      |
-| ------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| **Employee**             | Their own record, their own leave, the shared calendar               | Anyone else's balances or contact details                                                                      |
-| **Manager**              | Employee, plus **visibility** for their reporting subtree            | **Leave approval** (see below), company-wide reports, payroll fields, medical attachments, user administration |
-| **HR Officer**           | People and leave administration company-wide, **and leave approval** | **Backup, restore, configuration, user impersonation, audit deletion** — see §5                                |
-| **Payroll Officer**      | Payroll-relevant fields and exports                                  | Approval rights, leave configuration, employee editing                                                         |
-| **System Administrator** | Accounts, roles, system operations, backups, configuration           | Nothing structurally, which is why it is separate and rare — and every action is audited                       |
-| **Read-only Auditor**    | Read everything relevant to compliance, write nothing                | Any mutation whatsoever, including approvals                                                                   |
+| Role                     | Intent                                                                                             | Notably does **not** have                                                                                      |
+| ------------------------ | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Employee**             | Their own record, their own leave, the shared calendar                                             | Anyone else's balances or contact details                                                                      |
+| **Manager**              | Employee, plus **visibility** for their reporting subtree                                          | **Leave approval** (see below), company-wide reports, payroll fields, medical attachments, user administration |
+| **HR Officer**           | People and leave administration company-wide, **and leave approval**                               | **Backup, restore, configuration, user impersonation, audit deletion** — see §5                                |
+| **Payroll Officer**      | Payroll-relevant fields and exports                                                                | Approval rights, leave configuration, employee editing                                                         |
+| **System Administrator** | Accounts, roles, system operations, backups, configuration                                         | Nothing structurally, which is why it is separate and rare — and every action is audited                       |
+| **Managing Director**    | Top of the approval hierarchy with the administrator: approves HR's leave, sees leave company-wide | Leave administration, configuration, user administration, overriding approvals                                 |
+| **Read-only Auditor**    | Read everything relevant to compliance, write nothing                                              | Any mutation whatsoever, including approvals                                                                   |
+
+The approval hierarchy is positional and enforced: **Administrator / Managing Director → HR →
+Manager (department head) → Team lead → Employee**. A request is always decided one level up;
+a reporting manager can only be someone at the next level; HR and administrators can override
+only for people below them, so HR's leave is decided only by the Managing Director or an
+administrator.
 
 Roles are editable data, not code. A company can create "HR Manager (Bangalore)" as HR
 Officer permissions at `location` scope instead of `company`.

@@ -92,7 +92,14 @@ export async function listLeaveTypes(ctx: RequestContext) {
  */
 export async function createLeaveType(
   ctx: RequestContext,
-  input: { name: string; code: string; isPaid: boolean; template: string | null; colour?: string },
+  input: {
+    name: string;
+    code: string;
+    isPaid: boolean;
+    template: string | null;
+    colour?: string;
+    rules?: Partial<LeavePolicyRules>;
+  },
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'leave.policy.manage', null);
@@ -121,9 +128,14 @@ export async function createLeaveType(
       },
     );
   }
+  if (input.template && !LEAVE_TYPE_TEMPLATES.some((t) => t.code === input.template)) {
+    throw new DomainError('BAD_TEMPLATE', 'Unknown template.', { httpStatus: 400 });
+  }
   const rules: LeavePolicyRules = input.template
     ? defaultRulesForCode(input.template)
-    : { ...defaultRulesForCode('__blank__'), entitlementHalfDays: 0, accrualMethod: 'none' };
+    : input.rules
+      ? parseRules(input.rules)
+      : { ...defaultRulesForCode('__blank__'), entitlementHalfDays: 0, accrualMethod: 'none' };
   if (!input.isPaid) {
     rules.negativeBalanceAllowed = true;
     rules.entitlementHalfDays = 0;

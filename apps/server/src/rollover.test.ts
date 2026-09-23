@@ -36,8 +36,8 @@ async function boot(): Promise<{ app: FastifyInstance; sqlite: Db }> {
       loadSampleData: true,
     },
   });
-  // These tests are about yearly-grant leave, so add Casual Leave from its template the way
-  // an administrator would on Leave types.
+  // These tests are about yearly-grant leave, so add one the way an administrator would on
+  // Leave types.
   const login = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
@@ -52,7 +52,28 @@ async function boot(): Promise<{ app: FastifyInstance; sqlite: Db }> {
     method: 'POST',
     url: '/api/v1/admin/leave-types',
     headers: { cookie, 'x-csrf-token': csrf },
-    payload: { name: 'Casual Leave', code: 'CL', isPaid: true, template: 'CL' },
+    // A custom type given once a year (the framework's Annual Leave accrues monthly).
+    payload: {
+      name: 'Casual Leave',
+      code: 'CL',
+      isPaid: true,
+      template: null,
+      rules: {
+        entitlementHalfDays: 24,
+        accrualMethod: 'annual_grant',
+        accrualCadenceMonths: 12,
+        midYearProrate: true,
+        carryForwardCapHalfDays: 10,
+        carryForwardExpiryMonths: 3,
+        probationRestriction: 'none',
+        probationMaxHalfDays: 0,
+        halfDaysAllowed: true,
+        minNoticeDays: 0,
+        maxConsecutiveDays: 15,
+        negativeBalanceAllowed: false,
+        attachmentRequiredAfterHalfDays: null,
+      },
+    },
   });
   if (added.statusCode !== 200) throw new Error(`could not add Casual Leave: ${added.body}`);
   return { app, sqlite };

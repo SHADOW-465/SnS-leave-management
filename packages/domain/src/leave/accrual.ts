@@ -49,10 +49,29 @@ export function capAccrual(
  * The monthly credit for one person: the probation rate while on probation (if one is
  * set), else their staff category's rate (if one is set), else the standard rate.
  */
+/** Whole years of service completed on `asOf`. The anniversary month counts once the day is reached. */
+export function completedServiceYears(joinedOn: string, asOf: string): number {
+  let years = Number(asOf.slice(0, 4)) - Number(joinedOn.slice(0, 4));
+  const anniversary = `${asOf.slice(0, 4)}-${joinedOn.slice(5, 10)}`;
+  if (asOf < anniversary) years -= 1;
+  return Math.max(0, years);
+}
+
 export function monthlyRateHalfDays(
   rules: LeavePolicyRules,
-  who: { categoryCode: string | null; onProbation: boolean },
+  who: {
+    categoryCode: string | null;
+    onProbation: boolean;
+    yearsOfService?: number;
+    fresher?: boolean;
+  },
 ): number {
+  if (who.onProbation && who.fresher && rules.probationFresherMonthlyHalfDays != null) {
+    return rules.probationFresherMonthlyHalfDays;
+  }
+  if (who.onProbation && !who.fresher && rules.probationExperiencedMonthlyHalfDays != null) {
+    return rules.probationExperiencedMonthlyHalfDays;
+  }
   if (who.onProbation && rules.probationMonthlyHalfDays != null) {
     return rules.probationMonthlyHalfDays;
   }
@@ -60,6 +79,11 @@ export function monthlyRateHalfDays(
     ? rules.categoryMonthlyHalfDays?.[who.categoryCode]
     : undefined;
   if (byCategory != null) return byCategory;
+  const years = who.yearsOfService ?? 0;
+  if (rules.confirmedFromMonthlyHalfDays != null && years >= rules.confirmedTenureYears) {
+    return rules.confirmedFromMonthlyHalfDays;
+  }
+  if (rules.confirmedUnderMonthlyHalfDays != null) return rules.confirmedUnderMonthlyHalfDays;
   return monthlyAccrualHalfDays(rules.entitlementHalfDays);
 }
 

@@ -58,7 +58,7 @@ afterEach(async () => {
 
 describe('functional framework', () => {
   it('defaults earned leave to 24 days credited monthly', () => {
-    const el = defaultRulesForCode('EL');
+    const el = defaultRulesForCode('AL');
     expect(el.entitlementHalfDays).toBe(48);
     expect(el.accrualMethod).toBe('monthly');
   });

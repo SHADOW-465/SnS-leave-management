@@ -25,13 +25,27 @@ sign in with their employee ID, e.g. `SNS-1005`.
 | ------------------------------------ | ------------------------------------- | -------------------------------------------------------- |
 | Arjun Das, administrator             | `admin@sns.test` / `ChangeMe_admin_1` | Reporting managers, Users & access, Leave configuration  |
 | Anitha Joseph, HR manager            | `anitha@sns.test`                     | Employees, Users & access, holidays, allowances, reports |
-| Rajesh Menon, managing director      | `rajesh@sns.test`                     | Approves the department heads                            |
-| David Fernandes, production manager  | `david@sns.test`                      | Approves the Printing and Binding supervisors            |
+| Rajesh Menon, managing director      | `rajesh@sns.test`                     | Approves HR's leave (Managing Director role)             |
+| David Fernandes, production manager  | `david@sns.test`                      | Approves the supervisors; his own leave goes to HR       |
 | John Mathew, printing supervisor     | `john@sns.test`                       | Approves Vijay and Priya                                 |
 | Vijay Anand, machine operator        | `vijay@sns.test` or `SNS-1005`        | Applies for leave, sees balance and history              |
 | Ramesh Nagarajan, payroll accountant | `ramesh@sns.test`                     | Monthly payroll report and export                        |
 
 Everyone except the administrator uses `ChangeMe_demo_1`.
+
+**The approval hierarchy** — leave always goes one level up:
+
+```
+Administrator / Managing Director   approve HR's leave (and each other's)
+HR                                  approves managers' leave
+Manager (department head)           approves team leads, and staff with no team lead
+Team lead                           approves their team
+Employee                            applies
+```
+
+HR's leave never goes to a manager, and HR cannot approve another HR person's leave. The
+person who has to decide is notified; the employee is told the decision. HR, administrators
+and managers see their people's leave on their dashboards rather than as notifications.
 
 ### A five-minute walkthrough
 
@@ -42,7 +56,9 @@ Everyone except the administrator uses `ChangeMe_demo_1`.
 3. **Anitha (HR)** opens _Payroll & annual reports_ → _Monthly Payroll_ and exports Excel.
 4. **Arjun (admin)** opens _Reporting managers_, moves Vijay to Kumar from a chosen date, and
    opens _History_ to see the change recorded.
-5. Still as Arjun, _Leave configuration_: change the monthly credit, give Management 2.5 days a
+5. **Anitha (HR)** applies for leave: it goes to **Rajesh (MD)**, never to a manager.
+   **David (manager)** applies: it goes to **Anitha (HR)**.
+6. Still as Arjun, _Leave configuration_: change the monthly credit, give Management 2.5 days a
    month, change the weekend, or choose what someone joining mid-month earns.
 
 ### Configuring for a real office
@@ -51,9 +67,10 @@ Everything is set in the app — no code changes:
 
 - **Leave types** — out of the box there is one, **Annual Leave**, exactly as the functional
   framework describes it: 2 days credited every month (24 a year), unused days carried forward,
-  weekends and government holidays not counted, the joining month pro-rated. Add Casual, Sick,
-  Earned or Loss of Pay from ready-made templates (or your own), rename, mark unpaid, or archive
-  a type — archived types keep all their history.
+  weekends and government holidays not counted, the joining month pro-rated. There are no
+  casual, sick or earned leave types, because the framework does not describe any. A company
+  that needs another kind of leave can add its own, rename, mark unpaid, or archive a type —
+  archived types keep all their history.
 
 - **Leave configuration** — per leave type: monthly credit or yearly grant, rate per staff
   category and during probation, joining-month rule, carry-forward, maximum balance, whether

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.2 — 2026-09-23
+
+### Changed
+- **Earned leave only.** Casual and sick leave are not part of the schedule. Confirmed staff earn 1.5 days a month until they complete 3 years, then 2 days a month. An experienced hire on probation earns 1 day a month; a fresher earns none. These rates are on Leave rules and can be changed there.
+- **Loss of pay** is the part of a request that earned leave does not cover. It is shown on the apply summary, on the employee dashboard, in the month-by-month summary, and in the monthly payroll report. The employee is notified when they apply and again when it is approved. It is not deducted from the earned balance.
+- **Permission** is 2 hours a month, taken as 1 hour or 2 hours, from the employee dashboard. The approver and the employee are notified. The monthly report includes the hours taken.
+- The monthly payroll report column is **Leave taken**, with **Loss of pay** and **Permission hours** beside it.
+
+## 0.2.1 — 2026-09-22
+
+### Changed — the approval hierarchy, as specified
+
+- **ADMIN / MD → HR → Manager → Team lead → Employee**, enforced. Leave always goes one level up: team members to their team lead, team leads to their manager (department head), managers to HR, and HR only to the Managing Director or an administrator. HR's leave is never routed to — or shown for approval to — a manager, and HR can no longer approve another HR person's or the MD's leave by override.
+- New **Managing Director** role (migration `0008`): approves HR's leave and sees leave across the company, without administration rights.
+- A reporting manager can only be someone one level up; the Reporting managers page offers only those people and explains the hierarchy. An existing assignment that breaks it is ignored for routing and flagged.
+- **Notifications**: only the person who has to decide is notified of a new request, and the employee of the decision. The extra notices to department heads, HR and administrators on every approval are gone; they see leave on their dashboards. The staff dashboard's "Needs your decision" now lists only what that person can decide.
+- **Leave types**: Casual, Sick, Earned and Loss of Pay are removed, templates included. Only the framework's Annual Leave remains; a company can still add its own type. The demo database (hosted preview) switches to Annual Leave and archives the old types, keeping their history.
+
 ## 0.2.1 — 2026-09-22
 
 ### Added

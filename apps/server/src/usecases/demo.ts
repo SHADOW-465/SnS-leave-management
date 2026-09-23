@@ -83,7 +83,7 @@ export const DEMO_PEOPLE: Person[] = [
     first: 'Rajesh',
     last: 'Menon',
     title: 'Managing Director',
-    role: 'manager',
+    role: 'director',
     dept: 'MGT',
     heads: true,
     category: 'MGMT',
@@ -98,7 +98,7 @@ export const DEMO_PEOPLE: Person[] = [
     role: 'manager',
     dept: 'PRD',
     heads: true,
-    manager: 'rajesh',
+    manager: 'anitha',
     category: 'MGMT',
     joined: '2017-06-12',
   },
@@ -190,7 +190,7 @@ export const DEMO_PEOPLE: Person[] = [
     role: 'manager',
     dept: 'EDT',
     heads: true,
-    manager: 'rajesh',
+    manager: 'anitha',
     category: 'MGMT',
     joined: '2016-08-01',
   },
@@ -244,7 +244,7 @@ export const DEMO_PEOPLE: Person[] = [
     role: 'manager',
     dept: 'QA',
     heads: true,
-    manager: 'rajesh',
+    manager: 'anitha',
     category: 'MGMT',
     joined: '2017-03-20',
   },
@@ -268,9 +268,10 @@ export const DEMO_PEOPLE: Person[] = [
     title: 'Payroll Accountant',
     role: 'payroll_officer',
     dept: 'FIN',
-    manager: 'rajesh',
+    manager: 'anitha',
     category: 'PERM',
     joined: '2018-05-07',
+    heads: true,
   },
   {
     key: 'sanjay',
@@ -280,7 +281,7 @@ export const DEMO_PEOPLE: Person[] = [
     title: 'Internal Auditor',
     role: 'auditor',
     dept: 'FIN',
-    manager: 'rajesh',
+    manager: 'ramesh',
     category: 'PERM',
     joined: '2020-02-03',
   },
@@ -402,8 +403,8 @@ export async function ensureDemoOrganisation(
             .run(id, name, now, actorId, now, actorId),
       );
 
-    // The demo shows per-category accrual at work on Annual Leave: management earns 2.5
-    // days a month and anyone on probation 1 day, against the standard 2 (framework §10).
+    // Annual Leave uses the company schedule: 1.5 days a month until 3 years, then 2;
+    // experienced hires on probation earn 1 day and freshers earn none.
     await publishDemoEarnedLeavePolicy(ctx, actorId);
 
     // People.
@@ -477,6 +478,20 @@ export async function ensureDemoOrganisation(
           );
       }
       employeeId.set(p.key, empId);
+      await ctx.sqlite
+        .prepare(
+          `DELETE FROM user_role WHERE user_account_id = (SELECT id FROM user_account WHERE email = ?)
+             AND role_id NOT IN (SELECT id FROM role WHERE code = ?)`,
+        )
+        .run(email, p.role);
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
+           SELECT ua.id, r.id, ?, ? FROM user_account ua, role r
+            WHERE ua.email = ? AND r.code = ?
+              AND NOT EXISTS (SELECT 1 FROM user_role x WHERE x.user_account_id = ua.id AND x.role_id = r.id)`,
+        )
+        .run(actorId, now, email, p.role);
     }
 
     // Leadership and reporting lines, now that everyone exists.
@@ -624,6 +639,73 @@ async function upgradeLegacyDemo(ctx: RequestContext, now: string) {
   }
 }
 
+/**
+ * Older demo databases carry Casual, Sick, Earned and Loss of Pay. The framework describes a
+ * single type, Annual Leave: add it, open everyone's balance, and archive the rest (their
+ * history stays in every report).
+ */
+export async function adoptAnnualLeave(ctx: RequestContext, actorId: string): Promise<void> {
+  const periodId = await currentPeriodId(ctx);
+  const period = (await ctx.sqlite
+    .prepare(`SELECT starts_on AS "startsOn" FROM leave_period WHERE id = ?`)
+    .get(periodId)) as { startsOn: string };
+  await withTx(ctx.sqlite, async () => {
+    const existing = (await ctx.sqlite
+      .prepare(`SELECT id FROM leave_type WHERE code = 'AL'`)
+      .get()) as { id: string } | undefined;
+    if (!existing) {
+      const typeId = newId();
+      const versionId = newId();
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO leave_type (id, code, name, colour_token, is_paid, created_at, created_by, updated_at, updated_by)
+           VALUES (?, 'AL', 'Annual Leave', 'accent', 1, ?, ?, ?, ?)`,
+        )
+        .run(typeId, ctx.now, actorId, ctx.now, actorId);
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO leave_policy_version (id, leave_type_id, version_no, effective_from, rules_json, published_at, published_by, created_at, created_by)
+           VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          versionId,
+          typeId,
+          period.startsOn,
+          JSON.stringify(defaultRulesForCode('AL')),
+          ctx.now,
+          actorId,
+          ctx.now,
+          actorId,
+        );
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO policy_assignment (id, leave_policy_version_id, scope_type, scope_id, priority) VALUES (?, ?, 'company', 'company', 0)`,
+        )
+        .run(newId(), versionId);
+    } else {
+      await ctx.sqlite
+        .prepare(`UPDATE leave_type SET archived_at = NULL WHERE id = ?`)
+        .run(existing.id);
+    }
+    await ctx.sqlite
+      .prepare(
+        `UPDATE leave_type SET archived_at = ?, updated_at = ? WHERE code != 'AL' AND archived_at IS NULL`,
+      )
+      .run(ctx.now, ctx.now);
+  });
+}
+
+/** Opens this year's balance of every current type for everyone (idempotent). */
+export async function openDemoBalances(ctx: RequestContext, actorId: string): Promise<void> {
+  const periodId = await currentPeriodId(ctx);
+  const people = (await ctx.sqlite
+    .prepare(`SELECT id FROM employee WHERE status != 'exited'`)
+    .all()) as { id: string }[];
+  await withTx(ctx.sqlite, async () => {
+    for (const person of people) await grantOpeningBalances(ctx, person.id, periodId, actorId);
+  });
+}
+
 async function publishDemoEarnedLeavePolicy(ctx: RequestContext, actorId: string) {
   const el = (await ctx.sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'AL'`).get()) as
     { id: string } | undefined;
@@ -633,12 +715,8 @@ async function publishDemoEarnedLeavePolicy(ctx: RequestContext, actorId: string
       `SELECT version_no AS n, rules_json AS rules FROM leave_policy_version WHERE leave_type_id = ? ORDER BY version_no DESC LIMIT 1`,
     )
     .get(el.id)) as { n: number; rules: string } | undefined;
-  if (latest && latest.rules.includes('"MGMT"')) return;
-  const rules = {
-    ...defaultRulesForCode('AL'),
-    categoryMonthlyHalfDays: { MGMT: 5 },
-    probationMonthlyHalfDays: 2,
-  };
+  if (latest && latest.rules.includes('confirmedUnderMonthlyHalfDays')) return;
+  const rules = defaultRulesForCode('AL');
   const versionId = newId();
   const period = (await ctx.sqlite
     .prepare(`SELECT starts_on AS "startsOn" FROM leave_period WHERE id = ?`)
@@ -813,6 +891,23 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
       days: 2,
       reason: 'Sister’s engagement',
       decision: 'approve',
+    },
+    // Higher up the hierarchy: HR's leave goes to the MD, a manager's to HR.
+    {
+      who: 'anitha',
+      approver: 'rajesh',
+      type: 'AL',
+      start: monday(addDays(ctx.today, 17)),
+      days: 2,
+      reason: 'Annual health check-up and family visit',
+    },
+    {
+      who: 'david',
+      approver: 'anitha',
+      type: 'AL',
+      start: monday(addDays(ctx.today, 24)),
+      days: 3,
+      reason: 'Vacation with family',
     },
   ];
   for (const item of plan) {

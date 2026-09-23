@@ -18,10 +18,21 @@ export const createEmployeeBodySchema = z
     jobTitleId: ulid,
     employmentTypeId: ulid,
     phone: z.string().trim().max(20).optional(),
+    hireBackground: z.enum(['fresher', 'experienced']).optional(),
     createAccount: z.boolean().default(true),
     /** Sign-in roles. Defaults to Employee. Only an administrator may include Administrator. */
     roles: z
-      .array(z.enum(['employee', 'manager', 'hr_officer', 'payroll_officer', 'admin', 'auditor']))
+      .array(
+        z.enum([
+          'employee',
+          'manager',
+          'hr_officer',
+          'payroll_officer',
+          'admin',
+          'auditor',
+          'director',
+        ]),
+      )
       .max(6)
       .optional(),
   })

@@ -2897,3 +2897,7 @@ select option {
   border: 1px dashed var(--border-subtle);
   border-radius: 10px;
 }
+.demo-role.role-director {
+  background: #fdf2fa;
+  color: #c11574;
+}

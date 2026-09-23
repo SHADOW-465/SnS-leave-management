@@ -24,6 +24,8 @@ export {
   publishPolicyBodySchema,
   rejectLeaveBodySchema,
   submitLeaveBodySchema,
+  submitPermissionBodySchema,
+  decidePermissionBodySchema,
 } from './leave.js';
 export {
   bulkProvisionBodySchema,

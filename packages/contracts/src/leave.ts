@@ -12,6 +12,21 @@ export const previewLeaveQuerySchema = z
   })
   .strict();
 
+export const decidePermissionBodySchema = z
+  .object({
+    decision: z.enum(['approve', 'reject']),
+    note: z.string().max(500).optional(),
+  })
+  .strict();
+
+export const submitPermissionBodySchema = z
+  .object({
+    onDate: isoDate,
+    hours: z.union([z.literal(1), z.literal(2)]),
+    reason: z.string().trim().min(3).max(500),
+  })
+  .strict();
+
 export const submitLeaveBodySchema = z
   .object({
     leaveTypeId: ulid,

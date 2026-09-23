@@ -153,8 +153,24 @@ describe('ensureDemoHierarchy backfills a pre-hierarchy preview database', () =>
       .get()) as { email: string } | undefined;
     expect(before).toBeUndefined();
 
+    // The older preview also had Casual Leave, which the framework does not describe.
+    await sqlite.exec(
+      `INSERT INTO leave_type (id, code, name, colour_token, is_paid, created_at, created_by, updated_at, updated_by)
+       VALUES ('lt-cl', 'CL', 'Casual leave', 'accent', 1, '2026-01-01', 'x', '2026-01-01', 'x')`,
+    );
     await ensureDemoHierarchy(ctx);
     await ensureDemoHierarchy(ctx);
+    const types = (await sqlite
+      .prepare(`SELECT code FROM leave_type WHERE archived_at IS NULL`)
+      .all()) as { code: string }[];
+    expect(types.map((t) => t.code)).toEqual(['AL']);
+    const md = (await sqlite
+      .prepare(
+        `SELECT r.code FROM user_role ur JOIN role r ON r.id = ur.role_id
+           JOIN user_account ua ON ua.id = ur.user_account_id WHERE ua.email = 'rajesh@sns.test'`,
+      )
+      .all()) as { code: string }[];
+    expect(md.map((r) => r.code)).toEqual(['director']);
 
     const davids = (await sqlite
       .prepare(`SELECT COUNT(*) AS n FROM user_account WHERE email = 'david@sns.test'`)

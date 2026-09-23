@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-09-22** (rest of the Leave Tracker framework: reporting managers, leave configuration, transactions, annual report, payroll PDF, government holidays, profile and sign-in, Simon & Sons sample organisation).
+Last reviewed: **2026-09-23** (earned leave rates, loss of pay on the employee dashboard, monthly permission).
 Next review: at the next scheduled release milestone.
 
 ---

@@ -726,7 +726,7 @@ export async function requestDetail(ctx: RequestContext, id: string) {
     (earnedIds.size === 0 || earnedIds.has(String(r.leave_type_id)));
   const countedHalf = Number(r.total_half_days ?? 0);
   const storedLopHalf = Number(r.lop_half_days ?? 0);
-  let paidHalf = countsAsEarned ? Math.max(0, countedHalf - storedLopHalf) : 0;
+  const paidHalf = countsAsEarned ? Math.max(0, countedHalf - storedLopHalf) : 0;
   let afterHalf = availableHalf - paidHalf;
   let thisLopHalf = countsAsEarned ? storedLopHalf : 0;
   if (afterHalf < 0) {

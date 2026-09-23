@@ -174,20 +174,22 @@ export function ApplyPage({ me }: { me: Me }) {
             ) : null}
           </div>
         ) : null}
-        <div className="field">
-          <label htmlFor="f-type">Leave type</label>
-          <Select
-            id="f-type"
-            name="leaveTypeId"
-            value={typeId}
-            onChange={(val) => setType(val)}
-            fullWidth
-            options={(types.data ?? []).map((t) => ({
-              value: t.id,
-              label: t.name,
-            }))}
-          />
-        </div>
+        {types.data && types.data.length > 1 ? (
+          <div className="field">
+            <label htmlFor="f-type">Leave type</label>
+            <Select
+              id="f-type"
+              name="leaveTypeId"
+              value={typeId}
+              onChange={(val) => setType(val)}
+              fullWidth
+              options={types.data.map((t) => ({
+                value: t.id,
+                label: t.name,
+              }))}
+            />
+          </div>
+        ) : null}
         <div className="two">
           <div className="field">
             <label htmlFor="f-from">From</label>

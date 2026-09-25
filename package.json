@@ -21,6 +21,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:migrate": "pnpm --filter @sns/database migrate",
+    "db:reset:navalur": "node scripts/apply-navalur-seed.mjs",
     "seed:demo": "pnpm --filter @sns/server seed:demo",
     "start": "pnpm build && node scripts/start-leaveos.mjs",
     "service": "node scripts/service.mjs"

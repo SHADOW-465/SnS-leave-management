@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.4 — 2026-09-26
+
+### Added
+- **Simon & Sons Navalur Chennai Dataset & SQL Reset Script**: Complete dataset tailoring for Simon & Sons Navalur ITES and digital publishing operations with 5 departments (Digital Publishing & Composition, ITES & Data Operations, Quality Assurance & Editorial, Content Technology & Tools, Human Resources & Administration) and 5 teams (e-Publishing & Conversion, Data Processing & Annotation, Quality Control & Pre-Media, Workflow & Automation, HR Operations & Support), each having exactly 10 members (50 staff + 1 IT Administrator).
+- **Executive & Key Roles**: Vijay Antony (IT Administrator), Anjusha R (HR Manager), Suresh Kumar (Publishing Operations Manager), and Rajesh Menon (Managing Director).
+- **Real-Life Scenario & Edge Case Fixtures**: Script `scripts/reset-simon-and-sons-navalur.sql` generates 14 edge cases covering weekend skipping, Chennai/Tamil Nadu public holiday skipping (Gandhi Jayanti, Pongal, etc.), AM/PM half-days, rejection notes, HR to MD routing, manager to HR routing, post-approval cancellations with balance restoration, probationary employee constraints, and Loss of Pay (LOP) unpaid requests.
+- **CLI Runner**: `node scripts/apply-navalur-seed.mjs` (and `pnpm db:reset:navalur`) allows executing the SQL script directly against any PostgreSQL/Supabase database.
+- **Automated Verification**: `apps/server/src/navalur-dataset.test.ts` executes the complete migration and dataset reset in PGlite to verify constraints, roles, team membership counts, password verification, and edge case leaves.
+
 ## 0.2.3 — 2026-09-24
 
 ### Added

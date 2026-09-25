@@ -21,46 +21,46 @@ type DemoAccountsResponse = {
 /** Used only if the server list cannot be fetched while developing. */
 const DEFAULT_DEMO_ACCOUNTS: DemoAccountItem[] = [
   {
-    name: 'Arjun Das',
+    name: 'Vijay Antony',
     email: 'admin@sns.test',
     roles: 'admin',
-    title: 'Administrator',
+    title: 'IT Administrator',
     password: 'ChangeMe_admin_1',
   },
   {
-    name: 'Anitha Joseph',
-    email: 'anitha@sns.test',
+    name: 'Anjusha R',
+    email: 'anjusha@sns.test',
     roles: 'hr_officer',
     title: 'HR Manager',
-    code: 'SNS-1015',
+    code: 'SNS-1041',
   },
   {
-    name: 'David Fernandes',
-    email: 'david@sns.test',
+    name: 'Suresh Kumar',
+    email: 'suresh@sns.test',
     roles: 'manager',
-    title: 'Production Manager',
-    code: 'SNS-1002',
+    title: 'Publishing Operations Manager',
+    code: 'SNS-1001',
   },
   {
-    name: 'John Mathew',
-    email: 'john@sns.test',
-    roles: 'manager',
-    title: 'Printing Supervisor',
+    name: 'Rajesh Menon',
+    email: 'rajesh@sns.test',
+    roles: 'director',
+    title: 'Managing Director',
+    code: 'SNS-1042',
+  },
+  {
+    name: 'Arun Prakash',
+    email: 'arun@sns.test',
+    roles: 'employee',
+    title: 'InDesign & Pagination Specialist',
     code: 'SNS-1003',
   },
   {
-    name: 'Vijay Anand',
-    email: 'vijay@sns.test',
-    roles: 'employee',
-    title: 'Machine Operator',
-    code: 'SNS-1005',
-  },
-  {
-    name: 'Ramesh Nagarajan',
+    name: 'Ramesh V',
     email: 'ramesh@sns.test',
     roles: 'payroll_officer',
-    title: 'Payroll Accountant',
-    code: 'SNS-1016',
+    title: 'Senior Payroll Officer',
+    code: 'SNS-1043',
   },
 ];
 
@@ -280,8 +280,8 @@ export function LoginPage() {
               })}
             </ul>
             <p className="note" style={{ margin: 0 }}>
-              Click a person to sign in as them. Try Vijay (employee) → John (his manager) → Anitha
-              (HR) → Arjun (administrator) to follow a request end to end.
+              Click a person to sign in as them. Try Arun (employee) → Suresh (his manager) →
+              Anjusha (HR) → Vijay Antony (administrator) to follow a request end to end.
             </p>
           </>
         ) : (

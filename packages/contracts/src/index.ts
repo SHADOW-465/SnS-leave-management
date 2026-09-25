@@ -37,6 +37,7 @@ export {
   orgUnitBodySchema,
   reactivateEmployeeBodySchema,
   teamMembersBodySchema,
+  departmentMembersBodySchema,
   updateDepartmentBodySchema,
   updateEmployeeBodySchema,
   updateTeamBodySchema,

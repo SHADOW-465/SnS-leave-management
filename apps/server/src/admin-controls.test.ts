@@ -413,6 +413,29 @@ describe('sign-in accounts', () => {
     );
   });
 
+  it('signs in with username or email, and never lists password hashes', async () => {
+    const listed = await call(admin, 'GET', '/api/v1/admin/users');
+    expect(listed.statusCode).toBe(200);
+    const blob = JSON.stringify(listed.json());
+    expect(blob).not.toMatch(/password_hash|argon2id|\$argon2/i);
+    const users = (
+      listed.json() as { data: { users: { id: string; email: string; username: string | null }[] } }
+    ).data.users;
+    const vijay = users.find((u) => u.email === 'vijay@sns.test');
+    expect(vijay?.username).toBeTruthy();
+    const byName = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: vijay!.username, password: 'ChangeMe_demo_1' },
+    });
+    expect(byName.statusCode).toBe(200);
+    const other = users.find((u) => u.email === 'john@sns.test');
+    expect(other).toBeDefined();
+    const staff = await signIn('vijay@sns.test');
+    const denied = await call(staff, 'POST', `/api/v1/accounts/${other!.id}/reset-password`);
+    expect(denied.statusCode).toBe(403);
+  });
+
   it('will not create a second login for the same person', async () => {
     const res = await call(admin, 'POST', '/api/v1/admin/users', {
       employeeId: await employeeId('vijay@sns.test'),

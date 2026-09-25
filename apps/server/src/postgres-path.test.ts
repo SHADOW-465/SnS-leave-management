@@ -21,14 +21,21 @@ function splitSql(sql: string): string[] {
   const parts: string[] = [];
   let buf = '';
   let inDollar = false;
+  let inComment = false;
   for (let i = 0; i < sql.length; i += 1) {
+    if (!inDollar && sql.startsWith('--', i)) {
+      inComment = true;
+    }
+    if (inComment && sql[i] === '\n') {
+      inComment = false;
+    }
     if (sql.startsWith('$$', i)) {
       inDollar = !inDollar;
       buf += '$$';
       i += 1;
       continue;
     }
-    if (!inDollar && sql[i] === ';') {
+    if (!inDollar && !inComment && sql[i] === ';') {
       if (buf.trim()) parts.push(buf.trim());
       buf = '';
       continue;

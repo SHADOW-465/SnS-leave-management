@@ -163,12 +163,12 @@ export function LoginPage() {
               </p>
             ) : null}
             <div className="field">
-              <label htmlFor="lg-email">Work email or employee ID</label>
+              <label htmlFor="lg-email">Username, email or employee ID</label>
               <input
                 id="lg-email"
                 className="input"
                 type="text"
-                placeholder="name@company.com or SNS-1005"
+                placeholder="vijay.anand, name@company.com or SNS-1005"
                 autoComplete="username"
                 required
                 value={email}
@@ -243,8 +243,8 @@ export function LoginPage() {
             <p className="note" style={{ margin: 0 }}>
               Simon &amp; Sons, a sample printing and publishing house. Everyone signs in with the
               password <span className="mono">{demo.data?.password || 'ChangeMe_demo_1'}</span> (the
-              administrator uses <span className="mono">ChangeMe_admin_1</span>), or with their
-              employee ID instead of email.
+              administrator uses <span className="mono">ChangeMe_admin_1</span>), or with username
+              or employee ID instead of email.
             </p>
             <ul className="demo-list demo-compact">
               {accounts.map((a) => {

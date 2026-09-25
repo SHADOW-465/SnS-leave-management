@@ -50,16 +50,20 @@ interface AttendanceRow {
   job_title_name?: string;
   first_login_at: string | null;
   last_login_at: string | null;
+  last_logout_at: string | null;
   created_at: string;
   payload_json: string;
   corrections: AttendanceCorrection[];
 }
 
 interface AttendanceMetrics {
-  todaySignalsCount: number;
-  todayDistinctEmployees: number;
+  todaySignalsCount?: number;
+  todayRecords?: number;
+  todayLoginSignals?: number;
+  todayDistinctEmployees?: number;
   earliestLoginToday: { time: string; employeeName: string } | null;
   latestLoginToday: { time: string; employeeName: string } | null;
+  latestLogoutToday?: { time: string; employeeName: string } | null;
   totalLoginSignals: number;
   totalImportedSignals: number;
 }
@@ -118,7 +122,7 @@ export function AttendancePage({ me }: { me: Me }) {
 
   // Correction Form State
   const [correctionField, setCorrectionField] = useState<
-    'first_login_at' | 'last_login_at' | 'work_date' | 'notes'
+    'first_login_at' | 'last_login_at' | 'last_logout_at' | 'work_date' | 'notes'
   >('first_login_at');
   const [correctionNewValue, setCorrectionNewValue] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
@@ -215,6 +219,7 @@ export function AttendancePage({ me }: { me: Me }) {
     const dateIdx = headers.indexOf('work_date');
     const firstIdx = headers.indexOf('first_login_at');
     const lastIdx = headers.indexOf('last_login_at');
+    const logoutIdx = headers.indexOf('last_logout_at');
     const notesIdx = headers.indexOf('notes');
 
     if (codeIdx === -1 || dateIdx === -1) {
@@ -233,6 +238,7 @@ export function AttendancePage({ me }: { me: Me }) {
         workDate: cols[dateIdx] || '',
         firstLoginAt: firstIdx !== -1 ? cols[firstIdx] || null : null,
         lastLoginAt: lastIdx !== -1 ? cols[lastIdx] || null : null,
+        lastLogoutAt: logoutIdx !== -1 ? cols[logoutIdx] || null : null,
         notes: notesIdx !== -1 ? cols[notesIdx] || null : null,
       });
     }
@@ -281,8 +287,8 @@ export function AttendancePage({ me }: { me: Me }) {
       'Department',
       'Date',
       'Source',
-      'First Login',
-      'Last Login',
+      'Entry',
+      'Logout',
       'Corrections Count',
     ];
     const csvRows = [header.join(',')];
@@ -295,7 +301,7 @@ export function AttendancePage({ me }: { me: Me }) {
           `"${r.work_date}"`,
           `"${r.source}"`,
           `"${r.first_login_at ?? ''}"`,
-          `"${r.last_login_at ?? ''}"`,
+          `"${r.last_logout_at ?? ''}"`,
           `"${r.corrections.length}"`,
         ].join(','),
       );
@@ -372,10 +378,14 @@ export function AttendancePage({ me }: { me: Me }) {
           <div className="kpi-content">
             <span className="kpi-label">Today's Active Signals</span>
             <div className="kpi-value-row">
-              <span className="kpi-value">{metrics?.todaySignalsCount ?? 0}</span>
+              <span className="kpi-value">
+                {metrics?.todayLoginSignals ??
+                  metrics?.todayRecords ??
+                  metrics?.todaySignalsCount ??
+                  0}
+              </span>
               <span className="kpi-subtext">
-                {metrics?.todayDistinctEmployees ?? 0} distinct{' '}
-                {metrics?.todayDistinctEmployees === 1 ? 'person' : 'people'}
+                {metrics?.todayRecords ?? metrics?.todayDistinctEmployees ?? 0} records today
               </span>
             </div>
           </div>
@@ -407,14 +417,14 @@ export function AttendancePage({ me }: { me: Me }) {
             <LogOut size={18} />
           </div>
           <div className="kpi-content">
-            <span className="kpi-label">Latest Active Today</span>
+            <span className="kpi-label">Latest logout today</span>
             <div className="kpi-value-row">
               <span className="kpi-value" style={{ fontSize: 20 }}>
-                {metrics?.latestLoginToday ? formatTimeOnly(metrics.latestLoginToday.time) : '—'}
+                {metrics?.latestLogoutToday ? formatTimeOnly(metrics.latestLogoutToday.time) : '—'}
               </span>
-              {metrics?.latestLoginToday && (
-                <span className="kpi-name-tag" title={metrics.latestLoginToday.employeeName}>
-                  {metrics.latestLoginToday.employeeName.split(' ')[0]}
+              {metrics?.latestLogoutToday && (
+                <span className="kpi-name-tag" title={metrics.latestLogoutToday.employeeName}>
+                  {metrics.latestLogoutToday.employeeName.split(' ')[0]}
                 </span>
               )}
             </div>
@@ -550,8 +560,8 @@ export function AttendancePage({ me }: { me: Me }) {
                   <th style={{ minWidth: 220 }}>Employee</th>
                   <th style={{ minWidth: 120 }}>Date</th>
                   <th style={{ minWidth: 130 }}>Signal Source</th>
-                  <th style={{ minWidth: 130 }}>First Presence</th>
-                  <th style={{ minWidth: 130 }}>Last Active</th>
+                  <th style={{ minWidth: 130 }}>Entry</th>
+                  <th style={{ minWidth: 130 }}>Logout</th>
                   <th style={{ minWidth: 120 }}>Presence Window</th>
                   <th style={{ minWidth: 110 }}>Corrections</th>
                   <th style={{ textAlign: 'right', minWidth: 130 }}>Actions</th>
@@ -560,7 +570,10 @@ export function AttendancePage({ me }: { me: Me }) {
               <tbody>
                 {rows.map((r) => {
                   const isToday = r.work_date === todayStr;
-                  const spanText = calculateSpan(r.first_login_at, r.last_login_at);
+                  const spanText = calculateSpan(
+                    r.first_login_at,
+                    r.last_logout_at ?? r.last_login_at,
+                  );
                   const hasCorrections = r.corrections && r.corrections.length > 0;
 
                   return (
@@ -605,7 +618,7 @@ export function AttendancePage({ me }: { me: Me }) {
                       <td>
                         <div className="time-cell">
                           <LogIn size={13} style={{ color: '#10b981' }} />
-                          <span className="mono-time" title={r.first_login_at ?? 'No login time'}>
+                          <span className="mono-time" title={r.first_login_at ?? 'No entry time'}>
                             {formatTimeOnly(r.first_login_at)}
                           </span>
                         </div>
@@ -614,8 +627,8 @@ export function AttendancePage({ me }: { me: Me }) {
                       <td>
                         <div className="time-cell">
                           <LogOut size={13} style={{ color: '#6366f1' }} />
-                          <span className="mono-time" title={r.last_login_at ?? 'No login time'}>
-                            {formatTimeOnly(r.last_login_at)}
+                          <span className="mono-time" title={r.last_logout_at ?? 'Still signed in'}>
+                            {r.last_logout_at ? formatTimeOnly(r.last_logout_at) : 'Still in'}
                           </span>
                         </div>
                       </td>
@@ -720,19 +733,24 @@ export function AttendancePage({ me }: { me: Me }) {
                   <strong className="meta-val mono">{inspectingRow.work_date}</strong>
                 </div>
                 <div className="meta-box">
-                  <span className="meta-label">First Login (Recorded)</span>
+                  <span className="meta-label">Entry (first login)</span>
                   <strong className="meta-val mono">
                     {inspectingRow.first_login_at ?? 'None'}
                   </strong>
                 </div>
                 <div className="meta-box">
-                  <span className="meta-label">Last Login (Recorded)</span>
-                  <strong className="meta-val mono">{inspectingRow.last_login_at ?? 'None'}</strong>
+                  <span className="meta-label">Logout (last sign-out)</span>
+                  <strong className="meta-val mono">
+                    {inspectingRow.last_logout_at ?? 'Still signed in'}
+                  </strong>
                 </div>
                 <div className="meta-box">
                   <span className="meta-label">Session Window</span>
                   <strong className="meta-val">
-                    {calculateSpan(inspectingRow.first_login_at, inspectingRow.last_login_at)}
+                    {calculateSpan(
+                      inspectingRow.first_login_at,
+                      inspectingRow.last_logout_at ?? inspectingRow.last_login_at,
+                    )}
                   </strong>
                 </div>
                 <div className="meta-box">
@@ -898,17 +916,23 @@ export function AttendancePage({ me }: { me: Me }) {
                         setCorrectionNewValue(correctingRow.first_login_at || '');
                       else if (f === 'last_login_at')
                         setCorrectionNewValue(correctingRow.last_login_at || '');
+                      else if (f === 'last_logout_at')
+                        setCorrectionNewValue(correctingRow.last_logout_at || '');
                       else if (f === 'work_date') setCorrectionNewValue(correctingRow.work_date);
                       else setCorrectionNewValue('');
                     }}
                     options={[
                       {
                         value: 'first_login_at',
-                        label: 'First Login Timestamp (first_login_at)',
+                        label: 'Entry time (first login of the day)',
                       },
                       {
                         value: 'last_login_at',
-                        label: 'Last Login Timestamp (last_login_at)',
+                        label: 'Last login of the day',
+                      },
+                      {
+                        value: 'last_logout_at',
+                        label: 'Logout time (last sign-out of the day)',
                       },
                       { value: 'work_date', label: 'Work Date (work_date)' },
                       { value: 'notes', label: 'Notes / Memo (notes)' },
@@ -1009,7 +1033,9 @@ export function AttendancePage({ me }: { me: Me }) {
                   </p>
                   <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--text-secondary)' }}>
                     Headers required:{' '}
-                    <code>employee_code,work_date,first_login_at,last_login_at,notes</code>
+                    <code>
+                      employee_code,work_date,first_login_at,last_login_at,last_logout_at,notes
+                    </code>
                   </p>
                   <input
                     type="file"
@@ -1038,7 +1064,7 @@ export function AttendancePage({ me }: { me: Me }) {
                   id="csv-raw"
                   className="att-textarea mono"
                   rows={4}
-                  placeholder={`employee_code,work_date,first_login_at,last_login_at,notes\nE-001,2026-08-27,2026-08-27T09:00:00Z,2026-08-27T17:30:00Z,Scanner export`}
+                  placeholder={`employee_code,work_date,first_login_at,last_login_at,last_logout_at,notes\nE-001,2026-08-27,2026-08-27T09:00:00Z,2026-08-27T17:00:00Z,2026-08-27T17:30:00Z,Scanner export`}
                   value={csvContent}
                   onChange={(e) => setCsvContent(e.target.value)}
                 />

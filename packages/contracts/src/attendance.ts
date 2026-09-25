@@ -6,6 +6,7 @@ export type AttendanceSource = z.infer<typeof attendanceSourceSchema>;
 export const attendanceCorrectionFieldSchema = z.enum([
   'first_login_at',
   'last_login_at',
+  'last_logout_at',
   'work_date',
   'notes',
 ]);
@@ -24,6 +25,7 @@ export const importAttendanceRowSchema = z.object({
   workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD format'),
   firstLoginAt: z.string().optional().nullable(),
   lastLoginAt: z.string().optional().nullable(),
+  lastLogoutAt: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
 export type ImportAttendanceRow = z.infer<typeof importAttendanceRowSchema>;

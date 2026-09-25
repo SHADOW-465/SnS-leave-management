@@ -13,6 +13,7 @@ import { hashPassword } from '@sns/auth';
 import { withTx } from '@sns/database';
 import { defaultRulesForCode, newId, type RoleCode } from '@sns/domain';
 import { loadPrincipal, type RequestContext } from '../ctx.js';
+import { uniqueUsername } from '../username.js';
 import { standardHolidays } from '../holiday-sheet.js';
 import { importHolidays } from './allowances.js';
 import { decideLeave, submitLeave } from './leave.js';
@@ -448,10 +449,20 @@ export async function ensureDemoOrganisation(
         const userId = newId();
         await ctx.sqlite
           .prepare(
-            `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
-             VALUES (?, ?, ?, ?, 'argon2id', 0, 0, ?, ?, ?, ?)`,
+            `INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
+             VALUES (?, ?, ?, ?, ?, 'argon2id', 0, 0, ?, ?, ?, ?)`,
           )
-          .run(userId, empId, email, passwordHash, now, actorId, now, actorId);
+          .run(
+            userId,
+            empId,
+            email,
+            await uniqueUsername(ctx.sqlite, email.split('@')[0] || p.code),
+            passwordHash,
+            now,
+            actorId,
+            now,
+            actorId,
+          );
         await ctx.sqlite
           .prepare(
             `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)

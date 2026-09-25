@@ -7,7 +7,8 @@
  * Sign-in accounts (`user.account.create`, `role.assign`, `user.account.disable`) are
  * HR and the administrator. Only an administrator may grant or remove the administrator role.
  */
-import { generateTemporaryPassword, hashPassword } from '@sns/auth';
+import { OFFICE_DEMO_PASSWORD, hashPassword } from '@sns/auth';
+import { uniqueUsername } from '../username.js';
 import { withTx } from '@sns/database';
 import {
   DomainError,
@@ -862,7 +863,7 @@ export async function listUsers(ctx: RequestContext) {
   await authorizeAction(ctx, 'user.account.create', null);
   const rows = (await ctx.sqlite
     .prepare(
-      `SELECT ua.id, ua.email, ua.is_disabled AS "isDisabled", ua.last_login_at AS "lastLoginAt",
+      `SELECT ua.id, ua.email, ua.username, ua.is_disabled AS "isDisabled", ua.last_login_at AS "lastLoginAt",
               ua.must_change_password AS "mustChangePassword",
               e.id AS "employeeId", e.employee_code AS "employeeCode",
               e.first_name AS "firstName", e.last_name AS "lastName",
@@ -885,6 +886,7 @@ export async function listUsers(ctx: RequestContext) {
     .all(ctx.now)) as {
     id: string;
     email: string;
+    username: string | null;
     isDisabled: number;
     lastLoginAt: string | null;
     mustChangePassword: number;
@@ -1192,6 +1194,7 @@ export async function updateAccount(
     firstName?: string;
     lastName?: string;
     email?: string;
+    username?: string;
     employeeCode?: string;
     expectedVersion?: number;
   },
@@ -1311,9 +1314,20 @@ export async function updateAccount(
         httpStatus: 409,
       });
     }
+    const username = input.username
+      ? await uniqueUsername(ctx.sqlite, input.username, userId)
+      : undefined;
     await ctx.sqlite
-      .prepare(`UPDATE user_account SET email = ?, updated_at = ?, updated_by = ? WHERE id = ?`)
-      .run(email, ctx.now, p.userId, userId);
+      .prepare(
+        username
+          ? `UPDATE user_account SET email = ?, username = ?, updated_at = ?, updated_by = ? WHERE id = ?`
+          : `UPDATE user_account SET email = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
+      )
+      .run(
+        ...(username
+          ? [email, username, ctx.now, p.userId, userId]
+          : [email, ctx.now, p.userId, userId]),
+      );
     await audit(
       ctx,
       'employee.updated',
@@ -1337,7 +1351,13 @@ export async function updateAccount(
  */
 export async function createLogin(
   ctx: RequestContext,
-  input: { employeeId: string; email?: string | null; roles: RoleCode[] },
+  input: {
+    employeeId: string;
+    email?: string | null;
+    username?: string;
+    password?: string;
+    roles: RoleCode[];
+  },
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'user.account.create', null);
@@ -1371,16 +1391,17 @@ export async function createLogin(
   }
   const roles: RoleCode[] = input.roles.length ? [...new Set(input.roles)] : ['employee'];
   assertMayGrantAdmin(p.roles.includes('admin'), roles, []);
-  const temp = generateTemporaryPassword();
+  const temp = input.password?.trim() || OFFICE_DEMO_PASSWORD;
   const hash = await hashPassword(temp);
   const userId = newId();
+  const username = await uniqueUsername(ctx.sqlite, input.username || emp.code || email);
   await withTx(ctx.sqlite, async () => {
     await ctx.sqlite
       .prepare(
-        `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
-         VALUES (?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
+        `INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
       )
-      .run(userId, emp.id, email, hash, ctx.now, p.userId, ctx.now, p.userId);
+      .run(userId, emp.id, email, username, hash, ctx.now, p.userId, ctx.now, p.userId);
     for (const code of roles) {
       const role = (await ctx.sqlite.prepare(`SELECT id FROM role WHERE code = ?`).get(code)) as
         { id: string } | undefined;
@@ -1402,6 +1423,7 @@ export async function createLogin(
     email,
     employeeCode: emp.code,
     temporaryPassword: temp,
-    message: `${emp.name} can now sign in with ${email} or ${emp.code}. Give them the temporary password; they will choose their own at first sign-in.`,
+    username,
+    message: `${emp.name} can now sign in with ${username}, ${email}, or ${emp.code}. The first password is the office demo password; they change it from Profile.`,
   };
 }

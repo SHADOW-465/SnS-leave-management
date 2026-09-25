@@ -83,7 +83,8 @@ export function ProfilePage() {
           ))}
         </dl>
         <p className="muted small">
-          Something wrong? HR updates your record. <Link to="/password">Change your password</Link>
+          Something wrong? HR updates your record. Only you can change your password.{' '}
+          <Link to="/password">Change password</Link>
         </p>
       </section>
       <style>{`

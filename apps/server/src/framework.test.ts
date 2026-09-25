@@ -114,6 +114,54 @@ describe('functional framework', () => {
     await app.close();
   });
 
+  it('employee report balances are earned leave only, not leftover casual or sick', async () => {
+    const { app, sqlite } = await boot();
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'admin@example.invalid', password: 'ChangeMe_admin_1' },
+    });
+    const s = sessionFrom(login);
+    const vijay = (await sqlite
+      .prepare(`SELECT id FROM employee WHERE work_email = 'vijay@sns.test'`)
+      .get()) as { id: string };
+    const period = (await sqlite.prepare(`SELECT id FROM leave_period LIMIT 1`).get()) as {
+      id: string;
+    };
+    await sqlite.exec(
+      `INSERT INTO leave_type (id, code, name, colour_token, is_paid, created_at, created_by, updated_at, updated_by)
+       VALUES ('lt-cl-report', 'CL', 'Casual leave', 'accent', 1, '2026-01-01', 'x', '2026-01-01', 'x')`,
+    );
+    await sqlite
+      .prepare(
+        `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, reason, created_by, created_at)
+         VALUES ('led-cl-60', ?, 'lt-cl-report', ?, 'OPENING', 120, '2026-01-01', 'job_run', 'Old casual grant', 'x', '2026-01-01')`,
+      )
+      .run(vijay.id, period.id);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/reports?year=2026&month=9',
+      headers: { cookie: s.cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = (
+      res.json() as {
+        data: {
+          employeeSummaries: {
+            code: string;
+            entitlementDays: number;
+            remainingDays: number;
+            takenDays: number;
+          }[];
+        };
+      }
+    ).data.employeeSummaries.find((e) => e.code === 'SNS-1005');
+    expect(row).toBeDefined();
+    expect(row!.entitlementDays).toBeLessThan(40);
+    expect(row!.remainingDays).toBe(row!.entitlementDays - row!.takenDays);
+    await app.close();
+  });
+
   it('stores a mobile number on a new employee', async () => {
     const { app } = await boot();
     const login = await app.inject({

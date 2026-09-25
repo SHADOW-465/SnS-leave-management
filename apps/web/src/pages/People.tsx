@@ -117,11 +117,13 @@ export function PeoplePage({ me }: { me: Me }) {
   const [createDeptOpen, setCreateDeptOpen] = useState(false);
   const [editingDept, setEditingDept] = useState<DepartmentRecord | null>(null);
   const [archivingDept, setArchivingDept] = useState<DepartmentRecord | null>(null);
+  const [managingDept, setManagingDept] = useState<DepartmentRecord | null>(null);
 
   // Modals state - Team
   const [createTeamOpen, setCreateTeamOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<TeamRecord | null>(null);
   const [managingTeam, setManagingTeam] = useState<TeamRecord | null>(null);
+  const [settingLeadTeam, setSettingLeadTeam] = useState<TeamRecord | null>(null);
   const [archivingTeam, setArchivingTeam] = useState<TeamRecord | null>(null);
   const [overviewId, setOverviewId] = useState<string | null>(null);
 
@@ -547,6 +549,14 @@ export function PeoplePage({ me }: { me: Me }) {
                         <button
                           type="button"
                           className="icon-action-btn"
+                          title="Add employees to this department"
+                          onClick={() => setManagingDept(dept)}
+                        >
+                          <Users size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-action-btn"
                           title="Edit department"
                           onClick={() => setEditingDept(dept)}
                         >
@@ -585,6 +595,15 @@ export function PeoplePage({ me }: { me: Me }) {
                         <span className="dept-stat-val">{dept.team_count}</span>
                         <span className="dept-stat-lbl">Teams</span>
                       </div>
+                      {canManageOrg && (
+                        <button
+                          type="button"
+                          className="dept-stat-action-btn"
+                          onClick={() => setManagingDept(dept)}
+                        >
+                          Add employees →
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -665,10 +684,20 @@ export function PeoplePage({ me }: { me: Me }) {
                     </div>
                     {canManageOrg && (
                       <div className="emp-actions-wrap">
+                        {canRouteNow && (
+                          <button
+                            type="button"
+                            className="icon-action-btn"
+                            title="Set team lead"
+                            onClick={() => setSettingLeadTeam(team)}
+                          >
+                            <UserCheck size={15} />
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="icon-action-btn"
-                          title="Manage team members"
+                          title="Add employees to this team"
                           onClick={() => setManagingTeam(team)}
                         >
                           <Users size={15} />
@@ -716,7 +745,7 @@ export function PeoplePage({ me }: { me: Me }) {
                           className="dept-stat-action-btn"
                           onClick={() => setManagingTeam(team)}
                         >
-                          Manage Members →
+                          Add employees →
                         </button>
                       )}
                     </div>
@@ -887,6 +916,19 @@ export function PeoplePage({ me }: { me: Me }) {
         />
       )}
 
+      {managingDept && (
+        <ManageDepartmentMembersModal
+          dept={managingDept}
+          employees={employees}
+          onClose={() => setManagingDept(null)}
+          onSuccess={() => {
+            void qc.invalidateQueries({ queryKey: ['people'] });
+            void qc.invalidateQueries({ queryKey: ['departments'] });
+            void qc.invalidateQueries({ queryKey: ['teams'] });
+          }}
+        />
+      )}
+
       {/* 12. Manage Team Members Modal */}
       {managingTeam && (
         <ManageTeamMembersModal
@@ -898,6 +940,19 @@ export function PeoplePage({ me }: { me: Me }) {
             void qc.invalidateQueries({ queryKey: ['teams'] });
             void qc.invalidateQueries({ queryKey: ['people'] });
             void qc.invalidateQueries({ queryKey: ['departments'] });
+          }}
+        />
+      )}
+
+      {settingLeadTeam && (
+        <SetTeamLeadModal
+          team={settingLeadTeam}
+          employees={employees}
+          onClose={() => setSettingLeadTeam(null)}
+          onSuccess={() => {
+            setSettingLeadTeam(null);
+            void qc.invalidateQueries({ queryKey: ['teams'] });
+            void qc.invalidateQueries({ queryKey: ['people'] });
           }}
         />
       )}
@@ -3119,6 +3174,276 @@ function ManageTeamMembersModal({
             Done
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ManageDepartmentMembersModal({
+  dept,
+  employees,
+  onClose,
+  onSuccess,
+}: {
+  dept: DepartmentRecord;
+  employees: EmployeeRecord[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedToAdd, setSelectedToAdd] = useState<string>('');
+  const [info, setInfo] = useState<string | null>(null);
+
+  const currentMembers = useMemo(() => {
+    return employees.filter((e) => e.department_id === dept.id && e.status !== 'exited');
+  }, [employees, dept.id]);
+
+  const availableToAdd = useMemo(() => {
+    return employees.filter((e) => e.department_id !== dept.id && e.status !== 'exited');
+  }, [employees, dept.id]);
+
+  async function handleAddMember() {
+    if (!selectedToAdd) return;
+    setLoading(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const person = employees.find((e) => e.id === selectedToAdd);
+      const r = await api<{ notes?: string[] }>(`/api/v1/departments/${dept.id}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ addEmployeeIds: [selectedToAdd] }),
+      });
+      setInfo(
+        [
+          person
+            ? `${person.first_name} ${person.last_name} is now in ${dept.name}${
+                person.department_name ? ` (moved from ${person.department_name})` : ''
+              }.`
+            : 'Added.',
+          ...(r?.notes ?? []),
+        ].join(' '),
+      );
+      setSelectedToAdd('');
+      onSuccess();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not add this person to the department');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="curved-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h3 className="modal-title">Employees in {dept.name}</h3>
+            <span style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>{dept.code}</span>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          {error && <div className="form-error">{error}</div>}
+          {info && (
+            <div className="form-ok" role="status" style={{ marginBottom: 12 }}>
+              {info}
+            </div>
+          )}
+
+          <div
+            style={{
+              background: 'var(--bg-subtle, #f8fafc)',
+              border: '1px solid var(--border, #e2e8f0)',
+              borderRadius: 10,
+              padding: '12px 14px',
+              marginBottom: 16,
+            }}
+          >
+            <label className="form-label" style={{ marginBottom: 6 }}>
+              Add employee to department
+            </label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Select
+                value={selectedToAdd}
+                onChange={(val) => setSelectedToAdd(val)}
+                style={{ flex: 1 }}
+                fullWidth
+                placeholder="Select an employee to add…"
+                options={[
+                  { value: '', label: 'Select an employee to add…' },
+                  ...availableToAdd.map((e) => ({
+                    value: e.id,
+                    label: `${e.first_name} ${e.last_name} — ${e.job_title_name}, currently ${e.department_name}`,
+                  })),
+                ]}
+              />
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void handleAddMember();
+                }}
+                disabled={!selectedToAdd || loading}
+              >
+                <Plus size={15} />
+                <span>Add</span>
+              </Button>
+            </div>
+            <p className="field-hint" style={{ margin: '8px 0 0' }}>
+              Moving them here takes them off a team that belongs to another department.
+            </p>
+          </div>
+
+          <div className="form-label" style={{ marginBottom: 8 }}>
+            Current staff ({currentMembers.length})
+          </div>
+
+          {currentMembers.length === 0 ? (
+            <div
+              style={{
+                padding: '20px 0',
+                textAlign: 'center',
+                color: 'var(--muted, #64748b)',
+                fontSize: 13,
+              }}
+            >
+              Nobody is in this department yet.
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                maxHeight: 280,
+                overflowY: 'auto',
+                border: '1px solid var(--border, #e2e8f0)',
+                borderRadius: 8,
+                padding: 6,
+              }}
+            >
+              {currentMembers.map((emp) => (
+                <div
+                  key={emp.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '8px 10px',
+                    borderRadius: 6,
+                    background: 'var(--card-bg, #ffffff)',
+                  }}
+                >
+                  <div className="emp-avatar" style={{ width: 28, height: 28, fontSize: 11 }}>
+                    {initials(`${emp.first_name} ${emp.last_name}`)}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg, #0f172a)' }}>
+                      {emp.first_name} {emp.last_name}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted, #64748b)' }}>
+                      {emp.job_title_name}
+                      {emp.team_name ? ` · ${emp.team_name}` : ''}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SetTeamLeadModal({
+  team,
+  employees,
+  onClose,
+  onSuccess,
+}: {
+  team: TeamRecord;
+  employees: EmployeeRecord[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [leadId, setLeadId] = useState(team.lead_employee_id ?? '');
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await api(`/api/v1/teams/${team.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ leadEmployeeId: leadId || null }),
+      });
+      onSuccess();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not set the team lead');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="curved-modal" onClick={(e) => e.stopPropagation()}>
+        <form
+          onSubmit={(e) => {
+            void handleSubmit(e);
+          }}
+        >
+          <div className="modal-header">
+            <h3 className="modal-title">Team lead: {team.name}</h3>
+            <button type="button" className="modal-close-btn" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
+          <div className="modal-body">
+            {error && <div className="form-error">{error}</div>}
+            <div className="form-group">
+              <label className="form-label">Who leads this team</label>
+              <Select
+                value={leadId}
+                onChange={setLeadId}
+                fullWidth
+                options={[
+                  { value: '', label: 'None (unassigned)' },
+                  ...employees
+                    .filter((e) => e.status !== 'exited')
+                    .map((e) => ({
+                      value: e.id,
+                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                    })),
+                ]}
+              />
+              <span className="field-hint">
+                Approves leave when someone on the team has no reporting manager. This is separate
+                from adding people to the team.
+              </span>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <Button variant="secondary" onClick={onClose} type="button" disabled={loading}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={loading}>
+              {loading ? 'Saving…' : 'Save team lead'}
+            </Button>
+          </div>
+        </form>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import {
-  generateTemporaryPassword,
+  OFFICE_DEMO_PASSWORD,
   hashPassword,
   hashToken,
   lockUntil,
@@ -10,7 +10,7 @@ import {
 } from '@sns/auth';
 import { withTx } from '@sns/database';
 import { DomainError, NotAuthenticatedError, newId } from '@sns/domain';
-import type { RequestContext } from '../ctx.js';
+import { requirePrincipal, type RequestContext } from '../ctx.js';
 import { addHoursIso } from '../time.js';
 import { weekendDaysFor } from './leave.js';
 function sleep(ms: number) {
@@ -48,16 +48,18 @@ export async function login(
     workstationId?: string;
   },
 ) {
-  // People sign in with their work email or their employee ID (e.g. SNS-1001).
+  // People sign in with username, work email, or employee ID (e.g. SNS-1001).
   const identifier = input.email.trim();
   const account = (await ctx.sqlite
     .prepare(
-      identifier.includes('@')
-        ? `SELECT * FROM user_account WHERE LOWER(email) = LOWER(?)`
-        : `SELECT ua.* FROM user_account ua JOIN employee e ON e.id = ua.employee_id
-            WHERE UPPER(e.employee_code) = UPPER(?)`,
+      `SELECT ua.* FROM user_account ua
+         LEFT JOIN employee e ON e.id = ua.employee_id
+        WHERE LOWER(ua.email) = LOWER(?)
+           OR LOWER(ua.username) = LOWER(?)
+           OR (e.employee_code IS NOT NULL AND UPPER(e.employee_code) = UPPER(?))
+        LIMIT 1`,
     )
-    .get(identifier)) as
+    .get(identifier, identifier, identifier)) as
     | {
         id: string;
         email: string;
@@ -280,12 +282,39 @@ async function recordLoginAttendance(
     // A failed attendance-signal write never fails a login (F-22 / ADR 0011).
   }
 }
+
+async function recordLogoutAttendance(ctx: RequestContext, employeeId: string, at: string) {
+  try {
+    const existing = (await ctx.sqlite
+      .prepare(
+        `SELECT id, last_logout_at AS "lastLogoutAt" FROM attendance_raw
+          WHERE employee_id = ? AND work_date = ? AND source = 'login'`,
+      )
+      .get(employeeId, ctx.today)) as { id: string; lastLogoutAt: string | null } | undefined;
+    if (!existing) return;
+    if (existing.lastLogoutAt && existing.lastLogoutAt > at) return;
+    await ctx.sqlite
+      .prepare(`UPDATE attendance_raw SET last_logout_at = ? WHERE id = ?`)
+      .run(at, existing.id);
+  } catch {
+    // A failed attendance write never fails a sign-out.
+  }
+}
 export async function logout(ctx: RequestContext, tokenHash: string) {
+  const sess = (await ctx.sqlite
+    .prepare(
+      `SELECT ua.employee_id AS "employeeId"
+         FROM session s
+         JOIN user_account ua ON ua.id = s.user_account_id
+        WHERE s.token_hash = ? AND s.revoked_at IS NULL`,
+    )
+    .get(tokenHash)) as { employeeId: string | null } | undefined;
   await ctx.sqlite
     .prepare(
       `UPDATE session SET revoked_at = ?, revoked_reason = 'logout' WHERE token_hash = ? AND revoked_at IS NULL`,
     )
     .run(ctx.now, tokenHash);
+  if (sess?.employeeId) await recordLogoutAttendance(ctx, sess.employeeId, ctx.now);
 }
 export async function resolveSession(ctx: RequestContext, token: string) {
   const tokenHash = hashToken(token);
@@ -314,6 +343,10 @@ export async function resolveSession(ctx: RequestContext, token: string) {
     await ctx.sqlite
       .prepare(`UPDATE session SET revoked_at = ?, revoked_reason = 'idle' WHERE id = ?`)
       .run(ctx.now, row.id);
+    const emp = (await ctx.sqlite
+      .prepare(`SELECT employee_id AS "employeeId" FROM user_account WHERE id = ?`)
+      .get(row.user_account_id)) as { employeeId: string | null } | undefined;
+    if (emp?.employeeId) await recordLogoutAttendance(ctx, emp.employeeId, row.last_seen_at);
     return null;
   }
   await ctx.sqlite.prepare(`UPDATE session SET last_seen_at = ? WHERE id = ?`).run(ctx.now, row.id);
@@ -425,7 +458,7 @@ export async function changePassword(
       .run(newId(), p.userId, account.password_hash, ctx.now);
     await ctx.sqlite
       .prepare(
-        `UPDATE user_account SET password_hash = ?, must_change_password = 1, failed_attempts = 0, locked_until = NULL, password_changed_at = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
+        `UPDATE user_account SET password_hash = ?, must_change_password = 0, failed_attempts = 0, locked_until = NULL, password_changed_at = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
       )
       .run(next, ctx.now, ctx.now, p.userId, p.userId);
     await ctx.sqlite
@@ -442,12 +475,20 @@ export async function changePassword(
   });
 }
 export async function adminResetPassword(ctx: RequestContext, userId: string) {
-  const temp = generateTemporaryPassword();
+  const p = requirePrincipal(ctx);
+  if (p.userId === userId) {
+    throw new DomainError(
+      'USE_OWN_PASSWORD',
+      'Change your own password from Profile → Change password. A reset is only for someone else who is locked out.',
+      { httpStatus: 400 },
+    );
+  }
+  const temp = OFFICE_DEMO_PASSWORD;
   const hash = await hashPassword(temp);
   await withTx(ctx.sqlite, async () => {
     await ctx.sqlite
       .prepare(
-        `UPDATE user_account SET password_hash = ?, must_change_password = 0, password_changed_at = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
+        `UPDATE user_account SET password_hash = ?, must_change_password = 1, password_changed_at = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
       )
       .run(hash, ctx.now, ctx.now, ctx.principal!.userId, userId);
     await ctx.sqlite

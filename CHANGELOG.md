@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3 — 2026-09-24
+
+### Added
+- Departments have **Add employees**, the same way teams do. Team lead is a separate control from adding people to the team.
+- Attendance records **entry** as the first sign-in of the day and **logout** as the last sign-out of the day.
+- The dashboard **Who is out** list tells higher-ups who is away, who approved it (reporting manager or team lead), and a tag for **earned leave** or **loss of pay**. They still decide requests in the queue.
+- Users & access has **username**, **email** and **password** when adding a sign-in. New accounts start with the office demo password. People sign in with username, email or employee ID, and change their password from Profile. Password hashes are never listed; only the signed-in person can set their own password. Hosted Postgres enables RLS on password history.
+
+### Fixed
+- The reports employee table **Earned** column is Annual Leave credited this year. It no longer adds casual, sick, and other leftover types on top of the 2 days a month (which is why some people showed 60+ days).
+
 ## 0.2.2 — 2026-09-23
 
 ### Changed

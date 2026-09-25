@@ -21,7 +21,8 @@ export async function listAttendance(ctx: RequestContext, filters: AttendanceFil
 
   const rows = (await ctx.sqlite
     .prepare(
-      `SELECT a.id, a.source, a.work_date, a.payload_json, a.first_login_at, a.last_login_at, a.created_at,
+      `SELECT a.id, a.source, a.work_date, a.payload_json, a.first_login_at, a.last_login_at,
+              a.last_logout_at, a.created_at,
               a.employee_id, e.first_name || ' ' || e.last_name AS name, e.employee_code, e.work_email,
               e.department_id, d.name AS department_name, jt.name AS job_title_name
        FROM attendance_raw a
@@ -97,6 +98,7 @@ export async function listAttendance(ctx: RequestContext, filters: AttendanceFil
 
   let earliestLoginToday: { time: string; employeeName: string } | null = null;
   let latestLoginToday: { time: string; employeeName: string } | null = null;
+  let latestLogoutToday: { time: string; employeeName: string } | null = null;
 
   for (const r of todayLoginRows) {
     const loginTime = String(r.first_login_at || '');
@@ -107,6 +109,10 @@ export async function listAttendance(ctx: RequestContext, filters: AttendanceFil
     const lastTime = String(r.last_login_at || r.first_login_at || '');
     if (!latestLoginToday || lastTime > latestLoginToday.time) {
       latestLoginToday = { time: lastTime, employeeName: empName };
+    }
+    const logoutTime = r.last_logout_at ? String(r.last_logout_at) : '';
+    if (logoutTime && (!latestLogoutToday || logoutTime > latestLogoutToday.time)) {
+      latestLogoutToday = { time: logoutTime, employeeName: empName };
     }
   }
 
@@ -126,6 +132,7 @@ export async function listAttendance(ctx: RequestContext, filters: AttendanceFil
       todayLoginSignals: todayLoginRows.length,
       earliestLoginToday,
       latestLoginToday,
+      latestLogoutToday,
       totalLoginSignals: scoped.filter((r) => r.source === 'login').length,
       totalImportedSignals: scoped.filter((r) => r.source === 'import').length,
     },
@@ -236,16 +243,23 @@ export async function importAttendanceCsv(ctx: RequestContext, input: ImportAtte
             `UPDATE attendance_raw
            SET first_login_at = COALESCE(?, first_login_at),
                last_login_at = COALESCE(?, last_login_at),
+               last_logout_at = COALESCE(?, last_logout_at),
                payload_json = ?
            WHERE id = ?`,
           )
-          .run(row.firstLoginAt || null, row.lastLoginAt || null, payloadJson, existing.id);
+          .run(
+            row.firstLoginAt || null,
+            row.lastLoginAt || null,
+            row.lastLogoutAt || null,
+            payloadJson,
+            existing.id,
+          );
         updatedCount++;
       } else {
         await ctx.sqlite
           .prepare(
-            `INSERT INTO attendance_raw (id, source, employee_id, work_date, payload_json, first_login_at, last_login_at, created_at, created_by, source_row_no)
-           VALUES (?, 'import', ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO attendance_raw (id, source, employee_id, work_date, payload_json, first_login_at, last_login_at, last_logout_at, created_at, created_by, source_row_no)
+           VALUES (?, 'import', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             newId(),
@@ -254,6 +268,7 @@ export async function importAttendanceCsv(ctx: RequestContext, input: ImportAtte
             payloadJson,
             row.firstLoginAt || null,
             row.lastLoginAt || null,
+            row.lastLogoutAt || null,
             ctx.now,
             p.employeeId,
             i + 1,

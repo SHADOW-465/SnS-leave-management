@@ -53,6 +53,9 @@ export function lockUntil(failedAttempts: number, now = Date.now()): string | nu
   return new Date(now + 15 * 60 * 1000).toISOString();
 }
 
+/** First password for new office accounts. People change it on Profile → Change password. */
+export const OFFICE_DEMO_PASSWORD = 'ChangeMe_demo_1';
+
 export function generateTemporaryPassword(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@$%';
   const bytes = randomBytes(16);

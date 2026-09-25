@@ -96,6 +96,26 @@ describe('Attendance signal queries, corrections, and import', () => {
     expect(firstRow.first_login_at).toBeDefined();
   });
 
+  it('records first login as entry and last logout as logout', async () => {
+    const { app, sqlite } = await boot();
+    const adminAuth = await loginAs(app, ADMIN);
+    const out = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/logout',
+      headers: { cookie: adminAuth.header, 'x-csrf-token': adminAuth.csrf },
+    });
+    expect(out.statusCode).toBe(200);
+    const row = (await sqlite
+      .prepare(
+        `SELECT first_login_at AS "firstLoginAt", last_logout_at AS "lastLogoutAt"
+           FROM attendance_raw WHERE source = 'login' LIMIT 1`,
+      )
+      .get()) as { firstLoginAt: string | null; lastLogoutAt: string | null };
+    expect(row.firstLoginAt).toBeTruthy();
+    expect(row.lastLogoutAt).toBeTruthy();
+    expect(row.lastLogoutAt! >= row.firstLoginAt!).toBe(true);
+  });
+
   it('records an immutable manual correction with reason and audit log', async () => {
     const { app, sqlite } = await boot();
     const adminAuth = await loginAs(app, ADMIN);

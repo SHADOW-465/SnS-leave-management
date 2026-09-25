@@ -476,6 +476,61 @@ describe('dashboard scope', () => {
     // Development scaffolding must not reappear as a headline metric.
     expect(kpis.map((k) => k.label).join(' ')).not.toMatch(/placeholder/i);
   });
+
+  it('shows who is out with who approved and earned vs loss of pay, not the leave type', async () => {
+    const john = await signIn('john@sns.test', 'ChangeMe_demo_1');
+    const typeId = (
+      (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'AL'`).get()) as {
+        id: string;
+      }
+    ).id;
+    const utc = new Date();
+    const skip = utc.getUTCDay() === 0 ? 1 : utc.getUTCDay() === 6 ? 2 : 0;
+    utc.setUTCDate(utc.getUTCDate() + skip);
+    const on = utc.toISOString().slice(0, 10);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/leave-requests',
+      headers: auth(employee),
+      payload: {
+        leaveTypeId: typeId,
+        startDate: on,
+        endDate: on,
+        reason: 'Out of the press hall for a delivery.',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const id = (created.json() as { data: { id: string } }).data.id;
+    const ver = (
+      (await sqlite.prepare(`SELECT version FROM leave_request WHERE id = ?`).get(id)) as {
+        version: number;
+      }
+    ).version;
+    const decided = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/approve`,
+      headers: auth(john),
+      payload: { expectedVersion: ver },
+    });
+    expect(decided.statusCode).toBe(200);
+    const dash = await app.inject({
+      method: 'GET',
+      url: '/api/v1/dashboard',
+      headers: { cookie: hr.cookie },
+    });
+    const data = dash.json() as {
+      data: {
+        outToday: { name: string; approvedBy: string | null; pay: string; type?: string }[];
+        upcomingAway: { name: string; approvedBy: string | null; pay: string }[];
+      };
+    };
+    const away = [...data.data.outToday, ...data.data.upcomingAway];
+    const vijay = away.find((o) => o.name === 'Vijay Anand');
+    expect(vijay).toBeDefined();
+    expect(vijay!.approvedBy).toMatch(/John/);
+    expect(vijay!.pay).toBe('earned');
+    expect(vijay).not.toHaveProperty('type');
+  });
 });
 
 describe('holiday spreadsheet import', () => {

@@ -57,7 +57,7 @@ export async function migrate(db: Db): Promise<void> {
       (r) => r.id,
     ),
   );
-  const files = [
+  const files: { id: string; postgresOnly?: boolean }[] = [
     { id: '0001_init' },
     { id: '0002_holiday_one_kind_per_date' },
     { id: '0003_team_lead_approver' },
@@ -67,9 +67,18 @@ export async function migrate(db: Db): Promise<void> {
     { id: '0007_fix_double_opening_grant' },
     { id: '0008_managing_director_role' },
     { id: '0009_earned_leave_lop_permission' },
+    { id: '0010_attendance_logout' },
+    { id: '0011_account_username' },
+    { id: '0012_password_rls', postgresOnly: true },
   ];
   for (const m of files) {
     if (applied.has(m.id)) continue;
+    if (m.postgresOnly && db.dialect !== 'postgres') {
+      await db
+        .prepare('INSERT INTO schema_migration (id, applied_at) VALUES (?, ?)')
+        .run(m.id, new Date().toISOString());
+      continue;
+    }
     let sql = fs.readFileSync(new URL(`./sql/${m.id}.sql`, import.meta.url), 'utf8');
     if (db.dialect === 'postgres') sql = sqliteSchemaToPg(sql);
     await db.exec('BEGIN');

@@ -11,6 +11,7 @@ import {
   type LeavePolicyRules,
 } from '@sns/domain';
 import type { RequestContext } from '../ctx.js';
+import { uniqueUsername } from '../username.js';
 import {
   DEMO_ADMIN,
   DEMO_DOMAIN,
@@ -264,13 +265,14 @@ export async function completeSetup(
       );
     await ctx.sqlite
       .prepare(
-        `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
-         VALUES (?, ?, ?, ?, 'argon2id', 0, 0, ?, ?, ?, ?)`,
+        `INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'argon2id', 0, 0, ?, ?, ?, ?)`,
       )
       .run(
         adminUserId,
         adminEmployeeId,
         input.adminEmail,
+        await uniqueUsername(ctx.sqlite, input.adminEmail.split('@')[0] || 'admin'),
         passwordHash,
         ctx.now,
         adminUserId,

@@ -20,6 +20,14 @@ export const createEmployeeBodySchema = z
     phone: z.string().trim().max(20).optional(),
     hireBackground: z.enum(['fresher', 'experienced']).optional(),
     createAccount: z.boolean().default(true),
+    username: z
+      .string()
+      .trim()
+      .min(2)
+      .max(40)
+      .regex(/^[a-zA-Z0-9._-]+$/, 'Username can only use letters, numbers, dots, _ and -')
+      .optional(),
+    password: z.string().min(12).max(200).optional(),
     /** Sign-in roles. Defaults to Employee. Only an administrator may include Administrator. */
     roles: z
       .array(
@@ -111,6 +119,8 @@ export const teamMembersBodySchema = z
     removeEmployeeIds: z.array(ulid).optional(),
   })
   .strict();
+
+export const departmentMembersBodySchema = teamMembersBodySchema;
 
 export const orgUnitBodySchema = z
   .object({

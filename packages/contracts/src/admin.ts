@@ -73,6 +73,13 @@ export const updateAccountBodySchema = z
     firstName: z.string().trim().min(1).max(80).optional(),
     lastName: z.string().trim().min(1).max(80).optional(),
     email: z.string().trim().email().max(254).optional(),
+    username: z
+      .string()
+      .trim()
+      .min(2)
+      .max(40)
+      .regex(/^[a-zA-Z0-9._-]+$/, 'Username can only use letters, numbers, dots, _ and -')
+      .optional(),
     employeeCode: z.string().trim().min(2).max(40).optional(),
     /** Required when the sign-in belongs to an employee. */
     expectedVersion: z.number().int().positive().optional(),
@@ -83,6 +90,14 @@ export const createLoginBodySchema = z
   .object({
     employeeId: ulid,
     email: z.string().trim().email().max(254).nullable().optional(),
+    username: z
+      .string()
+      .trim()
+      .min(2)
+      .max(40)
+      .regex(/^[a-zA-Z0-9._-]+$/)
+      .optional(),
+    password: z.string().min(12).max(200).optional(),
     roles: z
       .array(
         z.enum([

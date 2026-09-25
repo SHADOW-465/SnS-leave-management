@@ -100,6 +100,9 @@ export async function buildApp(config: AppConfig, sqlite: Db): Promise<FastifyIn
       backupsRoot: dirs.backups,
     };
     req.ctx = ctx;
+    if (sqlite.dialect === 'postgres') {
+      await sqlite.prepare(`SELECT set_config('app.user_account_id', '', false)`).get();
+    }
     const key = `${req.method} ${req.url.split('?')[0]}`;
     const isPublic = PUBLIC.has(key) || req.url.startsWith('/assets') || req.method === 'OPTIONS';
     const token = req.cookies['leaveos.sid'];
@@ -108,6 +111,11 @@ export async function buildApp(config: AppConfig, sqlite: Db): Promise<FastifyIn
       if (session) {
         req.sessionTokenHash = hashToken(token);
         ctx.principal = await loadPrincipal(sqlite, session.user_account_id);
+        if (sqlite.dialect === 'postgres' && ctx.principal) {
+          await sqlite
+            .prepare(`SELECT set_config('app.user_account_id', ?, false)`)
+            .get(ctx.principal.userId);
+        }
         const method = req.method.toUpperCase();
         if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !PUBLIC.has(key)) {
           const header = String(req.headers['x-csrf-token'] ?? '');

@@ -447,6 +447,9 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
               <span className="note">{me.email}</span>
             </span>
           </NavLink>
+          <NavLink to="/password" className="nav-link" onClick={() => setOpen(false)}>
+            Change password
+          </NavLink>
           <Button size="sm" onClick={signOut} disabled={signingOut} style={{ width: '100%' }}>
             {signingOut ? 'Signing out…' : 'Sign out'}
           </Button>

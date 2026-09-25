@@ -23,6 +23,7 @@ import {
   submitPermissionBodySchema,
   decidePermissionBodySchema,
   teamMembersBodySchema,
+  departmentMembersBodySchema,
   updateDepartmentBodySchema,
   updateEmployeeBodySchema,
   updateTeamBodySchema,
@@ -72,6 +73,7 @@ import {
   listEmployees,
   listTeams,
   manageTeamMembers,
+  manageDepartmentMembers,
   reactivateEmployee,
   retrieveCredentialSheet,
   updateDepartment,
@@ -1768,6 +1770,15 @@ export async function registerRoutes(app: FastifyInstance) {
       return sendError(req, reply, err);
     }
   });
+  app.post('/api/v1/departments/:id/members', async (req, reply) => {
+    try {
+      const { id } = req.params as { id: string };
+      const body = parse(departmentMembersBodySchema, req.body);
+      return reply.send(ok(await manageDepartmentMembers(req.ctx, id, body), req.ctx.requestId));
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
   app.post('/api/v1/departments/:id/archive', async (req, reply) => {
     try {
       const { id } = req.params as { id: string };
@@ -1993,7 +2004,7 @@ export async function registerRoutes(app: FastifyInstance) {
       const p = requirePrincipal(req.ctx);
       await authorizeAction(req.ctx, 'attendance.read', p.employeeId);
       const csv = [
-        'employee_code,work_date,first_login_at,last_login_at,notes',
+        'employee_code,work_date,first_login_at,last_login_at,last_logout_at,notes',
         'E-2001,2026-08-27,2026-08-27T09:00:00.000Z,2026-08-27T17:30:00.000Z,Biometric scanner export',
       ].join('\n');
       return reply.header('content-type', 'text/csv').send(csv);

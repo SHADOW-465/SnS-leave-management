@@ -30,6 +30,17 @@ type HomeRequest = {
   employee_name?: string;
 };
 
+type AwayRow = {
+  id: string;
+  employeeId: string;
+  name: string;
+  department: string;
+  startDate: string;
+  endDate: string;
+  approvedBy: string | null;
+  pay: 'earned' | 'loss_of_pay' | 'mixed';
+};
+
 type HomeData = {
   employee: {
     name: string;
@@ -54,6 +65,8 @@ type HomeData = {
   holidays: { date: string; name: string; kind: string }[];
   lossOfPay?: { approved: number; pending: number };
   permission?: { usedHours: number; limitHours: number };
+  awayToday?: AwayRow[];
+  awaySoon?: AwayRow[];
   probation: { title: string; body: string } | null;
 };
 
@@ -140,6 +153,13 @@ function EmpHome({ me }: { me: Me }) {
             </div>
           </dl>
         </section>
+      ) : null}
+
+      {me.approvesLeave ||
+      can(me, 'leave.request.read:company') ||
+      can(me, 'team.availability.read:company') ||
+      (data.awayToday?.length ?? 0) + (data.awaySoon?.length ?? 0) > 0 ? (
+        <WhoIsAway today={data.awayToday ?? []} soon={data.awaySoon ?? []} />
       ) : null}
 
       {me.approvesLeave ? (
@@ -402,6 +422,112 @@ function formatDays(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
+function PayTag({ pay }: { pay: AwayRow['pay'] }) {
+  if (pay === 'mixed') {
+    return (
+      <>
+        <PayTag pay="earned" />
+        <PayTag pay="loss_of_pay" />
+      </>
+    );
+  }
+  const lop = pay === 'loss_of_pay';
+  return (
+    <span
+      style={{
+        fontSize: 10.5,
+        fontWeight: 650,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+        padding: '2px 7px',
+        borderRadius: 999,
+        background: lop ? '#fff1f2' : '#ecfdf5',
+        color: lop ? '#be123c' : '#047857',
+      }}
+    >
+      {lop ? 'Loss of pay' : 'Earned leave'}
+    </span>
+  );
+}
+
+function WhoIsAway({ today, soon }: { today: AwayRow[]; soon: AwayRow[] }) {
+  function row(o: AwayRow) {
+    return (
+      <li
+        key={o.id}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          padding: '10px 0',
+          borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 8,
+            alignItems: 'baseline',
+          }}
+        >
+          <strong>{o.name}</strong>
+          <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <PayTag pay={o.pay} />
+          </span>
+        </div>
+        <span className="note" style={{ margin: 0 }}>
+          {formatRange(o.startDate, o.endDate)}
+          {o.department ? ` · ${o.department}` : ''}
+        </span>
+        <span className="note" style={{ margin: 0 }}>
+          {o.approvedBy ? `Approved by ${o.approvedBy}` : 'Approved'}
+        </span>
+      </li>
+    );
+  }
+  return (
+    <section className="card" aria-label="Who is out">
+      <h2 style={{ margin: '0 0 4px', fontSize: 14.5 }}>Who is out</h2>
+      <p className="note" style={{ margin: '0 0 12px' }}>
+        Whether they are in today, who signed the leave, and if it is earned leave or loss of pay.
+      </p>
+      <h3
+        style={{
+          margin: '0 0 4px',
+          fontSize: 12,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: 'var(--text-tertiary)',
+        }}
+      >
+        Today
+      </h3>
+      {today.length === 0 ? (
+        <p className="note">Everyone is in today.</p>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{today.map(row)}</ul>
+      )}
+      <h3
+        style={{
+          margin: '14px 0 4px',
+          fontSize: 12,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: 'var(--text-tertiary)',
+        }}
+      >
+        Next 7 days
+      </h3>
+      {soon.length === 0 ? (
+        <p className="note">Nobody else is booked.</p>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{soon.map(row)}</ul>
+      )}
+    </section>
+  );
+}
+
 function AdminHome() {
   const q = useQuery({
     queryKey: ['dash'],
@@ -418,7 +544,8 @@ function AdminHome() {
           status: string;
         }[];
         deptStats: { name: string; days: string; pct: string; aria: string }[];
-        outToday: { name: string; type: string }[];
+        outToday: AwayRow[];
+        upcomingAway: AwayRow[];
       }>('/api/v1/dashboard'),
   });
   if (q.isPending) return <Skeleton />;
@@ -516,21 +643,7 @@ function AdminHome() {
               </div>
             ))}
           </div>
-          <div className="card">
-            <h2 style={{ margin: '0 0 12px', fontSize: 14.5 }}>Out today</h2>
-            {d.outToday.length === 0 ? <p className="note">Nobody is out today.</p> : null}
-            {d.outToday.map((o) => (
-              <p
-                key={o.name}
-                style={{ display: 'flex', justifyContent: 'space-between', margin: '0 0 8px' }}
-              >
-                <strong>{o.name}</strong>
-                <span className="note" style={{ margin: 0 }}>
-                  {o.type}
-                </span>
-              </p>
-            ))}
-          </div>
+          <WhoIsAway today={d.outToday} soon={d.upcomingAway} />
         </div>
       </div>
     </div>

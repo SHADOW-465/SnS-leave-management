@@ -1001,7 +1001,8 @@ export function ReportsPage() {
                 Showing {filteredEmployees.length} of {data.employeeSummaries.length} employees
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                Balances for period: {period?.label ?? 'Current Year'}
+                Earned leave for {period?.label ?? 'this leave year'} (monthly credit, not every
+                leave type added together)
               </span>
             </div>
 
@@ -1087,7 +1088,7 @@ export function ReportsPage() {
                           textAlign: 'right',
                         }}
                       >
-                        Entitlement
+                        Earned
                       </th>
                       <th
                         style={{

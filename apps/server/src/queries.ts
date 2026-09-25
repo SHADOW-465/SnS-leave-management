@@ -7,28 +7,109 @@ import {
 import { authorizeAction, graphFor, requirePrincipal, type RequestContext } from './ctx.js';
 import { currentPolicy, describeRouteFor, holidaysForEmployee } from './usecases/leave.js';
 import { currentPeriodId } from './usecases/setup.js';
+
+export type AwayPay = 'earned' | 'loss_of_pay' | 'mixed';
+
+export type AwayRow = {
+  id: string;
+  employeeId: string;
+  name: string;
+  department: string;
+  startDate: string;
+  endDate: string;
+  approvedBy: string | null;
+  pay: AwayPay;
+};
+
+function payOf(totalHalf: number, lopHalf: number): AwayPay {
+  const total = Number(totalHalf) || 0;
+  const lop = Number(lopHalf) || 0;
+  if (lop <= 0) return 'earned';
+  if (lop >= total) return 'loss_of_pay';
+  return 'mixed';
+}
+
+function addDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/**
+ * Approved leave in a date window, for people this caller may see. Used on the dashboard
+ * so higher-ups know who is in, who signed it off, and whether it is earned leave or
+ * loss of pay — not the full request.
+ */
+export async function peopleAway(
+  ctx: RequestContext,
+  from: string,
+  to: string,
+): Promise<AwayRow[]> {
+  const p = requirePrincipal(ctx);
+  const graph = await graphFor(ctx.sqlite, p.employeeId);
+  const company =
+    p.permissions.includes('leave.request.read:company') ||
+    p.permissions.includes('team.availability.read:company') ||
+    p.permissions.includes('employee.read:company');
+  const rows = (await ctx.sqlite
+    .prepare(
+      `SELECT r.id, r.employee_id AS "employeeId", r.start_date AS "startDate",
+              r.end_date AS "endDate", r.total_half_days AS "totalHalf",
+              r.lop_half_days AS "lopHalf",
+              e.first_name || ' ' || e.last_name AS name, d.name AS department,
+              (SELECT ae.first_name || ' ' || ae.last_name
+                 FROM approval_step_instance s
+                 JOIN employee ae ON ae.id = s.approver_employee_id
+                WHERE s.leave_request_id = r.id AND s.status = 'approved'
+                ORDER BY s.step_no DESC LIMIT 1) AS "approvedBy"
+         FROM leave_request r
+         JOIN employee e ON e.id = r.employee_id
+         JOIN department d ON d.id = e.department_id
+        WHERE r.status = 'approved' AND r.end_date >= ? AND r.start_date <= ?
+        ORDER BY r.start_date, e.first_name`,
+    )
+    .all(from, to)) as {
+    id: string;
+    employeeId: string;
+    startDate: string;
+    endDate: string;
+    totalHalf: number;
+    lopHalf: number;
+    name: string;
+    department: string;
+    approvedBy: string | null;
+  }[];
+  return rows
+    .filter((r) => {
+      if (r.employeeId === p.employeeId) return false;
+      if (company) return true;
+      return graph.reports.has(r.employeeId) || graph.recursiveReports.has(r.employeeId);
+    })
+    .map((r) => ({
+      id: r.id,
+      employeeId: r.employeeId,
+      name: r.name,
+      department: r.department,
+      startDate: r.startDate,
+      endDate: r.endDate,
+      approvedBy: r.approvedBy,
+      pay: payOf(r.totalHalf, r.lopHalf),
+    }));
+}
+
 export async function dashboard(ctx: RequestContext) {
   requirePrincipal(ctx);
   // Company-wide counts and the names of who is out. Previously this ran with no
   // permission check at all, so any employee could read headcount, department leave
   // statistics, and the pending queue by calling the endpoint directly.
   await authorizeAction(ctx, 'leave.request.read', null);
-  const pending = (await ctx.sqlite
-    .prepare(`SELECT COUNT(*) AS n FROM leave_request WHERE status = 'pending_approval'`)
-    .get()) as {
-    n: number;
-  };
-  const outToday = (await ctx.sqlite
-    .prepare(
-      `SELECT e.first_name || ' ' || e.last_name AS name, t.name AS type
-       FROM leave_request r JOIN employee e ON e.id = r.employee_id
-       JOIN leave_type t ON t.id = r.leave_type_id
-       WHERE r.status = 'approved' AND r.start_date <= ? AND r.end_date >= ?`,
-    )
-    .all(ctx.today, ctx.today)) as {
-    name: string;
-    type: string;
-  }[];
+  const pendingRows = await listRequests(ctx, {
+    view: 'approvals',
+    status: 'pending_approval',
+    search: '',
+  });
+  const awayWindow = await peopleAway(ctx, ctx.today, addDays(ctx.today, 7));
+  const outToday = awayWindow.filter((r) => r.startDate <= ctx.today && r.endDate >= ctx.today);
+  const upcomingAway = awayWindow.filter((r) => r.startDate > ctx.today);
   const deptStats = (await ctx.sqlite
     .prepare(
       `SELECT d.name, COALESCE(SUM(CASE WHEN r.status = 'approved' THEN r.total_half_days ELSE 0 END), 0) AS half
@@ -42,20 +123,10 @@ export async function dashboard(ctx: RequestContext) {
     half: number;
   }[];
   const max = Math.max(1, ...deptStats.map((d) => d.half));
-  const weekEnd = addDays(ctx.today, 7);
-  const upcoming = (await ctx.sqlite
-    .prepare(
-      `SELECT COUNT(*) AS n FROM leave_request
-       WHERE status = 'approved' AND start_date > ? AND start_date <= ?`,
-    )
-    .get(ctx.today, weekEnd)) as { n: number };
-  const oldestPending = (await ctx.sqlite
-    .prepare(
-      `SELECT submitted_at FROM leave_request
-       WHERE status = 'pending_approval' AND submitted_at IS NOT NULL
-       ORDER BY submitted_at LIMIT 1`,
-    )
-    .get()) as { submitted_at: string } | undefined;
+  const oldestPending = pendingRows
+    .map((r) => String((r as { submitted_at?: string }).submitted_at ?? ''))
+    .filter(Boolean)
+    .sort()[0];
   const headcount = (await ctx.sqlite
     .prepare(`SELECT COUNT(*) AS n FROM employee WHERE status != 'exited'`)
     .get()) as { n: number };
@@ -64,14 +135,14 @@ export async function dashboard(ctx: RequestContext) {
   const kpis = [
     {
       label: 'Awaiting decision',
-      value: String(pending.n),
+      value: String(pendingRows.length),
       delta:
-        pending.n === 0
+        pendingRows.length === 0
           ? 'Queue is clear'
           : oldestPending
-            ? `Oldest waiting ${daysWaiting(oldestPending.submitted_at, ctx.now)}`
+            ? `Oldest waiting ${daysWaiting(oldestPending, ctx.now)}`
             : 'Needs a decision',
-      deltaColor: pending.n === 0 ? '#5c5c66' : '#8a6116',
+      deltaColor: pendingRows.length === 0 ? '#5c5c66' : '#8a6116',
     },
     {
       label: 'Out today',
@@ -87,8 +158,8 @@ export async function dashboard(ctx: RequestContext) {
     },
     {
       label: 'Starting leave in 7 days',
-      value: String(upcoming.n),
-      delta: upcoming.n === 0 ? 'Nothing booked' : 'Approved and upcoming',
+      value: String(upcomingAway.length),
+      delta: upcomingAway.length === 0 ? 'Nothing booked' : 'Approved and upcoming',
       deltaColor: '#5c5c66',
     },
     {
@@ -101,9 +172,8 @@ export async function dashboard(ctx: RequestContext) {
   return {
     kpis,
     // Only what this person can actually decide: HR is never shown HR's or the MD's leave.
-    pendingRows: (
-      await listRequests(ctx, { view: 'approvals', status: 'pending_approval', search: '' })
-    ).slice(0, 8),
+    pendingRows: pendingRows.slice(0, 8),
+    upcomingAway,
     deptStats: deptStats.map((d) => ({
       name: d.name,
       days: formatHalfDays(d.half),
@@ -112,10 +182,6 @@ export async function dashboard(ctx: RequestContext) {
     })),
     outToday,
   };
-}
-function addDays(iso: string, n: number): string {
-  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
 function daysWaiting(submittedAt: string, now: string): string {
@@ -165,6 +231,8 @@ export async function myHome(ctx: RequestContext) {
       monthly: [],
       upcomingApproved: [],
       holidays: [],
+      awayToday: [],
+      awaySoon: [],
       probation: null,
     };
   await authorizeAction(ctx, 'leave.balance.read', p.employeeId);
@@ -360,6 +428,8 @@ export async function myHome(ctx: RequestContext) {
     holidays,
     lossOfPay: { approved: lopDays('approved'), pending: lopDays('pending_approval') },
     permission: { usedHours: Number(permissionHours.hours) || 0, limitHours: 2 },
+    awayToday: await peopleAway(ctx, ctx.today, ctx.today),
+    awaySoon: await peopleAway(ctx, addDays(ctx.today, 1), addDays(ctx.today, 7)),
     probation:
       emp.status === 'probation' || (emp.probation_end_on && emp.probation_end_on > ctx.today)
         ? {
@@ -1330,6 +1400,11 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     team_name: string | null;
   }[];
 
+  const leaveTypeRows = (await ctx.sqlite
+    .prepare(`SELECT id, name, code FROM leave_type WHERE archived_at IS NULL AND is_paid = 1`)
+    .all()) as { id: string; name: string; code: string }[];
+  const earnedTypeIds = new Set(pickEarnedTypes(leaveTypeRows).map((t) => t.id));
+
   const ledgersRaw = (await ctx.sqlite
     .prepare(
       `SELECT employee_id, leave_type_id, entry_type, quantity_half_days
@@ -1345,16 +1420,20 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
 
   const pendingByEmpRaw = (await ctx.sqlite
     .prepare(
-      `SELECT employee_id, COALESCE(SUM(total_half_days), 0) AS half
-       FROM leave_request
-       WHERE status = 'pending_approval'
-       GROUP BY employee_id`,
+      `SELECT r.employee_id, r.leave_type_id, COALESCE(SUM(r.total_half_days), 0) AS half
+       FROM leave_request r
+       WHERE r.status = 'pending_approval'
+       GROUP BY r.employee_id, r.leave_type_id`,
     )
-    .all()) as { employee_id: string; half: number }[];
+    .all()) as { employee_id: string; leave_type_id: string; half: number }[];
 
   const pendingByEmpMap = new Map<string, number>();
   for (const p of pendingByEmpRaw) {
-    pendingByEmpMap.set(p.employee_id, Number(p.half) || 0);
+    if (earnedTypeIds.size > 0 && !earnedTypeIds.has(p.leave_type_id)) continue;
+    pendingByEmpMap.set(
+      p.employee_id,
+      (pendingByEmpMap.get(p.employee_id) ?? 0) + (Number(p.half) || 0),
+    );
   }
 
   const empLedgerMap = new Map<
@@ -1366,6 +1445,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     }
   >();
   for (const l of ledgersRaw) {
+    if (earnedTypeIds.size > 0 && !earnedTypeIds.has(l.leave_type_id)) continue;
     let rec = empLedgerMap.get(l.employee_id);
     if (!rec) {
       rec = { granted: 0, used: 0, total: 0 };
@@ -1393,7 +1473,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     const rec = empLedgerMap.get(e.id);
     const grantedDays = (rec?.granted ?? 0) / 2;
     const takenDays = (rec?.used ?? 0) / 2;
-    const remainingDays = (rec?.total ?? 0) / 2;
+    const remainingDays = grantedDays - takenDays;
     const pendingDays = (pendingByEmpMap.get(e.id) ?? 0) / 2;
 
     return {

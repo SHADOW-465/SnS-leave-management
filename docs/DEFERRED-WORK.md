@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-09-23** (earned leave rates, loss of pay on the employee dashboard, monthly permission, pending-request earned-leave context, employee leave overview, HR reporting managers).
+Last reviewed: **2026-09-24** (department/team member assignment, attendance entry/logout, reports earned-leave balances, dashboard who-is-out, username sign-in and password privacy).
 Next review: at the next scheduled release milestone.
 
 ---

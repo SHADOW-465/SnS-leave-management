@@ -55,8 +55,8 @@ export function PasswordPage({ me, voluntary = false }: { me: Me; voluntary?: bo
           <h1 style={{ margin: '0 0 8px' }}>Choose a new password</h1>
           <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
             {voluntary
-              ? 'Other sessions on this account will be signed out.'
-              : `${me.displayName}, you signed in with a temporary password. Choose your own before continuing. Other sessions on this account will be signed out.`}
+              ? 'This updates your sign-in. Nobody else can see or change this password. Other sessions on this account will be signed out.'
+              : `${me.displayName}, you signed in with the office demo password. Choose your own before continuing. Nobody else can see the password you pick.`}
           </p>
         </div>
         {done ? (

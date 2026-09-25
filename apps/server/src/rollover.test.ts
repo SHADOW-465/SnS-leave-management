@@ -287,6 +287,7 @@ describe('monthly accrual', () => {
           entitlementHalfDays: 24,
           accrualMethod: 'monthly',
           accrualCadenceMonths: 1,
+          joinMonthAccrual: 'full',
           midYearProrate: false,
           carryForwardCapHalfDays: 10,
           carryForwardExpiryMonths: 0,

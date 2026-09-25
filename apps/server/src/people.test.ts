@@ -410,4 +410,43 @@ describe('Department and Team management', () => {
     });
     expect(archiveTeamRes.statusCode).toBe(200);
   });
+
+  it('moves an employee into a department from the department screen', async () => {
+    const { app, sqlite } = await boot();
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: ADMIN,
+    });
+    const admin = cookiesOf(login);
+    const depts = (
+      await app.inject({
+        method: 'GET',
+        url: '/api/v1/departments',
+        headers: { cookie: admin.header },
+      })
+    ).json() as { data: { id: string; name: string }[] };
+    const editorial = depts.data.find((d) => d.name === 'Editorial');
+    const vijay = (await sqlite
+      .prepare(
+        `SELECT id, department_id AS "departmentId" FROM employee WHERE work_email = 'vijay@sns.test'`,
+      )
+      .get()) as { id: string; departmentId: string };
+    expect(editorial).toBeDefined();
+    expect(vijay.departmentId).not.toBe(editorial!.id);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/departments/${editorial!.id}/members`,
+      headers: { cookie: admin.header, 'x-csrf-token': admin.csrf },
+      payload: { addEmployeeIds: [vijay.id] },
+    });
+    expect(res.statusCode).toBe(200);
+    const after = (await sqlite
+      .prepare(
+        `SELECT department_id AS "departmentId", team_id AS "teamId" FROM employee WHERE id = ?`,
+      )
+      .get(vijay.id)) as { departmentId: string; teamId: string | null };
+    expect(after.departmentId).toBe(editorial!.id);
+    expect(after.teamId).toBeNull();
+  });
 });

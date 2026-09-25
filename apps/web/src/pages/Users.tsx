@@ -7,6 +7,7 @@ import { formatRelativeTime } from '../format.js';
 type User = {
   id: string;
   email: string;
+  username: string | null;
   employeeId: string | null;
   employeeCode: string | null;
   firstName: string | null;
@@ -43,10 +44,14 @@ type Data = {
 };
 /** Shown once, straight after a login is created or a password is reset. */
 type Issued = { name: string; login: string; employeeCode: string | null; password: string };
+const OFFICE_DEMO_PASSWORD = 'ChangeMe_demo_1';
+
 type NewAccount = {
   firstName: string;
   lastName: string;
   workEmail: string;
+  username: string;
+  password: string;
   employeeCode: string;
   departmentId: string;
   jobTitleId: string;
@@ -62,6 +67,7 @@ type EditDraft = {
   firstName: string;
   lastName: string;
   email: string;
+  username: string;
   employeeCode: string;
   employeeVersion: number | null;
   roles: string[];
@@ -105,6 +111,8 @@ export function UsersPage({ me }: { me: Me }) {
       firstName: '',
       lastName: '',
       workEmail: '',
+      username: '',
+      password: OFFICE_DEMO_PASSWORD,
       employeeCode: q.data?.nextEmployeeCode ?? '',
       departmentId: directory?.departments[0]?.id ?? '',
       jobTitleId: directory?.jobTitles[0]?.id ?? '',
@@ -126,6 +134,8 @@ export function UsersPage({ me }: { me: Me }) {
           firstName: adding.firstName.trim(),
           lastName: adding.lastName.trim(),
           workEmail: adding.workEmail.trim(),
+          username: adding.username.trim() || undefined,
+          password: adding.password,
           joinedOn: adding.joinedOn,
           locationId: adding.locationId,
           departmentId: adding.departmentId,
@@ -164,6 +174,7 @@ export function UsersPage({ me }: { me: Me }) {
           firstName: editing.firstName.trim() || undefined,
           lastName: editing.lastName.trim() || undefined,
           email: editing.email.trim(),
+          username: editing.username.trim() || undefined,
           employeeCode: editing.employeeCode.trim() || undefined,
           ...(editing.employeeVersion != null ? { expectedVersion: editing.employeeVersion } : {}),
         }),
@@ -256,7 +267,7 @@ export function UsersPage({ me }: { me: Me }) {
   async function resetPassword(u: User) {
     if (
       !window.confirm(
-        `Reset the password for ${u.name ?? u.email}? They will be signed out and must choose a new password.`,
+        `Reset ${u.name ?? u.email} to the office demo password? They will be signed out and must choose a new password. Their current password cannot be viewed.`,
       )
     )
       return;
@@ -313,7 +324,7 @@ export function UsersPage({ me }: { me: Me }) {
   const { users, roles, withoutAccount } = q.data;
   const needle = filter.toLowerCase();
   const shown = users.filter((u) =>
-    `${u.name ?? ''} ${u.email} ${u.employeeCode ?? ''} ${u.roles.join(' ')} ${u.departmentName ?? ''}`
+    `${u.name ?? ''} ${u.email} ${u.username ?? ''} ${u.employeeCode ?? ''} ${u.roles.join(' ')} ${u.departmentName ?? ''}`
       .toLowerCase()
       .includes(needle),
   );
@@ -327,8 +338,9 @@ export function UsersPage({ me }: { me: Me }) {
             <p className="muted">
               Add an employee and their sign-in, edit the account, or remove it. Removing marks them
               as left and turns the sign-in off. Leave history is kept. Only HR and administrators
-              can do this. Only an administrator can grant the administrator role. People sign in
-              with their work email or their employee ID.
+              can do this. People sign in with username, work email, or employee ID. New accounts
+              start with the office demo password; each person changes it from Profile. Passwords
+              are never shown on this list.
             </p>
           </div>
           {adding ? null : (
@@ -355,11 +367,11 @@ export function UsersPage({ me }: { me: Me }) {
               {issued.login}
               {issued.employeeCode ? ` or ${issued.employeeCode}` : ''}
             </dd>
-            <dt>Temporary password</dt>
+            <dt>First password</dt>
             <dd className="mono">{issued.password}</dd>
           </dl>
           <p className="muted small">
-            Shown only once. They must choose their own password when they first sign in.
+            They change this from Profile → Change password. Chosen passwords are never shown here.
           </p>
           <div className="actions">
             <Button
@@ -383,8 +395,8 @@ export function UsersPage({ me }: { me: Me }) {
         <section className="card">
           <h2>Add account</h2>
           <p className="muted small">
-            This creates the employee and a sign-in. They choose their own password at first
-            sign-in.
+            This creates the employee and a sign-in. The first password is the office demo password
+            until they change it from their profile.
           </p>
           {org.isError ? (
             <p className="bad-text">Could not load departments. Reload and try again.</p>
@@ -415,6 +427,29 @@ export function UsersPage({ me }: { me: Me }) {
                     value={adding.workEmail}
                     onChange={(e) => setAdding({ ...adding, workEmail: e.target.value })}
                   />
+                </label>
+                <label className="small">
+                  Username
+                  <input
+                    className="input"
+                    autoComplete="off"
+                    placeholder="e.g. vijay.anand"
+                    value={adding.username}
+                    onChange={(e) => setAdding({ ...adding, username: e.target.value })}
+                  />
+                </label>
+                <label className="small">
+                  Password
+                  <input
+                    className="input"
+                    type="text"
+                    autoComplete="new-password"
+                    value={adding.password}
+                    onChange={(e) => setAdding({ ...adding, password: e.target.value })}
+                  />
+                  <span className="muted small">
+                    Starts as the office demo password. 12+ characters.
+                  </span>
                 </label>
                 <label className="small">
                   Employee ID
@@ -584,6 +619,15 @@ export function UsersPage({ me }: { me: Me }) {
                     type="email"
                     value={editing.email}
                     onChange={(e) => setEditing({ ...editing, email: e.target.value })}
+                  />
+                </label>
+                <label className="small">
+                  Username
+                  <input
+                    className="input"
+                    autoComplete="off"
+                    value={editing.username}
+                    onChange={(e) => setEditing({ ...editing, username: e.target.value })}
                   />
                 </label>
                 <label className="small">
@@ -811,6 +855,7 @@ export function UsersPage({ me }: { me: Me }) {
                     <strong>{u.name ?? u.email}</strong>
                     {self ? <span className="muted small"> (you)</span> : null}
                     <div className="muted small">
+                      {u.username ? `${u.username} · ` : ''}
                       {u.email}
                       {u.employeeCode ? ` · ${u.employeeCode}` : ''}
                     </div>
@@ -860,6 +905,7 @@ export function UsersPage({ me }: { me: Me }) {
                             firstName: u.firstName ?? '',
                             lastName: u.lastName ?? '',
                             email: u.email,
+                            username: u.username ?? '',
                             employeeCode: u.employeeCode ?? '',
                             employeeVersion: u.employeeVersion,
                             roles: [...u.roles],
@@ -918,7 +964,7 @@ export function UsersPage({ me }: { me: Me }) {
                       ) : null}
                       {!self ? (
                         <Button size="sm" onClick={() => void resetPassword(u)}>
-                          Reset password
+                          Reset to demo password
                         </Button>
                       ) : null}
                       {u.workstationIp ? (

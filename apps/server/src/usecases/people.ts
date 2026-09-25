@@ -1,4 +1,5 @@
-import { generateTemporaryPassword, hashPassword } from '@sns/auth';
+import { OFFICE_DEMO_PASSWORD, hashPassword } from '@sns/auth';
+import { uniqueUsername } from '../username.js';
 import { withTx } from '@sns/database';
 import { DomainError, ROLE_CODES, assertNoManagerCycle, newId, type RoleCode } from '@sns/domain';
 import { authorizeAction, graphFor, requirePrincipal, type RequestContext } from '../ctx.js';
@@ -299,6 +300,8 @@ export async function createEmployee(
     phone?: string;
     hireBackground?: 'fresher' | 'experienced';
     createAccount: boolean;
+    username?: string;
+    password?: string;
     roles?: RoleCode[];
   },
 ) {
@@ -362,9 +365,12 @@ export async function createEmployee(
   const userId = newId();
   let temp: string | null = null;
   if (input.createAccount) {
-    temp = generateTemporaryPassword();
+    temp = input.password?.trim() || OFFICE_DEMO_PASSWORD;
   }
   const hash = temp ? await hashPassword(temp) : null;
+  const username = input.createAccount
+    ? await uniqueUsername(ctx.sqlite, input.username || input.employeeCode || input.workEmail)
+    : null;
   await withTx(ctx.sqlite, async () => {
     await ctx.sqlite
       .prepare(
@@ -395,10 +401,10 @@ export async function createEmployee(
     if (hash && temp) {
       await ctx.sqlite
         .prepare(
-          `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
-           VALUES (?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
+          `INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
+           VALUES (?, ?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
         )
-        .run(userId, id, input.workEmail, hash, ctx.now, p.userId, ctx.now, p.userId);
+        .run(userId, id, input.workEmail, username, hash, ctx.now, p.userId, ctx.now, p.userId);
       for (const code of accountRoles) {
         const role = (await ctx.sqlite.prepare(`SELECT id FROM role WHERE code = ?`).get(code)) as
           { id: string } | undefined;
@@ -497,6 +503,7 @@ export async function bulkProvision(ctx: RequestContext, employeeIds: string[]) 
           work_email: string;
           first_name: string;
           last_name: string;
+          employee_code: string;
         }
       | undefined;
     if (!emp) continue;
@@ -504,15 +511,16 @@ export async function bulkProvision(ctx: RequestContext, employeeIds: string[]) 
       .prepare(`SELECT id FROM user_account WHERE employee_id = ?`)
       .get(empId);
     if (existing) continue;
-    const temp = generateTemporaryPassword();
+    const temp = OFFICE_DEMO_PASSWORD;
     const hash = await hashPassword(temp);
     const userId = newId();
+    const username = await uniqueUsername(ctx.sqlite, emp.employee_code || emp.work_email);
     await ctx.sqlite
       .prepare(
-        `INSERT INTO user_account (id, employee_id, email, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
-         VALUES (?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
+        `INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
       )
-      .run(userId, empId, emp.work_email, hash, ctx.now, p.userId, ctx.now, p.userId);
+      .run(userId, empId, emp.work_email, username, hash, ctx.now, p.userId, ctx.now, p.userId);
     const role = (await ctx.sqlite
       .prepare(`SELECT id FROM role WHERE code = 'employee'`)
       .get()) as {
@@ -1197,6 +1205,83 @@ export async function manageTeamMembers(
     }
   }
   return { id: teamId, success: true, notes: [...new Set(notes)] };
+}
+
+export async function manageDepartmentMembers(
+  ctx: RequestContext,
+  departmentId: string,
+  input: {
+    addEmployeeIds?: string[];
+    removeEmployeeIds?: string[];
+  },
+) {
+  const p = requirePrincipal(ctx);
+  await authorizeAction(ctx, 'org.structure.manage', null);
+
+  const dept = (await ctx.sqlite
+    .prepare(`SELECT id, name FROM department WHERE id = ?`)
+    .get(departmentId)) as { id: string; name: string } | undefined;
+  if (!dept) throw new DomainError('NOT_FOUND', 'Department not found.', { httpStatus: 404 });
+
+  const notes: string[] = [];
+  await withTx(ctx.sqlite, async () => {
+    for (const empId of input.addEmployeeIds ?? []) {
+      const person = (await ctx.sqlite
+        .prepare(
+          `SELECT e.id, e.department_id AS "departmentId", e.team_id AS "teamId", t.department_id AS "teamDeptId"
+             FROM employee e
+             LEFT JOIN team t ON t.id = e.team_id
+            WHERE e.id = ?`,
+        )
+        .get(empId)) as
+        | { id: string; departmentId: string; teamId: string | null; teamDeptId: string | null }
+        | undefined;
+      if (!person) continue;
+      const keepTeam = person.teamId && person.teamDeptId === departmentId;
+      await ctx.sqlite
+        .prepare(
+          `UPDATE employee
+              SET department_id = ?,
+                  team_id = ?,
+                  version = version + 1,
+                  updated_at = ?,
+                  updated_by = ?
+            WHERE id = ?`,
+        )
+        .run(departmentId, keepTeam ? person.teamId : null, ctx.now, p.userId, empId);
+      if (person.teamId && !keepTeam) {
+        notes.push('They left their previous team because it belongs to another department.');
+      }
+    }
+
+    for (const empId of input.removeEmployeeIds ?? []) {
+      const person = (await ctx.sqlite
+        .prepare(`SELECT id, team_id AS "teamId" FROM employee WHERE id = ? AND department_id = ?`)
+        .get(empId, departmentId)) as { id: string; teamId: string | null } | undefined;
+      if (!person) continue;
+      if (person.teamId) {
+        await ctx.sqlite
+          .prepare(
+            `UPDATE employee
+                SET team_id = NULL,
+                    version = version + 1,
+                    updated_at = ?,
+                    updated_by = ?
+              WHERE id = ?`,
+          )
+          .run(ctx.now, p.userId, empId);
+        notes.push('Removed from a team in this department. They stay in the department.');
+      }
+    }
+
+    await audit(ctx, 'department.members_updated', 'department', departmentId, null, {
+      departmentId,
+      added: input.addEmployeeIds ?? [],
+      removed: input.removeEmployeeIds ?? [],
+    });
+  });
+
+  return { id: departmentId, success: true, notes: [...new Set(notes)] };
 }
 
 async function upsertEmployeePhone(

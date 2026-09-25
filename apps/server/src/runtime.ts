@@ -7,6 +7,7 @@ import { startJobs } from './jobs.js';
 import { nowIso, todayInTimeZone } from './time.js';
 import { DEMO_ADMIN } from './usecases/demo.js';
 import { completeSetup, ensureDemoHierarchy, setupStatus } from './usecases/setup.js';
+import { ensureNavalurDataset } from './navalur.js';
 import type { RequestContext } from './ctx.js';
 
 export type AppRuntime = {
@@ -59,9 +60,11 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
     sqlitePath: dirs.db,
     databaseUrl: config.databaseUrl,
   });
-  if (config.seedOnEmpty) {
+  if (config.seedOnEmpty || config.hostedPreview) {
     const ctx = seedCtx(config, db);
-    if ((await setupStatus(ctx)).needsSetup) {
+    if (config.hostedPreview || db.dialect === 'postgres') {
+      await ensureNavalurDataset(ctx);
+    } else if ((await setupStatus(ctx)).needsSetup) {
       await completeSetup(ctx, {
         companyName: 'Simon & Sons',
         timezone: 'Asia/Kolkata',

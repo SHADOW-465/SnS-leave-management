@@ -43,6 +43,16 @@ UPDATE team SET lead_employee_id = NULL;
 DELETE FROM team;
 UPDATE department SET head_employee_id = NULL;
 DELETE FROM department;
+DELETE FROM policy_assignment;
+DELETE FROM leave_policy_version;
+DELETE FROM leave_type;
+DELETE FROM holiday;
+DELETE FROM holiday_calendar;
+DELETE FROM approval_workflow_step;
+DELETE FROM approval_workflow;
+DELETE FROM job_title;
+DELETE FROM employment_type;
+DELETE FROM leave_period;
 
 -- 2. Core Organization Setup
 INSERT INTO role (id, code, name, is_system)
@@ -335,7 +345,7 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-admin', 'SNS-1000', 'Vijay', 'Antony', 'admin@sns.test', 'active', '2020-01-06', NULL, 'loc-navalur', 'dept-adm', NULL, 'jt-1', 'et-mgmt', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-admin', 'emp-admin', 'admin@sns.test', 'admin', '$argon2id$v=19$m=19456,t=2,p=1$u4mcHO0Vw5qfH9I7itodRg$Lj9vXKaR48OSO3txhBdDRN+wKBAyo9WJpNPWroPfWE4', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-admin', 'emp-admin', 'admin@sns.test', 'admin', '$argon2id$v=19$m=19456,t=2,p=1$+dm1q4Onb8Dzns69J6C4Mg$3mncOggP4bLv/+cdrlEhIf4TS8NVDS/zgHiM1sGPBS8', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-admin', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'admin';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -343,7 +353,7 @@ VALUES ('bal-admin-open', 'emp-admin', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-suresh', 'SNS-1001', 'Suresh', 'Kumar', 'suresh@sns.test', 'active', '2018-03-12', NULL, 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-2', 'et-mgmt', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-suresh', 'emp-suresh', 'suresh@sns.test', 'suresh', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-suresh', 'emp-suresh', 'suresh@sns.test', 'suresh', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-suresh', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'manager';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -351,7 +361,7 @@ VALUES ('bal-suresh-open', 'emp-suresh', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-meera', 'SNS-1002', 'Meera', 'Krishnan', 'meera@sns.test', 'active', '2019-06-17', NULL, 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-3', 'et-prod', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-meera', 'emp-meera', 'meera@sns.test', 'meera', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-meera', 'emp-meera', 'meera@sns.test', 'meera', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-meera', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -359,7 +369,7 @@ VALUES ('bal-meera-open', 'emp-meera', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-arun', 'SNS-1003', 'Arun', 'Prakash', 'arun@sns.test', 'active', '2020-02-10', NULL, 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-4', 'et-prod', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-arun', 'emp-arun', 'arun@sns.test', 'arun', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-arun', 'emp-arun', 'arun@sns.test', 'arun', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-arun', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -367,7 +377,7 @@ VALUES ('bal-arun-open', 'emp-arun', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-01
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-karthi', 'SNS-1004', 'Karthi', 'Keyan', 'karthi@sns.test', 'active', '2021-04-05', NULL, 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-5', 'et-prod', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-karthi', 'emp-karthi', 'karthi@sns.test', 'karthi', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-karthi', 'emp-karthi', 'karthi@sns.test', 'karthi', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-karthi', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -375,7 +385,7 @@ VALUES ('bal-karthi-open', 'emp-karthi', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-priya', 'SNS-1005', 'Priya', 'Dharshini', 'priya@sns.test', 'active', '2021-09-20', NULL, 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-6', 'et-prod', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-priya', 'emp-priya', 'priya@sns.test', 'priya', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-priya', 'emp-priya', 'priya@sns.test', 'priya', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-priya', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -383,7 +393,7 @@ VALUES ('bal-priya-open', 'emp-priya', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-vignesh', 'SNS-1006', 'Vignesh', 'S', 'vignesh@sns.test', 'active', '2022-01-18', NULL, 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-7', 'et-prod', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-vignesh', 'emp-vignesh', 'vignesh@sns.test', 'vignesh', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-vignesh', 'emp-vignesh', 'vignesh@sns.test', 'vignesh', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-vignesh', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -391,7 +401,7 @@ VALUES ('bal-vignesh-open', 'emp-vignesh', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-deepa', 'SNS-1007', 'Deepa', 'R', 'deepa@sns.test', 'active', '2022-08-11', NULL, 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-8', 'et-prod', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-deepa', 'emp-deepa', 'deepa@sns.test', 'deepa', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-deepa', 'emp-deepa', 'deepa@sns.test', 'deepa', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-deepa', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -399,7 +409,7 @@ VALUES ('bal-deepa-open', 'emp-deepa', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-saravanan', 'SNS-1008', 'Saravanan', 'M', 'saravanan@sns.test', 'active', '2023-03-06', NULL, 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-9', 'et-prod', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-saravanan', 'emp-saravanan', 'saravanan@sns.test', 'saravanan', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-saravanan', 'emp-saravanan', 'saravanan@sns.test', 'saravanan', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-saravanan', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -407,7 +417,7 @@ VALUES ('bal-saravanan-open', 'emp-saravanan', 'lt-al', 'lp-2026', 'OPENING', 36
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-nithya', 'SNS-1009', 'Nithya', 'Kalyani', 'nithya@sns.test', 'active', '2023-11-15', NULL, 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-10', 'et-prod', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-nithya', 'emp-nithya', 'nithya@sns.test', 'nithya', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-nithya', 'emp-nithya', 'nithya@sns.test', 'nithya', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-nithya', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -415,7 +425,7 @@ VALUES ('bal-nithya-open', 'emp-nithya', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-harish', 'SNS-1010', 'Harish', 'Babu', 'harish@sns.test', 'probation', '2026-07-01', '2026-12-31', 'loc-navalur', 'dept-pub', 'team-team-pub', 'jt-11', 'et-prod', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-harish', 'emp-harish', 'harish@sns.test', 'harish', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-harish', 'emp-harish', 'harish@sns.test', 'harish', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-harish', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -423,7 +433,7 @@ VALUES ('bal-harish-open', 'emp-harish', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-dinesh', 'SNS-1011', 'Dinesh', 'Kumar', 'dinesh@sns.test', 'active', '2017-09-04', NULL, 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-12', 'et-mgmt', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-dinesh', 'emp-dinesh', 'dinesh@sns.test', 'dinesh', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-dinesh', 'emp-dinesh', 'dinesh@sns.test', 'dinesh', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-dinesh', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'manager';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -431,7 +441,7 @@ VALUES ('bal-dinesh-open', 'emp-dinesh', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-anandhi', 'SNS-1012', 'Anandhi', 'S', 'anandhi@sns.test', 'active', '2019-01-21', NULL, 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-13', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-anandhi', 'emp-anandhi', 'anandhi@sns.test', 'anandhi', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-anandhi', 'emp-anandhi', 'anandhi@sns.test', 'anandhi', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-anandhi', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -439,7 +449,7 @@ VALUES ('bal-anandhi-open', 'emp-anandhi', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-balaji', 'SNS-1013', 'Balaji', 'V', 'balaji@sns.test', 'active', '2020-05-18', NULL, 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-14', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-balaji', 'emp-balaji', 'balaji@sns.test', 'balaji', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-balaji', 'emp-balaji', 'balaji@sns.test', 'balaji', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-balaji', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -447,7 +457,7 @@ VALUES ('bal-balaji-open', 'emp-balaji', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-chitra', 'SNS-1014', 'Chitra', 'Devi', 'chitra@sns.test', 'active', '2021-02-15', NULL, 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-15', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-chitra', 'emp-chitra', 'chitra@sns.test', 'chitra', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-chitra', 'emp-chitra', 'chitra@sns.test', 'chitra', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-chitra', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -455,7 +465,7 @@ VALUES ('bal-chitra-open', 'emp-chitra', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-gowtham', 'SNS-1015', 'Gowtham', 'R', 'gowtham@sns.test', 'active', '2021-10-11', NULL, 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-16', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-gowtham', 'emp-gowtham', 'gowtham@sns.test', 'gowtham', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-gowtham', 'emp-gowtham', 'gowtham@sns.test', 'gowtham', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-gowtham', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -463,7 +473,7 @@ VALUES ('bal-gowtham-open', 'emp-gowtham', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-janani', 'SNS-1016', 'Janani', 'K', 'janani@sns.test', 'active', '2022-04-04', NULL, 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-17', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-janani', 'emp-janani', 'janani@sns.test', 'janani', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-janani', 'emp-janani', 'janani@sns.test', 'janani', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-janani', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -471,7 +481,7 @@ VALUES ('bal-janani-open', 'emp-janani', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-manikandan', 'SNS-1017', 'Manikandan', 'P', 'manikandan@sns.test', 'active', '2022-11-28', NULL, 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-18', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-manikandan', 'emp-manikandan', 'manikandan@sns.test', 'manikandan', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-manikandan', 'emp-manikandan', 'manikandan@sns.test', 'manikandan', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-manikandan', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -479,7 +489,7 @@ VALUES ('bal-manikandan-open', 'emp-manikandan', 'lt-al', 'lp-2026', 'OPENING', 
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-poornima', 'SNS-1018', 'Poornima', 'N', 'poornima@sns.test', 'active', '2023-06-19', NULL, 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-19', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-poornima', 'emp-poornima', 'poornima@sns.test', 'poornima', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-poornima', 'emp-poornima', 'poornima@sns.test', 'poornima', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-poornima', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -487,7 +497,7 @@ VALUES ('bal-poornima-open', 'emp-poornima', 'lt-al', 'lp-2026', 'OPENING', 36, 
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-sathish', 'SNS-1019', 'Sathish', 'Raj', 'sathish@sns.test', 'active', '2024-01-15', NULL, 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-20', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-sathish', 'emp-sathish', 'sathish@sns.test', 'sathish', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-sathish', 'emp-sathish', 'sathish@sns.test', 'sathish', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-sathish', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -495,7 +505,7 @@ VALUES ('bal-sathish-open', 'emp-sathish', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-shalini', 'SNS-1020', 'Shalini', 'M', 'shalini@sns.test', 'probation', '2026-06-15', '2026-12-15', 'loc-navalur', 'dept-ites', 'team-team-ites', 'jt-21', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-shalini', 'emp-shalini', 'shalini@sns.test', 'shalini', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-shalini', 'emp-shalini', 'shalini@sns.test', 'shalini', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-shalini', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -503,7 +513,7 @@ VALUES ('bal-shalini-open', 'emp-shalini', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-lakshmi', 'SNS-1021', 'Lakshmi', 'Priya', 'lakshmi@sns.test', 'active', '2016-11-07', NULL, 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-22', 'et-mgmt', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-lakshmi', 'emp-lakshmi', 'lakshmi@sns.test', 'lakshmi', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-lakshmi', 'emp-lakshmi', 'lakshmi@sns.test', 'lakshmi', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-lakshmi', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'manager';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -511,7 +521,7 @@ VALUES ('bal-lakshmi-open', 'emp-lakshmi', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-gokul', 'SNS-1022', 'Gokul', 'Nath', 'gokul@sns.test', 'active', '2018-08-20', NULL, 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-23', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-gokul', 'emp-gokul', 'gokul@sns.test', 'gokul', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-gokul', 'emp-gokul', 'gokul@sns.test', 'gokul', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-gokul', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -519,7 +529,7 @@ VALUES ('bal-gokul-open', 'emp-gokul', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-hema', 'SNS-1023', 'Hema', 'Malini', 'hema@sns.test', 'active', '2019-09-02', NULL, 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-24', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-hema', 'emp-hema', 'hema@sns.test', 'hema', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-hema', 'emp-hema', 'hema@sns.test', 'hema', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-hema', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -527,7 +537,7 @@ VALUES ('bal-hema-open', 'emp-hema', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-01
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-ilango', 'SNS-1024', 'Ilango', 'T', 'ilango@sns.test', 'active', '2020-07-13', NULL, 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-25', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-ilango', 'emp-ilango', 'ilango@sns.test', 'ilango', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-ilango', 'emp-ilango', 'ilango@sns.test', 'ilango', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-ilango', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -535,7 +545,7 @@ VALUES ('bal-ilango-open', 'emp-ilango', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-keerthana', 'SNS-1025', 'Keerthana', 'S', 'keerthana@sns.test', 'active', '2021-03-22', NULL, 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-26', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-keerthana', 'emp-keerthana', 'keerthana@sns.test', 'keerthana', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-keerthana', 'emp-keerthana', 'keerthana@sns.test', 'keerthana', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-keerthana', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -543,7 +553,7 @@ VALUES ('bal-keerthana-open', 'emp-keerthana', 'lt-al', 'lp-2026', 'OPENING', 36
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-mohan', 'SNS-1026', 'Mohan', 'Doss', 'mohan@sns.test', 'active', '2022-02-07', NULL, 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-27', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-mohan', 'emp-mohan', 'mohan@sns.test', 'mohan', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-mohan', 'emp-mohan', 'mohan@sns.test', 'mohan', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-mohan', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -551,7 +561,7 @@ VALUES ('bal-mohan-open', 'emp-mohan', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-nandhini', 'SNS-1027', 'Nandhini', 'G', 'nandhini@sns.test', 'active', '2022-10-17', NULL, 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-28', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-nandhini', 'emp-nandhini', 'nandhini@sns.test', 'nandhini', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-nandhini', 'emp-nandhini', 'nandhini@sns.test', 'nandhini', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-nandhini', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -559,7 +569,7 @@ VALUES ('bal-nandhini-open', 'emp-nandhini', 'lt-al', 'lp-2026', 'OPENING', 36, 
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-pradeep', 'SNS-1028', 'Pradeep', 'Kumar', 'pradeep@sns.test', 'active', '2023-05-08', NULL, 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-29', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-pradeep', 'emp-pradeep', 'pradeep@sns.test', 'pradeep', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-pradeep', 'emp-pradeep', 'pradeep@sns.test', 'pradeep', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-pradeep', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -567,7 +577,7 @@ VALUES ('bal-pradeep-open', 'emp-pradeep', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-radhika', 'SNS-1029', 'Radhika', 'V', 'radhika@sns.test', 'active', '2024-02-12', NULL, 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-30', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-radhika', 'emp-radhika', 'radhika@sns.test', 'radhika', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-radhika', 'emp-radhika', 'radhika@sns.test', 'radhika', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-radhika', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -575,7 +585,7 @@ VALUES ('bal-radhika-open', 'emp-radhika', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-sandhiya', 'SNS-1030', 'Sandhiya', 'B', 'sandhiya@sns.test', 'probation', '2026-08-01', '2027-01-31', 'loc-navalur', 'dept-qa', 'team-team-qa', 'jt-31', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-sandhiya', 'emp-sandhiya', 'sandhiya@sns.test', 'sandhiya', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-sandhiya', 'emp-sandhiya', 'sandhiya@sns.test', 'sandhiya', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-sandhiya', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -583,7 +593,7 @@ VALUES ('bal-sandhiya-open', 'emp-sandhiya', 'lt-al', 'lp-2026', 'OPENING', 36, 
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-ashwin', 'SNS-1031', 'Ashwin', 'K', 'ashwin@sns.test', 'active', '2017-02-13', NULL, 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-32', 'et-mgmt', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-ashwin', 'emp-ashwin', 'ashwin@sns.test', 'ashwin', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-ashwin', 'emp-ashwin', 'ashwin@sns.test', 'ashwin', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-ashwin', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'manager';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -591,7 +601,7 @@ VALUES ('bal-ashwin-open', 'emp-ashwin', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-bhuvana', 'SNS-1032', 'Bhuvana', 'M', 'bhuvana@sns.test', 'active', '2018-11-05', NULL, 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-33', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-bhuvana', 'emp-bhuvana', 'bhuvana@sns.test', 'bhuvana', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-bhuvana', 'emp-bhuvana', 'bhuvana@sns.test', 'bhuvana', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-bhuvana', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -599,7 +609,7 @@ VALUES ('bal-bhuvana-open', 'emp-bhuvana', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-chandru', 'SNS-1033', 'Chandru', 'P', 'chandru@sns.test', 'active', '2019-12-09', NULL, 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-34', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-chandru', 'emp-chandru', 'chandru@sns.test', 'chandru', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-chandru', 'emp-chandru', 'chandru@sns.test', 'chandru', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-chandru', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -607,7 +617,7 @@ VALUES ('bal-chandru-open', 'emp-chandru', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-divya', 'SNS-1034', 'Divya', 'Bharathi', 'divya@sns.test', 'active', '2020-11-23', NULL, 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-35', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-divya', 'emp-divya', 'divya@sns.test', 'divya', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-divya', 'emp-divya', 'divya@sns.test', 'divya', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-divya', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -615,7 +625,7 @@ VALUES ('bal-divya-open', 'emp-divya', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-eashwar', 'SNS-1035', 'Eashwar', 'T', 'eashwar@sns.test', 'active', '2021-08-16', NULL, 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-36', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-eashwar', 'emp-eashwar', 'eashwar@sns.test', 'eashwar', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-eashwar', 'emp-eashwar', 'eashwar@sns.test', 'eashwar', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-eashwar', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -623,7 +633,7 @@ VALUES ('bal-eashwar-open', 'emp-eashwar', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-gayathri', 'SNS-1036', 'Gayathri', 'R', 'gayathri@sns.test', 'active', '2022-03-14', NULL, 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-37', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-gayathri', 'emp-gayathri', 'gayathri@sns.test', 'gayathri', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-gayathri', 'emp-gayathri', 'gayathri@sns.test', 'gayathri', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-gayathri', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -631,7 +641,7 @@ VALUES ('bal-gayathri-open', 'emp-gayathri', 'lt-al', 'lp-2026', 'OPENING', 36, 
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-jagadeesh', 'SNS-1037', 'Jagadeesh', 'S', 'jagadeesh@sns.test', 'active', '2022-12-05', NULL, 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-38', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-jagadeesh', 'emp-jagadeesh', 'jagadeesh@sns.test', 'jagadeesh', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-jagadeesh', 'emp-jagadeesh', 'jagadeesh@sns.test', 'jagadeesh', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-jagadeesh', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -639,7 +649,7 @@ VALUES ('bal-jagadeesh-open', 'emp-jagadeesh', 'lt-al', 'lp-2026', 'OPENING', 36
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-kavin', 'SNS-1038', 'Kavin', 'Raj', 'kavin@sns.test', 'active', '2023-07-24', NULL, 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-39', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-kavin', 'emp-kavin', 'kavin@sns.test', 'kavin', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-kavin', 'emp-kavin', 'kavin@sns.test', 'kavin', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-kavin', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -647,7 +657,7 @@ VALUES ('bal-kavin-open', 'emp-kavin', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-lavanya', 'SNS-1039', 'Lavanya', 'D', 'lavanya@sns.test', 'active', '2024-04-08', NULL, 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-40', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-lavanya', 'emp-lavanya', 'lavanya@sns.test', 'lavanya', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-lavanya', 'emp-lavanya', 'lavanya@sns.test', 'lavanya', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-lavanya', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -655,7 +665,7 @@ VALUES ('bal-lavanya-open', 'emp-lavanya', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-naveen', 'SNS-1040', 'Naveen', 'Kumar', 'naveen@sns.test', 'probation', '2026-07-15', '2027-01-14', 'loc-navalur', 'dept-tech', 'team-team-tech', 'jt-41', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-naveen', 'emp-naveen', 'naveen@sns.test', 'naveen', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-naveen', 'emp-naveen', 'naveen@sns.test', 'naveen', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-naveen', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -663,7 +673,7 @@ VALUES ('bal-naveen-open', 'emp-naveen', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-anjusha', 'SNS-1041', 'Anjusha', 'R', 'anjusha@sns.test', 'active', '2016-04-18', NULL, 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-42', 'et-mgmt', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-anjusha', 'emp-anjusha', 'anjusha@sns.test', 'anjusha', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-anjusha', 'emp-anjusha', 'anjusha@sns.test', 'anjusha', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-anjusha', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'hr_officer';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -671,7 +681,7 @@ VALUES ('bal-anjusha-open', 'emp-anjusha', 'lt-al', 'lp-2026', 'OPENING', 36, '2
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-rajesh', 'SNS-1042', 'Rajesh', 'Menon', 'rajesh@sns.test', 'active', '2015-01-05', NULL, 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-43', 'et-mgmt', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-rajesh', 'emp-rajesh', 'rajesh@sns.test', 'rajesh', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-rajesh', 'emp-rajesh', 'rajesh@sns.test', 'rajesh', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-rajesh', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'director';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -679,7 +689,7 @@ VALUES ('bal-rajesh-open', 'emp-rajesh', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-ramesh', 'SNS-1043', 'Ramesh', 'V', 'ramesh@sns.test', 'active', '2017-06-12', NULL, 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-44', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-ramesh', 'emp-ramesh', 'ramesh@sns.test', 'ramesh', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-ramesh', 'emp-ramesh', 'ramesh@sns.test', 'ramesh', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-ramesh', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'payroll_officer';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -687,7 +697,7 @@ VALUES ('bal-ramesh-open', 'emp-ramesh', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-sanjay', 'SNS-1044', 'Sanjay', 'G', 'sanjay@sns.test', 'active', '2019-04-15', NULL, 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-45', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-sanjay', 'emp-sanjay', 'sanjay@sns.test', 'sanjay', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-sanjay', 'emp-sanjay', 'sanjay@sns.test', 'sanjay', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-sanjay', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'auditor';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -695,7 +705,7 @@ VALUES ('bal-sanjay-open', 'emp-sanjay', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-swetha', 'SNS-1045', 'Swetha', 'P', 'swetha@sns.test', 'active', '2020-09-07', NULL, 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-46', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-swetha', 'emp-swetha', 'swetha@sns.test', 'swetha', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-swetha', 'emp-swetha', 'swetha@sns.test', 'swetha', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-swetha', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -703,7 +713,7 @@ VALUES ('bal-swetha-open', 'emp-swetha', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-tharun', 'SNS-1046', 'Tharun', 'K', 'tharun@sns.test', 'active', '2021-06-21', NULL, 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-47', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-tharun', 'emp-tharun', 'tharun@sns.test', 'tharun', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-tharun', 'emp-tharun', 'tharun@sns.test', 'tharun', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-tharun', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -711,7 +721,7 @@ VALUES ('bal-tharun-open', 'emp-tharun', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-usha', 'SNS-1047', 'Usha', 'Rani', 'usha@sns.test', 'active', '2022-05-16', NULL, 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-48', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-usha', 'emp-usha', 'usha@sns.test', 'usha', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-usha', 'emp-usha', 'usha@sns.test', 'usha', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-usha', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -719,7 +729,7 @@ VALUES ('bal-usha-open', 'emp-usha', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-01
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-vimal', 'SNS-1048', 'Vimal', 'Raj', 'vimal@sns.test', 'active', '2023-02-20', NULL, 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-49', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-vimal', 'emp-vimal', 'vimal@sns.test', 'vimal', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-vimal', 'emp-vimal', 'vimal@sns.test', 'vimal', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-vimal', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -727,7 +737,7 @@ VALUES ('bal-vimal-open', 'emp-vimal', 'lt-al', 'lp-2026', 'OPENING', 36, '2026-
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-yamini', 'SNS-1049', 'Yamini', 'S', 'yamini@sns.test', 'active', '2024-03-11', NULL, 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-50', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-yamini', 'emp-yamini', 'yamini@sns.test', 'yamini', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-yamini', 'emp-yamini', 'yamini@sns.test', 'yamini', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-yamini', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -735,7 +745,7 @@ VALUES ('bal-yamini-open', 'emp-yamini', 'lt-al', 'lp-2026', 'OPENING', 36, '202
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on, probation_end_on, location_id, department_id, team_id, job_title_id, employment_type_id, retention_class, version, created_at, created_by, updated_at, updated_by)
 VALUES ('emp-zoya', 'SNS-1050', 'Zoya', 'Fathima', 'zoya@sns.test', 'probation', '2026-08-10', '2027-02-09', 'loc-navalur', 'dept-hr', 'team-team-hr', 'jt-51', 'et-perm', 'standard', 1, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, failed_attempts, created_at, created_by, updated_at, updated_by)
-VALUES ('usr-zoya', 'emp-zoya', 'zoya@sns.test', 'zoya', '$argon2id$v=19$m=19456,t=2,p=1$PcqKnbp57h2yYRnma6fX7g$8LEmy25rzMRGlcHbQ0kOE3a3uVpXB0CDAF3tH9QWgtY', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
+VALUES ('usr-zoya', 'emp-zoya', 'zoya@sns.test', 'zoya', '$argon2id$v=19$m=19456,t=2,p=1$PYv86XM5XNd5vCeY+EO4ZA$L4qe0Nx95CBMg1IbulFSOa012WbWtaxBzX7CIG2waxw', 'argon2id', 0, 0, 0, '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys');
 INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT 'usr-zoya', id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = 'employee';
 INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
@@ -1068,10 +1078,11 @@ INSERT INTO approval_step_instance (id, leave_request_id, step_no, approver_empl
 VALUES ('req-saravanan-lop-step1', 'req-saravanan-lop', 1, 'emp-suresh', 'usr-suresh', 'pending', NULL, NULL);
 
 -- 9. Application Settings (Demo Accounts & Version lock)
-DELETE FROM app_setting WHERE key IN ('demo.accounts', 'demo.version');
+DELETE FROM app_setting WHERE key IN ('demo.accounts', 'demo.version', 'demo.navalur_seed');
 INSERT INTO app_setting (key, value_json, updated_by, updated_at)
 VALUES
   ('demo.version', '"3"', 'sys', '2026-01-01T00:00:00.000Z'),
+  ('demo.navalur_seed', '"1"', 'sys', '2026-01-01T00:00:00.000Z'),
   ('demo.accounts', '["admin@sns.test","anjusha@sns.test","suresh@sns.test","rajesh@sns.test","dinesh@sns.test","lakshmi@sns.test","ashwin@sns.test","ramesh@sns.test","sanjay@sns.test","meera@sns.test","arun@sns.test","karthi@sns.test","priya@sns.test","vignesh@sns.test","deepa@sns.test","saravanan@sns.test","nithya@sns.test","harish@sns.test","anandhi@sns.test","balaji@sns.test","chitra@sns.test","gowtham@sns.test","janani@sns.test","manikandan@sns.test","poornima@sns.test","sathish@sns.test","shalini@sns.test","gokul@sns.test","hema@sns.test","ilango@sns.test","keerthana@sns.test","mohan@sns.test","nandhini@sns.test","pradeep@sns.test","radhika@sns.test","sandhiya@sns.test","bhuvana@sns.test","chandru@sns.test","divya@sns.test","eashwar@sns.test","gayathri@sns.test","jagadeesh@sns.test","kavin@sns.test","lavanya@sns.test","naveen@sns.test","swetha@sns.test","tharun@sns.test","usha@sns.test","vimal@sns.test","yamini@sns.test","zoya@sns.test"]', 'sys', '2026-01-01T00:00:00.000Z');
 
 -- 10. Re-enable append-only triggers

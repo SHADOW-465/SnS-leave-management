@@ -3,7 +3,9 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { verifyPassword } from '@sns/auth';
+import { loadConfig } from '@sns/config';
 import { toPostgresSql, PG_APPEND_ONLY_TRIGGERS } from '@sns/database';
+import type { RequestContext } from './ctx.js';
 
 function splitSql(sql: string): string[] {
   const parts: string[] = [];
@@ -188,6 +190,110 @@ describe('Simon & Sons Navalur Chennai Dataset', () => {
       WHERE asi.leave_request_id = 'req-suresh-hr'
     `);
     expect(mgrStep.rows[0]!.approver_email).toBe('anjusha@sns.test');
+
+    // Verify setting is recorded
+    const seedSetting = await pg.query<{ value_json: string }>(`
+      SELECT value_json FROM app_setting WHERE key = 'demo.navalur_seed'
+    `);
+    expect(seedSetting.rows[0]!.value_json).toBe('"1"');
+
+    await pg.close();
+  });
+
+  it('ensureNavalurDataset resets populated DB cleanly and never deletes again on subsequent cold-starts', async () => {
+    const pg = new PGlite();
+    const rootDir = path.resolve(import.meta.dirname, '../../..');
+    const migrationsDir = path.join(rootDir, 'packages/database/src/sql');
+    for (const f of fs
+      .readdirSync(migrationsDir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()) {
+      const sql = fs.readFileSync(path.join(migrationsDir, f), 'utf8');
+      const stripped = sql.replace(/CREATE TRIGGER[\s\S]*?^END;/gm, '');
+      await pg.exec(`${toPostgresSql(stripped)}\n${PG_APPEND_ONLY_TRIGGERS}`);
+    }
+
+    const { ensureNavalurDataset } = await import('./navalur.js');
+
+    const db = {
+      dialect: 'postgres' as const,
+      prepare(text: string) {
+        return {
+          async get(...params: unknown[]) {
+            let pIdx = 1;
+            const pgText = text.replace(/\?/g, () => `$${pIdx++}`);
+            const res = await pg.query(pgText, params as unknown[]);
+            return res.rows[0] as unknown;
+          },
+          async all(...params: unknown[]) {
+            let pIdx = 1;
+            const pgText = text.replace(/\?/g, () => `$${pIdx++}`);
+            const res = await pg.query(pgText, params as unknown[]);
+            return res.rows as unknown[];
+          },
+          async run(...params: unknown[]) {
+            let pIdx = 1;
+            const pgText = text.replace(/\?/g, () => `$${pIdx++}`);
+            const res = await pg.query(pgText, params as unknown[]);
+            return { changes: res.affectedRows ?? 0 };
+          },
+        };
+      },
+      async exec(text: string) {
+        for (const s of splitSql(text)) {
+          if (s.trim()) await pg.exec(s + ';');
+        }
+      },
+      async close() {
+        await pg.close();
+      },
+    };
+
+    const ctx: RequestContext = {
+      requestId: 'test-seed',
+      sqlite: db,
+      config: loadConfig({ LEAVEOS_ENV: 'test', LEAVEOS_DATA_DIR: './.tmp-navalur-test' }),
+      principal: null,
+      ip: '127.0.0.1',
+      userAgent: 'test',
+      now: '2026-09-26T00:00:00.000Z',
+      today: '2026-09-26',
+      attachmentsRoot: '',
+      backupsRoot: '',
+    };
+
+    // 1. Simulate an old database with conflicting rows (e.g. old leave_type with random ID)
+    await pg.exec(`
+      INSERT INTO company (id, name, timezone, leave_year_start_month, leave_year_start_day, created_at, created_by, updated_at, updated_by)
+      VALUES ('company', 'Old Co', 'Asia/Kolkata', 1, 1, '2025-01-01', 'sys', '2025-01-01', 'sys')
+      ON CONFLICT DO NOTHING;
+      INSERT INTO leave_type (id, code, name, colour_token, is_paid, unit, created_at, created_by, updated_at, updated_by)
+      VALUES ('old-random-id-al', 'AL', 'Annual Leave', 'accent', 1, 'half_day', '2025-01-01', 'sys', '2025-01-01', 'sys')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    // 2. Call ensureNavalurDataset: should cleanly wipe old conflicting data and seed Navalur
+    await ensureNavalurDataset(ctx);
+
+    // Verify Navalur data is now present
+    const empCount = await pg.query<{ count: string }>('SELECT COUNT(*) as count FROM employee');
+    expect(Number(empCount.rows[0]!.count)).toBe(51);
+
+    // 3. User adds new data after deployment (e.g. a new leave comment)
+    await pg.exec(`
+      INSERT INTO leave_comment (id, leave_request_id, author_user_id, body, visibility, created_at, created_by)
+      VALUES ('comm-custom-after-deploy', 'req-balaji-weekend', 'usr-admin', 'Employee submitted medical cert', 'all', '2026-09-26T10:00:00.000Z', 'usr-admin');
+    `);
+
+    // 4. Second cold start on Vercel: ensureNavalurDataset is called again
+    await ensureNavalurDataset(ctx);
+
+    // 5. Verify the user's data was NOT deleted or overwritten!
+    const comment = await pg.query<{ body: string }>(
+      "SELECT body FROM leave_comment WHERE id = 'comm-custom-after-deploy'",
+    );
+    expect(comment.rows.length).toBe(1);
+    expect(comment.rows[0]!.body).toBe('Employee submitted medical cert');
 
     await pg.close();
   });

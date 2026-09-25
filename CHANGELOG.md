@@ -8,6 +8,7 @@
 - **Real-Life Scenario & Edge Case Fixtures**: Script `scripts/reset-simon-and-sons-navalur.sql` generates 14 edge cases covering weekend skipping, Chennai/Tamil Nadu public holiday skipping (Gandhi Jayanti, Pongal, etc.), AM/PM half-days, rejection notes, HR to MD routing, manager to HR routing, post-approval cancellations with balance restoration, probationary employee constraints, and Loss of Pay (LOP) unpaid requests.
 - **CLI Runner**: `node scripts/apply-navalur-seed.mjs` (and `pnpm db:reset:navalur`) allows executing the SQL script directly against any PostgreSQL/Supabase database.
 - **Automated Verification**: `apps/server/src/navalur-dataset.test.ts` executes the complete migration and dataset reset in PGlite to verify constraints, roles, team membership counts, password verification, and edge case leaves.
+- **Automatic Vercel One-Time Seeding**: `apps/server/src/navalur.ts` bundles the Navalur dataset SQL directly into the server runtime. When deployed to Vercel, the server automatically applies the reset and seeding once against Supabase and records `demo.navalur_seed = '1'` in `app_setting`, ensuring subsequent cold-starts and deployments never delete or re-run the seed.
 
 ## 0.2.3 — 2026-09-24
 

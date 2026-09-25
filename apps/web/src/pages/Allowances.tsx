@@ -114,7 +114,7 @@ export function AllowancesPage() {
         </p>
       </header>
 
-      <section className="card bar">
+      <section className="card allow-toolbar">
         <Select
           size="sm"
           aria-label="Leave type"
@@ -180,7 +180,7 @@ export function AllowancesPage() {
         </div>
       ) : null}
 
-      <section className="card">
+      <section className="card table-card">
         <input
           className="input"
           placeholder="Filter by name, department or team"
@@ -270,8 +270,9 @@ export function AllowancesPage() {
         .allow h1 { margin:0 0 4px; font-size:22px; }
         .allow .muted { color:var(--text-secondary); }
         .allow .small { font-size:12.5px; }
-        .allow .card { background:#fff; border:1px solid var(--border-subtle); border-radius:12px; padding:16px 18px; overflow-x:auto; }
-        .allow .bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; position:sticky; top:0; z-index:2; }
+        .allow .card { background:var(--surface-default, #fff); border:1px solid var(--border-subtle); border-radius:12px; padding:16px 18px; }
+        .allow .allow-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; position:sticky; top:0; z-index:2; height:auto; overflow:visible; background:var(--surface-default, #fff); }
+        .allow .table-card { overflow-x:auto; }
         .allow .inline { display:flex; gap:6px; align-items:center; }
         .allow .num { width:90px; }
         .allow .grow { flex:1; min-width:200px; }

@@ -763,6 +763,13 @@ export async function buildSql(): Promise<string> {
 
   // Clean out
   lines.push(`-- 1. Clean out existing leave requests, attendance, balances, and accounts`);
+  lines.push(`DELETE FROM period_rollover_run;`);
+  lines.push(`DELETE FROM accrual_run;`);
+  lines.push(`DELETE FROM permission_request;`);
+  lines.push(`DELETE FROM approval_override;`);
+  lines.push(`DELETE FROM approval_delegation;`);
+  lines.push(`DELETE FROM workstation_device;`);
+  lines.push(`DELETE FROM attachment;`);
   lines.push(`DELETE FROM leave_comment;`);
   lines.push(`DELETE FROM approval_step_instance;`);
   lines.push(`DELETE FROM leave_request_day;`);
@@ -779,8 +786,11 @@ export async function buildSql(): Promise<string> {
   lines.push(`DELETE FROM emergency_contact;`);
   lines.push(`DELETE FROM employee_contact;`);
   lines.push(`DELETE FROM employment_history;`);
+  lines.push(`UPDATE employee SET manager_employee_id = NULL;`);
   lines.push(`DELETE FROM employee;`);
+  lines.push(`UPDATE team SET lead_employee_id = NULL;`);
   lines.push(`DELETE FROM team;`);
+  lines.push(`UPDATE department SET head_employee_id = NULL;`);
   lines.push(`DELETE FROM department;`);
   lines.push(``);
 

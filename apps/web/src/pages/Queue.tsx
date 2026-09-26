@@ -45,6 +45,7 @@ type Row = {
   half_day_start?: 'full' | 'am' | 'pm' | null;
   half_day_end?: 'full' | 'am' | 'pm' | null;
   total_half_days: number;
+  lop_half_days?: number;
   status: string;
   version: number;
   dept: string;
@@ -292,7 +293,26 @@ export function QueuePage({ me }: { me: Me }) {
                   </td>
                   <td>{r.type_name}</td>
                   <td>{formatRange(r.start_date, r.end_date)}</td>
-                  <td className="mono">{daysLabel(r.total_half_days)}</td>
+                  <td className="mono">
+                    <div>{daysLabel(r.total_half_days)}</div>
+                    {r.lop_half_days && r.lop_half_days > 0 ? (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          marginTop: 3,
+                          padding: '1px 6px',
+                          fontSize: 10.5,
+                          borderRadius: 999,
+                          background: '#fff1f2',
+                          color: '#be123c',
+                          fontWeight: 650,
+                          letterSpacing: '0.02em',
+                        }}
+                      >
+                        {daysLabel(r.lop_half_days)} LOP
+                      </span>
+                    ) : null}
+                  </td>
                   <td>
                     <StatusPill status={r.status} />
                     {r.waiting_on ? (
@@ -449,6 +469,19 @@ export function QueuePage({ me }: { me: Me }) {
 
                       <dt>Working Days</dt>
                       <dd className="mono">{dayCount(detail.data.total_half_days)} counted</dd>
+
+                      <dt>Loss of Pay</dt>
+                      <dd
+                        className="mono"
+                        style={{
+                          color: (detail.data.lop_half_days ?? 0) > 0 ? '#be123c' : undefined,
+                          fontWeight: (detail.data.lop_half_days ?? 0) > 0 ? 650 : undefined,
+                        }}
+                      >
+                        {(detail.data.lop_half_days ?? 0) > 0
+                          ? `${dayCount(detail.data.lop_half_days ?? 0)} days (unpaid)`
+                          : 'None'}
+                      </dd>
 
                       <dt>Filed on</dt>
                       <dd>{formatDateTime(detail.data.submitted_at || detail.data.created_at)}</dd>

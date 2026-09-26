@@ -11,6 +11,11 @@ export function ApplyPage({ me }: { me: Me }) {
     queryKey: ['types'],
     queryFn: () => api<{ id: string; name: string; code: string }[]>('/api/v1/leave-types'),
   });
+  const selectableTypes = useMemo(() => {
+    return (types.data ?? []).filter(
+      (t) => t.code !== 'LOP' && !/loss of pay|unpaid/i.test(t.name),
+    );
+  }, [types.data]);
   const [leaveTypeId, setType] = useState('');
   const [startDate, setFrom] = useState('');
   const [endDate, setTo] = useState('');
@@ -18,7 +23,7 @@ export function ApplyPage({ me }: { me: Me }) {
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [fileId, setFileId] = useState<string | null>(null);
-  const typeId = leaveTypeId || types.data?.[0]?.id || '';
+  const typeId = leaveTypeId || selectableTypes[0]?.id || '';
 
   const canApplyForOthers = Boolean(
     me.permissions.some(
@@ -174,7 +179,7 @@ export function ApplyPage({ me }: { me: Me }) {
             ) : null}
           </div>
         ) : null}
-        {types.data && types.data.length > 1 ? (
+        {selectableTypes.length > 1 ? (
           <div className="field">
             <label htmlFor="f-type">Leave type</label>
             <Select
@@ -183,7 +188,7 @@ export function ApplyPage({ me }: { me: Me }) {
               value={typeId}
               onChange={(val) => setType(val)}
               fullWidth
-              options={types.data.map((t) => ({
+              options={selectableTypes.map((t) => ({
                 value: t.id,
                 label: t.name,
               }))}
@@ -284,7 +289,13 @@ export function ApplyPage({ me }: { me: Me }) {
             <dt>Balance after</dt>
             <dd>{preview.data?.after ?? '—'}</dd>
             <dt>Loss of pay</dt>
-            <dd>
+            <dd
+              style={
+                preview.data?.lossOfPay && preview.data.lossOfPay !== '0'
+                  ? { color: '#be123c', fontWeight: 700 }
+                  : undefined
+              }
+            >
               {preview.data?.lossOfPay && preview.data.lossOfPay !== '0'
                 ? `${preview.data.lossOfPay} days`
                 : 'None'}
@@ -292,6 +303,25 @@ export function ApplyPage({ me }: { me: Me }) {
             <dt>Reporting manager</dt>
             <dd>{preview.data?.approver ?? 'Working it out…'}</dd>
           </dl>
+          {preview.data?.lossOfPay && preview.data.lossOfPay !== '0' ? (
+            <div
+              role="note"
+              style={{
+                marginTop: 12,
+                padding: '10px 12px',
+                borderRadius: 'var(--radius-md, 6px)',
+                background: '#fff1f2',
+                border: '1px solid #fecdd3',
+                color: '#9f1239',
+                fontSize: 13,
+                lineHeight: 1.4,
+              }}
+            >
+              ⚠️ <strong>Loss of pay notice:</strong> This request exceeds available balance (
+              {preview.data.available} days). <strong>{preview.data.lossOfPay} days</strong> will be
+              recorded as <strong>Loss of Pay (LOP)</strong>.
+            </div>
+          ) : null}
           {preview.data?.ownOverlap ? (
             <p role="alert" style={{ color: 'var(--status-rejected-fg)', margin: '12px 0 0' }}>
               These dates overlap a leave request you already have. Change the dates before

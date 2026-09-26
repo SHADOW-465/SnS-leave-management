@@ -3,6 +3,7 @@ import path from 'node:path';
 import { PGlite } from '../node_modules/.pnpm/@electric-sql+pglite@0.5.8/node_modules/@electric-sql/pglite/dist/index.js';
 import { hashPassword, verifyPassword } from '../packages/auth/src/index.js';
 import { toPostgresSql, PG_APPEND_ONLY_TRIGGERS } from '../packages/database/src/dialect.js';
+import { defaultRulesForCode } from '../packages/domain/src/index.js';
 
 // Argon2 hashes for the seed passwords
 const DEMO_PASSWORD = 'ChangeMe_demo_1';
@@ -831,17 +832,17 @@ ON CONFLICT (id) DO NOTHING;\n`);
 
   lines.push(`INSERT INTO leave_type (id, code, name, colour_token, is_paid, unit, created_at, created_by, updated_at, updated_by)
 VALUES
-  ('lt-al', 'AL', 'Annual Leave', 'accent', 1, 'half_day', '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys'),
-  ('lt-lop', 'LOP', 'Loss of Pay', 'neutral', 0, 'half_day', '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys')
+  ('lt-al', 'AL', 'Annual Leave', 'accent', 1, 'half_day', '2026-01-01T00:00:00.000Z', 'sys', '2026-01-01T00:00:00.000Z', 'sys')
 ON CONFLICT (code) DO NOTHING;\n`);
 
+  const alRules = defaultRulesForCode('AL');
   lines.push(`INSERT INTO leave_policy_version (id, leave_type_id, version_no, effective_from, rules_json, published_at, published_by, created_at, created_by)
 VALUES (
   'lpv-al-1',
   'lt-al',
   1,
   '2026-01-01',
-  '{"accrual":{"frequency":"monthly","rateHalfDays":3},"carryForward":{"maxHalfDays":10,"expiryMonths":6},"probation":{"eligible":true,"rateHalfDays":2}}',
+  ${q(JSON.stringify(alRules))},
   '2026-01-01T00:00:00.000Z',
   'sys',
   '2026-01-01T00:00:00.000Z',
@@ -938,9 +939,12 @@ VALUES (${q(userId)}, ${q(empId)}, ${q(email)}, ${q(p.key)}, ${q(pwdHash)}, 'arg
     lines.push(`INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at)
 SELECT ${q(userId)}, id, 'sys', '2026-01-01T00:00:00.000Z' FROM role WHERE code = ${q(p.role)};`);
 
-    // Opening Balance (36 half days = 18 days Annual Leave)
-    lines.push(`INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
-VALUES (${q(`bal-${p.key}-open`)}, ${q(empId)}, 'lt-al', 'lp-2026', 'OPENING', 36, '2026-01-01', 'Opening grant for 2026 leave year', 'sys', '2026-01-01T00:00:00.000Z');`);
+    // Opening Balance (36 half days = 18 days Annual Leave; 0 for Saravanan so he tests 100% Loss of Pay shortfall)
+    const openingHalfDays = p.key === 'saravanan' ? 0 : 36;
+    if (openingHalfDays > 0) {
+      lines.push(`INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, reason, created_by, created_at)
+VALUES (${q(`bal-${p.key}-open`)}, ${q(empId)}, 'lt-al', 'lp-2026', 'OPENING', ${openingHalfDays}, '2026-01-01', 'Opening grant for 2026 leave year', 'sys', '2026-01-01T00:00:00.000Z');`);
+    }
   }
   lines.push(``);
 
@@ -1230,13 +1234,15 @@ VALUES (${q(`eh-${p.key}`)}, ${q(empId)}, (SELECT job_title_id FROM employee WHE
     const approverEmpId = `emp-${ec.approver}`;
     const approverUserId = `usr-${ec.approver}`;
     const totalHalfDays = ec.daysCounted * 2;
-    const leaveTypeId = ec.id === 'req-saravanan-lop' ? 'lt-lop' : 'lt-al';
+    const leaveTypeId = 'lt-al';
     const submittedAt = '2026-09-20T09:30:00.000Z';
     const decidedAt =
       ec.status === 'approved' || ec.status === 'rejected' ? '2026-09-21T14:00:00.000Z' : null;
+    const lopHalfDays = ec.id === 'req-saravanan-lop' ? totalHalfDays : 0;
+    const paidHalfDays = totalHalfDays - lopHalfDays;
 
-    lines.push(`INSERT INTO leave_request (id, employee_id, leave_type_id, policy_version_id, start_date, end_date, half_day_start, half_day_end, total_half_days, reason, status, submitted_at, decided_at, submitted_by, version, created_at, created_by, updated_at, updated_by)
-VALUES (${q(ec.id)}, ${q(empId)}, ${q(leaveTypeId)}, 'lpv-al-1', ${q(ec.startDate)}, ${q(ec.endDate)}, ${q(ec.halfDayStart ?? 'full')}, ${q(ec.halfDayEnd ?? 'full')}, ${totalHalfDays}, ${q(ec.reason)}, ${q(ec.status)}, ${q(submittedAt)}, ${q(decidedAt)}, ${q(empId)}, 1, ${q(submittedAt)}, ${q(empId)}, ${q(submittedAt)}, ${q(empId)});`);
+    lines.push(`INSERT INTO leave_request (id, employee_id, leave_type_id, policy_version_id, start_date, end_date, half_day_start, half_day_end, total_half_days, lop_half_days, reason, status, submitted_at, decided_at, submitted_by, version, created_at, created_by, updated_at, updated_by)
+VALUES (${q(ec.id)}, ${q(empId)}, ${q(leaveTypeId)}, 'lpv-al-1', ${q(ec.startDate)}, ${q(ec.endDate)}, ${q(ec.halfDayStart ?? 'full')}, ${q(ec.halfDayEnd ?? 'full')}, ${totalHalfDays}, ${lopHalfDays}, ${q(ec.reason)}, ${q(ec.status)}, ${q(submittedAt)}, ${q(decidedAt)}, ${q(empId)}, 1, ${q(submittedAt)}, ${q(empId)}, ${q(submittedAt)}, ${q(empId)});`);
 
     for (let d = 0; d < ec.days.length; d++) {
       const day = ec.days[d];
@@ -1256,13 +1262,13 @@ VALUES (${q(`${ec.id}-d${d + 1}`)}, ${q(ec.id)}, ${q(day.date)}, ${q(day.portion
 VALUES (${q(`${ec.id}-step1`)}, ${q(ec.id)}, 1, ${q(approverEmpId)}, ${q(approverUserId)}, ${q(stepStatus)}, ${q(decidedAt)}, ${q(ec.note ?? null)});`);
 
     // Balance Ledger entries
-    if (leaveTypeId === 'lt-al') {
+    if (paidHalfDays > 0) {
       if (ec.status === 'approved') {
         lines.push(`INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, reason, created_by, created_at)
-VALUES (${q(`bal-${ec.id}-ded`)}, ${q(empId)}, 'lt-al', 'lp-2026', 'DEDUCTION', -${totalHalfDays}, ${q(ec.startDate)}, 'leave_request', ${q(ec.id)}, 'Approved leave deduction', 'sys', ${q(submittedAt)});`);
+VALUES (${q(`bal-${ec.id}-ded`)}, ${q(empId)}, 'lt-al', 'lp-2026', 'DEDUCTION', -${paidHalfDays}, ${q(ec.startDate)}, 'leave_request', ${q(ec.id)}, 'Approved leave deduction', 'sys', ${q(submittedAt)});`);
       } else if (ec.status === 'pending_approval') {
         lines.push(`INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, source_id, reason, created_by, created_at)
-VALUES (${q(`bal-${ec.id}-hold`)}, ${q(empId)}, 'lt-al', 'lp-2026', 'PENDING_HOLD', -${totalHalfDays}, ${q(ec.startDate)}, 'leave_request', ${q(ec.id)}, 'Pending approval hold', 'sys', ${q(submittedAt)});`);
+VALUES (${q(`bal-${ec.id}-hold`)}, ${q(empId)}, 'lt-al', 'lp-2026', 'PENDING_HOLD', -${paidHalfDays}, ${q(ec.startDate)}, 'leave_request', ${q(ec.id)}, 'Pending approval hold', 'sys', ${q(submittedAt)});`);
       }
     }
   }
@@ -1302,7 +1308,7 @@ VALUES (${q(`bal-${ec.id}-hold`)}, ${q(empId)}, 'lt-al', 'lp-2026', 'PENDING_HOL
   lines.push(`INSERT INTO app_setting (key, value_json, updated_by, updated_at)
 VALUES
   ('demo.version', '"3"', 'sys', '2026-01-01T00:00:00.000Z'),
-  ('demo.navalur_seed', '"1"', 'sys', '2026-01-01T00:00:00.000Z'),
+  ('demo.navalur_seed', '"2"', 'sys', '2026-01-01T00:00:00.000Z'),
   ('demo.accounts', ${q(JSON.stringify(accountsOrder))}, 'sys', '2026-01-01T00:00:00.000Z');\n`);
 
   lines.push(`-- 10. Re-enable append-only triggers`);

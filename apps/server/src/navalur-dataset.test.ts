@@ -191,11 +191,32 @@ describe('Simon & Sons Navalur Chennai Dataset', () => {
     `);
     expect(mgrStep.rows[0]!.approver_email).toBe('anjusha@sns.test');
 
+    // Verify single leave type (AL) and no separate LOP leave type
+    const leaveTypes = await pg.query<{ code: string; name: string }>(`
+      SELECT code, name FROM leave_type ORDER BY code
+    `);
+    expect(leaveTypes.rows).toHaveLength(1);
+    expect(leaveTypes.rows[0]!.code).toBe('AL');
+
+    // Verify Saravanan LOP request uses lt-al and has lop_half_days = 6
+    const saravananReq = await pg.query<{
+      leave_type_id: string;
+      total_half_days: number;
+      lop_half_days: number;
+    }>(`
+      SELECT leave_type_id, total_half_days, lop_half_days
+      FROM leave_request
+      WHERE id = 'req-saravanan-lop'
+    `);
+    expect(saravananReq.rows[0]!.leave_type_id).toBe('lt-al');
+    expect(saravananReq.rows[0]!.total_half_days).toBe(6);
+    expect(saravananReq.rows[0]!.lop_half_days).toBe(6);
+
     // Verify setting is recorded
     const seedSetting = await pg.query<{ value_json: string }>(`
       SELECT value_json FROM app_setting WHERE key = 'demo.navalur_seed'
     `);
-    expect(seedSetting.rows[0]!.value_json).toBe('"1"');
+    expect(seedSetting.rows[0]!.value_json).toBe('"2"');
 
     await pg.close();
   });

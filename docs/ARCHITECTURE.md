@@ -88,7 +88,7 @@ adapter. Neither path rewrites the rules.
 
 | Environment | What                | Address                              | Notes                                                                                                                                |
 | ----------- | ------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Production  | First-time staff    | `http://sns-leave`                   | Setup page. Port 8080 when port 80 is taken. Trusts the root, then opens the site below.                                            |
+| Production  | First-time staff    | `http://sns-leave`                   | Setup page. Port 8080 when port 80 is taken. Trusts the root, then opens the site below.                                             |
 | Production  | Employee site + API | `https://sns-leave:8443`             | Also `https://sns-leave.local:8443`. The LAN IP address is the fallback. The name defaults to `sns-leave` and is changed in settings |
 | Production  | Host panel          | `https://127.0.0.1:8443/host`        | This computer only. Status, setup QR, service, backup, restore, waiting browsers, health                                             |
 | Production  | Health endpoint     | `https://<lan-address>:8443/healthz` | No authentication, no data — liveness only                                                                                           |

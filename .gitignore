@@ -15,6 +15,7 @@ data
 playwright-report
 test-results
 *.log
+ca-key.pem
 .DS_Store
 Thumbs.db
 apps/desktop/out

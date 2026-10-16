@@ -6,18 +6,27 @@ export function isLoopback(ip: string | undefined): boolean {
   return value === '127.0.0.1' || value === '::1' || value === 'localhost';
 }
 
-/** First non-virtual IPv4 address colleagues on the office LAN can open. */
-export function lanAddress(): string | null {
+function isUsefulLanIp(address: string): boolean {
+  return !address.startsWith('169.254.');
+}
+
+/** Non-virtual IPv4 addresses first, then virtual adapters. Link-local addresses are skipped. */
+export function lanAddresses(): string[] {
   const preferred: string[] = [];
   const other: string[] = [];
   for (const [name, addrs] of Object.entries(networkInterfaces())) {
     for (const addr of addrs ?? []) {
-      if (addr.family !== 'IPv4' || addr.internal) continue;
+      if (addr.family !== 'IPv4' || addr.internal || !isUsefulLanIp(addr.address)) continue;
       const virtual = /vEthernet|VirtualBox|Docker|WSL|Loopback|Hyper-V/i.test(name);
       (virtual ? other : preferred).push(addr.address);
     }
   }
-  return preferred[0] ?? other[0] ?? null;
+  return [...new Set([...preferred, ...other])];
+}
+
+/** First non-virtual IPv4 address colleagues on the office LAN can open. */
+export function lanAddress(): string | null {
+  return lanAddresses()[0] ?? null;
 }
 
 const SERVICE = 'LeaveOS';

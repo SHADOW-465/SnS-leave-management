@@ -40,7 +40,9 @@ That file is not committed. It is unsigned (DW-14). Publish a checksum with it f
 - Copies the server, the web build, and `node.exe` under `Program Files\SimonAndSons\LeaveOS`.
 - Registers a service named `LeaveOS` that starts at boot. Registration uses `node-windows` when that package is present, and otherwise `sc.exe` (the same registrar as `scripts/service.mjs`). NSSM is not required.
 - Adds a firewall rule for TCP port 8443.
-- Puts a **Leave OS** shortcut on the desktop. It opens `http://127.0.0.1:8443/host`.
+- Puts a **Leave OS** shortcut on the desktop. It opens `https://127.0.0.1:8443/host`.
 
-The service runs `leaveos-run.cjs`, which binds all interfaces in production on port 8443.
+The service runs `leaveos-run.cjs`, which binds all interfaces in production on port 8443
+and serves HTTPS. The certificate is written on first start. See `docs/TLS-TRUST.md`.
+HTTP is only used when `LEAVEOS_HTTP_FALLBACK=true`.
 Data stays in `%PROGRAMDATA%\SimonAndSons\LeaveOS`. Uninstall removes the service and the firewall rule. It does not delete that data folder.

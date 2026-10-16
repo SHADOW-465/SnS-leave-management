@@ -55,6 +55,26 @@ describe('config', () => {
     expect(c.showDemoAccounts).toBe(false);
     expect(c.seedOnEmpty).toBe(false);
     expect(c.enforceWorkstationBinding).toBe(true);
+    expect(c.tlsEnabled).toBe(true);
+    expect(c.cookieSecure).toBe(true);
+    expect(c.httpFallback).toBe(false);
+  });
+
+  it('keeps HTTP only when the office fallback setting is on', () => {
+    const fallback = loadConfig({
+      LEAVEOS_DATA_DIR: './data',
+      LEAVEOS_ENV: 'production',
+      LEAVEOS_HTTP_FALLBACK: 'true',
+    });
+    expect(fallback.tlsEnabled).toBe(false);
+    expect(fallback.httpFallback).toBe(true);
+    const forced = loadConfig({
+      LEAVEOS_DATA_DIR: './data',
+      LEAVEOS_ENV: 'production',
+      LEAVEOS_HTTP_FALLBACK: 'true',
+      LEAVEOS_TLS_ENABLED: 'true',
+    });
+    expect(forced.tlsEnabled).toBe(true);
   });
 
   it('allows demo accounts and disables workstation binding restriction in development', () => {

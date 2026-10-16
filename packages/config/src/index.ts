@@ -46,6 +46,30 @@ export const appConfigSchema = z.object({
 
 export type AppConfig = z.infer<typeof appConfigSchema>;
 
+function flag(value: unknown): boolean | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+  return undefined;
+}
+
+/** Production on the office host speaks HTTPS. HTTP is only the explicit fallback. */
+function officeTlsEnabled(
+  env: NodeJS.ProcessEnv,
+  file: Record<string, unknown>,
+  envName: unknown,
+  hostedPreview: boolean,
+): boolean {
+  const explicit = flag(env.LEAVEOS_TLS_ENABLED);
+  if (explicit !== undefined) return explicit;
+  const fromFile = flag(file.tlsEnabled);
+  if (fromFile !== undefined) return fromFile;
+  if (hostedPreview) return false;
+  const httpFallback = flag(env.LEAVEOS_HTTP_FALLBACK) ?? flag(file.httpFallback) ?? false;
+  if (httpFallback) return false;
+  return envName === 'production';
+}
+
 /**
  * Reads a `.env` file into `process.env` without overwriting anything already set.
  * Ten lines beats a dependency, and without it `.env.example` was decorative — the
@@ -108,12 +132,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env.LEAVEOS_PUBLIC_URL ??
       file.publicUrl ??
       (hostedPreview ? hostedPublicUrl(env) : undefined),
-    tlsEnabled: env.LEAVEOS_TLS_ENABLED ?? file.tlsEnabled ?? (hostedPreview ? false : undefined),
+    tlsEnabled: officeTlsEnabled(env, file, envName, hostedPreview),
     tlsCertPath: env.LEAVEOS_TLS_CERT ?? file.tlsCertPath,
     tlsKeyPath: env.LEAVEOS_TLS_KEY ?? file.tlsKeyPath,
     logLevel: env.LEAVEOS_LOG_LEVEL ?? file.logLevel,
     cookieSecure:
-      env.LEAVEOS_COOKIE_SECURE ?? file.cookieSecure ?? (hostedPreview ? true : undefined),
+      env.LEAVEOS_COOKIE_SECURE ??
+      file.cookieSecure ??
+      (hostedPreview || officeTlsEnabled(env, file, envName, hostedPreview) ? true : undefined),
     trustProxy: env.LEAVEOS_TRUST_PROXY ?? (hostedPreview ? true : undefined),
     hostedPreview: env.LEAVEOS_HOSTED_PREVIEW ?? hostedPreview,
     showDemoAccounts:

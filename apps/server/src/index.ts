@@ -7,7 +7,8 @@ const host = config.bindAll ? '0.0.0.0' : config.host;
 if (!process.env.VERCEL) {
   try {
     await app.listen({ port: config.port, host });
-    app.log.info(`Leave OS listening on http://${host}:${config.port}`);
+    const scheme = config.tlsEnabled ? 'https' : 'http';
+    app.log.info(`Leave OS listening on ${scheme}://${host}:${config.port}`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);

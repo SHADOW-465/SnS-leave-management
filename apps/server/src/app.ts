@@ -33,12 +33,17 @@ const PUBLIC = new Set([
   'POST /api/v1/setup',
   'POST /api/v1/auth/login',
 ]);
-export async function buildApp(config: AppConfig, sqlite: Db): Promise<FastifyInstance> {
+export async function buildApp(
+  config: AppConfig,
+  sqlite: Db,
+  opts?: { https?: { key: Buffer; cert: Buffer } },
+): Promise<FastifyInstance> {
   const dirs = pathsFor(config);
   const app = Fastify({
     logger: config.env === 'test' ? false : { level: config.logLevel },
     genReqId: () => newId(),
     trustProxy: config.trustProxy,
+    ...(opts?.https ? { https: opts.https } : {}),
   });
   await app.register(helmet, {
     contentSecurityPolicy: {

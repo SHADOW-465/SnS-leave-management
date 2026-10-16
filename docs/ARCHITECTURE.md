@@ -38,9 +38,13 @@ flowchart TB
 - Production serves HTTPS with a certificate written on first start. HTTP is only
   `LEAVEOS_HTTP_FALLBACK`. Staff trust `cert.pem` (see `docs/TLS-TRUST.md`). Do not
   continue past a certificate warning. DW-13 stays open.
-- Setup (`docs/INSTALLER.md`) registers the service, opens TCP 8443, adds a desktop
-  shortcut to the host panel, and sets plugged-in sleep and hibernate to never. The
-  setup program is unsigned (DW-14).
+- Setup (`docs/INSTALLER.md`) is one program with a Next page and a Finish page. It
+  copies the bundled Node runtime and the app, registers and starts the service, opens
+  TCP 8443, writes the certificate and trusts it on this computer, creates the backup
+  folder under ProgramData, and sets plugged-in sleep and hibernate to never. Finish
+  opens the host panel. Uninstall reverses the service, the firewall rule, the shortcut,
+  the certificate trust, and the power change. It keeps the data and backups unless the
+  person uninstalling chooses to delete them. The setup program is unsigned (DW-14).
 - A production host copies the database once a day with `VACUUM INTO` into a configurable
   folder and drops copies older than the retention. Restore is staged and applied the
   next time the database opens.
@@ -232,8 +236,9 @@ rather than acting twice.
 The office control panel is `GET /host` on the server. It answers only for loopback
 (`127.0.0.1`, `::1`). A LAN address receives a permission-denied page.
 
-It shows whether the server is answering, the database check, the Windows service state,
-backup age, certificate expiry, and free disk. It shows the LAN URL and a QR code for it.
+It shows whether the server is answering, the database check, and the Windows service
+as **Running** when the service is running. It shows backup age, certificate expiry, and
+free disk. It shows the LAN URL and a QR code for it.
 Forms start, stop, or restart the `LeaveOS` service, take a backup, stage a restore for
 the next start, and approve a browser that is waiting. Posts carry a confirmation token
 from the page.

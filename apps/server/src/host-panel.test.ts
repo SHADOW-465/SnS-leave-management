@@ -6,6 +6,7 @@ import { openDatabase, type Db } from '@sns/database';
 import { loadConfig, pathsFor } from '@sns/config';
 import { buildApp } from './app.js';
 import type { FastifyInstance } from 'fastify';
+import { serviceHeadline } from './host-local.js';
 
 const opened: { sqlite: Db; dir: string }[] = [];
 
@@ -54,11 +55,17 @@ afterEach(async () => {
 });
 
 describe('host control panel', () => {
+  it('labels a running Windows service as Running', () => {
+    expect(serviceHeadline('running')).toBe('Running');
+    expect(serviceHeadline('stopped')).toBe('Stopped');
+  });
+
   it('serves the panel on the loopback address and refuses a LAN address', async () => {
     const { app } = await boot();
     const local = await openPanel(app);
     expect(local.res.statusCode).toBe(200);
     expect(local.res.body).toContain('Host control');
+    expect(local.res.body).toContain('id="service-state">Not queried');
     expect(local.res.body).toContain('No browsers are waiting');
     expect(local.res.body).toContain('No backup files yet');
     expect(local.token).toHaveLength(64);

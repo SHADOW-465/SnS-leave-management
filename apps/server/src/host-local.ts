@@ -22,17 +22,25 @@ export function lanAddress(): string | null {
 
 const SERVICE = 'LeaveOS';
 
-export function serviceStatus(env: string): { state: string; detail: string } {
+export function serviceHeadline(state: string): string {
+  if (state === 'running') return 'Running';
+  if (state === 'stopped') return 'Stopped';
+  if (state === 'not-queried') return 'Not queried';
+  return 'Unknown';
+}
+
+export function serviceStatus(env: string): { state: string; detail: string; label: string } {
   if (env === 'test' || process.platform !== 'win32') {
     return {
       state: 'not-queried',
+      label: serviceHeadline('not-queried'),
       detail: 'Windows service control is skipped in this environment.',
     };
   }
   const result = spawnSync('sc.exe', ['query', SERVICE], { encoding: 'utf8', windowsHide: true });
   const text = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
   const state = /RUNNING/.test(text) ? 'running' : /STOPPED/.test(text) ? 'stopped' : 'unknown';
-  return { state, detail: text.slice(0, 400) };
+  return { state, label: serviceHeadline(state), detail: text.slice(0, 400) };
 }
 
 export function serviceControl(

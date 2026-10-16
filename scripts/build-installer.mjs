@@ -124,7 +124,7 @@ await esbuild.build({
 });
 
 copyArgon(path.join(payload, 'node_modules'));
-for (const file of ['install-service.cjs', 'leaveos-run.cjs', 'Leave OS.url']) {
+for (const file of ['install-service.cjs', 'leaveos-run.cjs', 'prepare-host.cjs', 'Leave OS.url']) {
   fs.copyFileSync(path.join(repoRoot, 'installer', file), path.join(payload, file));
 }
 await copyNodeExe(path.join(payload, 'node.exe'));
@@ -181,7 +181,9 @@ async function copyNodeExe(dest) {
     console.log(`Downloading portable Node ${version}…`);
     const res = await fetch(url);
     if (!res.ok || !res.body) {
-      console.warn(`Could not download ${url} (${res.status}). Copying the Node that is running this script.`);
+      console.warn(
+        `Could not download ${url} (${res.status}). Copying the Node that is running this script.`,
+      );
       fs.copyFileSync(process.execPath, dest);
       return;
     }
@@ -198,4 +200,3 @@ async function copyNodeExe(dest) {
   }
   fs.copyFileSync(path.join(extract, 'node.exe'), dest);
 }
-

@@ -9,7 +9,13 @@ import type { RequestContext } from './ctx.js';
 import { approveDevice } from './usecases/devices.js';
 import { createBackupFile, stageRestoreFile } from './backup-file.js';
 import { readBackupPolicy } from './backup-job.js';
-import { isLoopback, lanAddress, serviceControl, serviceStatus } from './host-local.js';
+import {
+  isLoopback,
+  lanAddress,
+  serviceControl,
+  serviceHeadline,
+  serviceStatus,
+} from './host-local.js';
 import { collectHealth, type HostHealth } from './health.js';
 import { sendError } from './http.js';
 
@@ -266,7 +272,7 @@ async function renderHost(
           <dt>Last backup</dt><dd>${health.backupAgeHours === null ? 'No backup yet' : `${health.backupAgeHours.toFixed(1)} hours ago`}</dd>
           <dt>Certificate</dt><dd>${health.certExpiresAt ? `Expires ${esc(health.certExpiresAt)}` : 'No certificate file yet'}</dd>
           <dt>Disk</dt><dd>${health.diskFreeBytes === null ? 'Unknown' : `${(health.diskFreeBytes / 1024 ** 3).toFixed(1)} GB free`}</dd>
-          <dt>Windows service</dt><dd>${esc(service.state)}. ${esc(service.detail)}</dd>
+          <dt>Windows service</dt><dd id="service-state">${esc(serviceHeadline(service.state))}</dd>
           <dt>As of</dt><dd><time id="as-of">${esc(req.ctx.now)}</time> <button type="button" id="refresh">Refresh</button></dd>
         </dl>
       </section>
@@ -370,6 +376,8 @@ async function refresh() {
     const body = await res.json();
     const at = document.getElementById('as-of');
     if (at && body.at) at.textContent = body.at;
+    const svc = document.getElementById('service-state');
+    if (svc && body.service && body.service.label) svc.textContent = body.service.label;
     if (stale) stale.hidden = true;
   } catch {
     if (stale) stale.hidden = false;

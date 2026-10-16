@@ -60,5 +60,14 @@ describe('host health', () => {
     expect(iss).toContain('powercfg.exe');
     expect(iss).toContain('/change standby-timeout-ac 0');
     expect(iss).toContain('/change hibernate-timeout-ac 0');
+    expect(iss).toContain('DisableDirPage=yes');
+    expect(iss).toContain('DisableReadyPage=yes');
+    expect(iss).toContain('prepare-host.cjs');
+    expect(iss).toContain('--restore-power');
+    expect(iss).toContain('--prepare');
+    expect(iss).toContain('https://127.0.0.1:8443/host');
+    expect(iss).toContain('Also delete Leave OS data and backups?');
+    expect(iss).toContain('advfirewall firewall delete rule name=""Leave OS""');
+    expect(iss).not.toContain('[UninstallDelete]\nType: filesandordirs; Name: "{commonappdata}');
   });
 });

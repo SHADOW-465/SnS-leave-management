@@ -4,6 +4,7 @@
  * installed; otherwise this uses sc.exe, which is the same registrar scripts/service.mjs uses.
  */
 const { spawnSync } = require('node:child_process');
+const https = require('node:https');
 const path = require('node:path');
 
 const SERVICE = 'LeaveOS';
@@ -16,7 +17,28 @@ function sc(args) {
   return spawnSync('sc.exe', args, { encoding: 'utf8' });
 }
 
-function installWithServiceControl() {
+function openFirewall() {
+  const firewall = spawnSync(
+    'netsh',
+    [
+      'advfirewall',
+      'firewall',
+      'add',
+      'rule',
+      'name=Leave OS',
+      'dir=in',
+      'action=allow',
+      'protocol=TCP',
+      `localport=${PORT}`,
+    ],
+    { encoding: 'utf8' },
+  );
+  if (firewall.status !== 0) {
+    console.error(firewall.stderr || firewall.stdout);
+  }
+}
+
+async function installWithServiceControl() {
   const bin = `"${node}" "${runner}"`;
   const existing = sc(['query', SERVICE]);
   if (existing.status !== 0) {
@@ -36,30 +58,56 @@ function installWithServiceControl() {
     }
   }
   sc(['description', SERVICE, 'Leave management for the office network. Staff use a browser.']);
-  sc(['failure', SERVICE, 'reset=', '86400', 'actions=', 'restart/5000/restart/15000/restart/60000']);
-  const firewall = spawnSync(
-    'netsh',
-    [
-      'advfirewall',
-      'firewall',
-      'add',
-      'rule',
-      `name=Leave OS`,
-      'dir=in',
-      'action=allow',
-      'protocol=TCP',
-      `localport=${PORT}`,
-    ],
-    { encoding: 'utf8' },
-  );
-  if (firewall.status !== 0) {
-    console.error(firewall.stderr || firewall.stdout);
-  }
+  sc([
+    'failure',
+    SERVICE,
+    'reset=',
+    '86400',
+    'actions=',
+    'restart/5000/restart/15000/restart/60000',
+  ]);
   const started = sc(['start', SERVICE]);
   if (started.status !== 0 && !/1056|already been started/i.test(started.stdout + started.stderr)) {
     console.error(started.stderr || started.stdout);
   }
+  await waitUntilAnswering(PORT);
   console.log(`Registered the ${DISPLAY} service on port ${PORT}.`);
+}
+
+function waitUntilAnswering(port) {
+  const deadline = Date.now() + 45000;
+  const once = () =>
+    new Promise((resolve) => {
+      const req = https.get(
+        {
+          hostname: '127.0.0.1',
+          port: Number(port),
+          path: '/healthz',
+          rejectUnauthorized: false,
+          timeout: 2000,
+        },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode === 200);
+        },
+      );
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(false);
+      });
+      req.on('error', () => resolve(false));
+    });
+  const spin = async () => {
+    while (Date.now() < deadline) {
+      if (await once()) {
+        console.log(`Leave OS is answering on https://127.0.0.1:${port}/host`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    console.error('The service was registered. The control panel was not answering yet.');
+  };
+  return spin();
 }
 
 function installWithNodeWindows() {
@@ -92,9 +140,10 @@ if (process.platform !== 'win32') {
   process.exit(1);
 }
 
+openFirewall();
 try {
   require.resolve('node-windows');
   installWithNodeWindows();
 } catch {
-  installWithServiceControl();
+  void installWithServiceControl();
 }

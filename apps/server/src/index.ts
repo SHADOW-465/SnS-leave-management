@@ -4,6 +4,12 @@ const runtime = await createRuntime();
 const { app, config } = runtime;
 const host = config.bindAll ? '0.0.0.0' : config.host;
 
+if (process.argv.includes('--prepare')) {
+  app.log.info('Prepared the data folder, backup folder, and local certificate.');
+  await runtime.close();
+  process.exit(0);
+}
+
 if (!process.env.VERCEL) {
   try {
     await app.listen({ port: config.port, host });

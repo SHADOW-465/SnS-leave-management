@@ -1211,7 +1211,7 @@ VALUES (${q(`eh-${p.key}`)}, ${q(empId)}, (SELECT job_title_id FROM employee WHE
       days: [{ date: '2026-10-16', portion: 'full', isCounted: 1 }],
     },
 
-    // 14. LOP / Unpaid Leave Scenario: Saravanan M (Loss of Pay)
+    // 14. Shortfall: Saravanan has no Annual Leave left. Loss of pay is the uncovered part, not a leave type.
     {
       id: 'req-saravanan-lop',
       who: 'saravanan',
@@ -1219,7 +1219,7 @@ VALUES (${q(`eh-${p.key}`)}, ${q(empId)}, (SELECT job_title_id FROM employee WHE
       startDate: '2026-10-28',
       endDate: '2026-10-30',
       daysCounted: 3,
-      reason: 'Urgent family work (Requesting Loss of Pay / LOP)',
+      reason: 'Urgent family work (earned leave does not cover these days)',
       status: 'pending_approval',
       days: [
         { date: '2026-10-28', portion: 'full', isCounted: 1 },

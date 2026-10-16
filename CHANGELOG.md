@@ -13,12 +13,16 @@
 ### Changed
 - **Hosted preview is frozen.** A Vercel deploy no longer loads or resets the Navalur demo. `pnpm db:reset:navalur` still does, when someone runs it.
 
+### Fixed
+- The two **0.2.1** sections are one section.
+- The Navalur demo's Saravanan request is Annual Leave. The days his balance does not cover are loss of pay. There is no Loss of Pay leave type in that dataset.
+
 ## 0.2.4 — 2026-09-26
 
 ### Added
 - **Simon & Sons Navalur Chennai Dataset & SQL Reset Script**: Complete dataset tailoring for Simon & Sons Navalur ITES and digital publishing operations with 5 departments (Digital Publishing & Composition, ITES & Data Operations, Quality Assurance & Editorial, Content Technology & Tools, Human Resources & Administration) and 5 teams (e-Publishing & Conversion, Data Processing & Annotation, Quality Control & Pre-Media, Workflow & Automation, HR Operations & Support), each having exactly 10 members (50 staff + 1 IT Administrator).
 - **Executive & Key Roles**: Vijay Antony (IT Administrator), Anjusha R (HR Manager), Suresh Kumar (Publishing Operations Manager), and Rajesh Menon (Managing Director).
-- **Real-Life Scenario & Edge Case Fixtures**: Script `scripts/reset-simon-and-sons-navalur.sql` generates 14 edge cases covering weekend skipping, Chennai/Tamil Nadu public holiday skipping (Gandhi Jayanti, Pongal, etc.), AM/PM half-days, rejection notes, HR to MD routing, manager to HR routing, post-approval cancellations with balance restoration, probationary employee constraints, and Loss of Pay (LOP) unpaid requests.
+- **Real-Life Scenario & Edge Case Fixtures**: Script `scripts/reset-simon-and-sons-navalur.sql` generates 14 edge cases covering weekend skipping, Chennai/Tamil Nadu public holiday skipping (Gandhi Jayanti, Pongal, etc.), AM/PM half-days, rejection notes, HR to MD routing, manager to HR routing, post-approval cancellations with balance restoration, probationary employee constraints, and an Annual Leave request whose uncovered days are loss of pay. Loss of pay is not a leave type.
 - **CLI Runner**: `node scripts/apply-navalur-seed.mjs` (and `pnpm db:reset:navalur`) allows executing the SQL script directly against any PostgreSQL/Supabase database.
 - **Automated Verification**: `apps/server/src/navalur-dataset.test.ts` executes the complete migration and dataset reset in PGlite to verify constraints, roles, team membership counts, password verification, and edge case leaves.
 - **Automatic Vercel One-Time Seeding**: `apps/server/src/navalur.ts` bundles the Navalur dataset SQL directly into the server runtime. When deployed to Vercel, the server automatically applies the reset and seeding once against Supabase and records `demo.navalur_seed = '1'` in `app_setting`, ensuring subsequent cold-starts and deployments never delete or re-run the seed.
@@ -48,21 +52,16 @@
 
 ## 0.2.1 — 2026-09-22
 
-### Changed — the approval hierarchy, as specified
-
-- **ADMIN / MD → HR → Manager → Team lead → Employee**, enforced. Leave always goes one level up: team members to their team lead, team leads to their manager (department head), managers to HR, and HR only to the Managing Director or an administrator. HR's leave is never routed to — or shown for approval to — a manager, and HR can no longer approve another HR person's or the MD's leave by override.
-- New **Managing Director** role (migration `0008`): approves HR's leave and sees leave across the company, without administration rights.
-- A reporting manager can only be someone one level up; the Reporting managers page offers only those people and explains the hierarchy. An existing assignment that breaks it is ignored for routing and flagged.
-- **Notifications**: only the person who has to decide is notified of a new request, and the employee of the decision. The extra notices to department heads, HR and administrators on every approval are gone; they see leave on their dashboards. The staff dashboard's "Needs your decision" now lists only what that person can decide.
-- **Leave types**: Casual, Sick, Earned and Loss of Pay are removed, templates included. Only the framework's Annual Leave remains; a company can still add its own type. The demo database (hosted preview) switches to Annual Leave and archives the old types, keeping their history.
-
-## 0.2.1 — 2026-09-22
-
 ### Added
 - **Users & access** is for HR and administrators. Add account creates the employee and a sign-in together, with a role (Employee, Manager, HR, Payroll, Auditor; Administrator only if you are an administrator). Edit changes the name, work email, employee ID and roles. Remove marks them as left and turns the sign-in off; the leave history stays, and Restore brings them back. A temporary disable still exists for a sign-in that should stop without the person leaving.
+- New **Managing Director** role (migration `0008`): approves HR's leave and sees leave across the company, without administration rights.
 
 ### Changed
 - **Reporting managers** shows each person’s designation under their name in the manager dropdown and in the “Leave goes to today” column.
+- **ADMIN / MD → HR → Manager → Team lead → Employee**, enforced. Leave always goes one level up: team members to their team lead, team leads to their manager (department head), managers to HR, and HR only to the Managing Director or an administrator. HR's leave is never routed to — or shown for approval to — a manager, and HR can no longer approve another HR person's or the MD's leave by override.
+- A reporting manager can only be someone one level up; the Reporting managers page offers only those people and explains the hierarchy. An existing assignment that breaks it is ignored for routing and flagged.
+- **Notifications**: only the person who has to decide is notified of a new request, and the employee of the decision. The extra notices to department heads, HR and administrators on every approval are gone; they see leave on their dashboards. The staff dashboard's "Needs your decision" now lists only what that person can decide.
+- **Leave types**: Casual, Sick, Earned and Loss of Pay are removed, templates included. Only the framework's Annual Leave remains; a company can still add its own type. The demo database (hosted preview) switches to Annual Leave and archives the old types, keeping their history.
 
 ## 0.2.0 — 2026-09-22
 

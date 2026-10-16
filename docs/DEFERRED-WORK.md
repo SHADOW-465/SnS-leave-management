@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-10-16** (hosted preview frozen).
+Last reviewed: **2026-10-16** (changelog and Navalur shortfall wording).
 Next review: at the next scheduled release milestone.
 
 ---
@@ -198,6 +198,7 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 | DW-89 | Daily SQLite `VACUUM INTO` copy to a configurable folder, with retention. Off until enabled, except production where it defaults on. Postgres is skipped.                                                                         | DONE 2026-10-16 | `backup-job.test.ts`. A 24-hour timer on a running host was not watched.                                           |
 | DW-90 | Setup keeps a plugged-in host awake (`powercfg` standby and hibernate timeouts 0). The host panel shows integrity, backup age, certificate expiry, and free disk.                                                                 | DONE 2026-10-16 | `health.test.ts` reads `installer/leaveos.iss`. `powercfg` was not run on the build machine.                       |
 | DW-91 | Hosted preview no longer applies the Navalur dataset on deploy. The manual script remains.                                                                                                                                        | DONE 2026-10-16 | `runtime-seed.test.ts`. The live Vercel project was not redeployed.                                                |
+| DW-92 | Changelog has one 0.2.1 section. Navalur Saravanan request is Annual Leave with a loss-of-pay shortfall, not a Loss of Pay leave type.                                                                                            | DONE 2026-10-16 | `navalur-dataset.test.ts` (2 passed). Generator rewrote the SQL and the bundled module.                            |
 
 ---
 

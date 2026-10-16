@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-10-16** (browser device binding).
+Last reviewed: **2026-10-16** (Windows installer script).
 Next review: at the next scheduled release milestone.
 
 ---
@@ -192,6 +192,7 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------------- |
 | DW-84 | Signed browser cookie replaces `X-Workstation-Id`. Pending until an administrator approves; cross-account and second-browser sign-ins are blocked, audited, and notified. Settings: enabled, require approval, LAN address match. | DONE 2026-10-16 | `device-binding.test.ts`; migration `0013_browser_device.sql`; Browsers page |
 | DW-85 | An administrator's own browser is allowed through the pending gate so the first approval is possible. Everyone else waits.                                                                                                        | DONE 2026-10-16 | `claimDeviceForLogin` admin-role exemption; `device-binding.test.ts`         |
+| DW-86 | Windows setup script: portable Node, service registration, firewall rule for port 8443, desktop shortcut. Unsigned. DW-14 stays blocked until a code-signing certificate exists.                                                | DONE 2026-10-16 | `node scripts/build-installer.mjs` produced `dist\installer\LeaveOS-Setup.exe` (not executed). `docs/INSTALLER.md` |
 
 ---
 

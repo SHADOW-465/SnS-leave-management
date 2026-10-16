@@ -24,7 +24,8 @@
     "db:reset:navalur": "node scripts/apply-navalur-seed.mjs",
     "seed:demo": "pnpm --filter @sns/server seed:demo",
     "start": "pnpm build && node scripts/start-leaveos.mjs",
-    "service": "node scripts/service.mjs"
+    "service": "node scripts/service.mjs",
+    "installer": "node scripts/build-installer.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",

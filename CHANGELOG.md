@@ -4,6 +4,7 @@
 
 ### Added
 - **Browser binding.** A signed httpOnly cookie identifies the browser. The first sign-in creates a pending device; an administrator approves, revokes, or rebinds it under Browsers. A different person on a bound browser, or a person who already has one, is blocked, audited, and reported to administrators. An optional LAN-address check, and the on/off switches, are in those settings. The `X-Workstation-Id` header is no longer consulted.
+- **Windows installer.** `node scripts/build-installer.mjs` builds the web app, bundles the server with a portable Node runtime, and compiles `installer/leaveos.iss` into `dist\installer\LeaveOS-Setup.exe` when Inno Setup (`iscc`) is installed. Setup registers the Leave OS Windows service, opens TCP 8443, and adds a desktop shortcut. The setup program is unsigned (DW-14). See `docs/INSTALLER.md`.
 
 ## 0.2.4 — 2026-09-26
 

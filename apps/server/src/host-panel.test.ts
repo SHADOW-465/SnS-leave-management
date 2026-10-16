@@ -7,12 +7,13 @@ import { loadConfig, pathsFor } from '@sns/config';
 import { buildApp } from './app.js';
 import type { FastifyInstance } from 'fastify';
 import { serviceHeadline } from './host-local.js';
+import { noteSetupPort } from './setup-http.js';
 
 const opened: { sqlite: Db; dir: string }[] = [];
 
-async function boot() {
+async function boot(extra: NodeJS.ProcessEnv = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leaveos-host-'));
-  const config = loadConfig({ LEAVEOS_DATA_DIR: dir, LEAVEOS_ENV: 'test' });
+  const config = loadConfig({ LEAVEOS_DATA_DIR: dir, LEAVEOS_ENV: 'test', ...extra });
   const dbPath = pathsFor(config).db;
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const sqlite = await openDatabase(dbPath);
@@ -48,6 +49,7 @@ async function openPanel(app: FastifyInstance) {
 }
 
 afterEach(async () => {
+  noteSetupPort(null);
   for (const item of opened.splice(0)) {
     await item.sqlite.close();
     fs.rmSync(item.dir, { recursive: true, force: true });
@@ -85,6 +87,17 @@ describe('host control panel', () => {
     });
     expect(remoteApi.statusCode).toBe(403);
     expect(remoteApi.json().error.code).toBe('HOST_LOCAL_ONLY');
+  });
+
+  it('points staff links at the HTTP setup page when HTTPS is on', async () => {
+    noteSetupPort(8080);
+    const { app } = await boot({ LEAVEOS_TLS_ENABLED: 'true' });
+    const local = await openPanel(app);
+    expect(local.res.statusCode).toBe(200);
+    expect(local.res.body).toContain('id="staff-url">http://sns-leave:8080');
+    expect(local.res.body).toContain('id="mdns-url">http://sns-leave.local:8080');
+    expect(local.res.body).toContain('sets up trust');
+    expect(local.res.body).not.toContain('https://sns-leave:8443');
   });
 
   it('backs up, stages a restore, and approves a waiting browser', async () => {

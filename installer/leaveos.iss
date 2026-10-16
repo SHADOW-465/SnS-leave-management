@@ -39,15 +39,17 @@ Filename: "{app}\node.exe"; Parameters: """{app}\prepare-host.cjs"""; StatusMsg:
 Filename: "{sys}\powercfg.exe"; Parameters: "/change standby-timeout-ac 0"; StatusMsg: "Keeping the host awake on mains power..."; Flags: runhidden waituntilterminated
 Filename: "{sys}\powercfg.exe"; Parameters: "/change hibernate-timeout-ac 0"; StatusMsg: "Disabling hibernate while plugged in..."; Flags: runhidden waituntilterminated
 Filename: "{app}\node.exe"; Parameters: """{app}\leaveos-run.cjs"" --prepare"; StatusMsg: "Creating the certificate and the data folder..."; Flags: runhidden waituntilterminated
-Filename: "{sys}\certutil.exe"; Parameters: "-addstore -f Root ""{commonappdata}\SimonAndSons\LeaveOS\certs\cert.pem"""; StatusMsg: "Trusting the local certificate on this computer..."; Flags: runhidden waituntilterminated
+Filename: "{sys}\certutil.exe"; Parameters: "-addstore -f Root ""{commonappdata}\SimonAndSons\LeaveOS\certs\ca.pem"""; StatusMsg: "Trusting the local certificate on this computer..."; Flags: runhidden waituntilterminated
 Filename: "{app}\node.exe"; Parameters: """{app}\install-service.cjs"""; StatusMsg: "Registering and starting the Leave OS service..."; Flags: runhidden waituntilterminated
 
 [UninstallRun]
 Filename: "{app}\node.exe"; Parameters: """{app}\prepare-host.cjs"" --restore-power"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreLeaveOSPower"
-Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root ""Leave OS"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLeaveOSCert"
+Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root ""Leave OS Local CA"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLeaveOSCert"
+Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root ""Leave OS"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLeaveOSLeaf"
 Filename: "{sys}\sc.exe"; Parameters: "stop LeaveOS"; Flags: runhidden waituntilterminated; RunOnceId: "StopLeaveOS"
 Filename: "{sys}\sc.exe"; Parameters: "delete LeaveOS"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLeaveOS"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Leave OS"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLeaveOSFirewall"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Leave OS HTTP"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLeaveOSHttp"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Leave OS mDNS"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLeaveOSMdns"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Leave OS LLMNR"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLeaveOSLlmnr"
 

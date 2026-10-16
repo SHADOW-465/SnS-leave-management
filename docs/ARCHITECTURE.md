@@ -26,7 +26,7 @@ flowchart TB
     svc --> cert
     panel -- "127.0.0.1 only" --> svc
   end
-  emp["Staff browsers on the LAN"] -- "HTTPS :8443<br/>signed device cookie" --> svc
+  emp["Staff browsers on the LAN"] -- "HTTP :80 setup, then HTTPS :8443<br/>signed device cookie" --> svc
 ```
 
 - Only the server process opens the database.
@@ -35,13 +35,16 @@ flowchart TB
 - Staff sign in from a browser. The first browser gets a signed httpOnly device cookie
   and a pending row. An administrator approves it. Another person on that browser, or
   the same person on a second approved browser, is blocked, audited, and reported.
-- Production serves HTTPS with a certificate written on first start. HTTP is only
-  `LEAVEOS_HTTP_FALLBACK`. Staff trust `cert.pem` (see `docs/TLS-TRUST.md`). Do not
-  continue past a certificate warning. DW-13 stays open.
+- Production serves HTTPS. A local root signs the site certificate, which is rewritten
+  when the LAN addresses change. Staff open `http://sns-leave` (or port 8080 when port 80
+  is taken). One click trusts that root for the current Windows user (`docs/TLS-TRUST.md`).
+  Do not continue past a certificate warning. The app is HTTP only with
+  `LEAVEOS_HTTP_FALLBACK`. DW-13 stays open.
 - Setup (`docs/INSTALLER.md`) is one program with a Next page and a Finish page. It
   copies the bundled Node runtime and the app, registers and starts the service, opens
-  TCP 8443, writes the certificate and trusts it on this computer, creates the backup
-  folder under ProgramData, and sets plugged-in sleep and hibernate to never. Finish
+  TCP 8443 and the setup ports 80 and 8080, writes the certificate and trusts the local
+  root on this computer, creates the backup folder under ProgramData, and sets plugged-in
+  sleep and hibernate to never. Finish
   opens the host panel. Uninstall reverses the service, the firewall rule, the shortcut,
   the certificate trust, and the power change. It keeps the data and backups unless the
   person uninstalling chooses to delete them. The setup program is unsigned (DW-14).
@@ -85,8 +88,9 @@ adapter. Neither path rewrites the rules.
 
 | Environment | What                | Address                              | Notes                                                                                                                                |
 | ----------- | ------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Production  | First-time staff    | `http://sns-leave`                   | Setup page. Port 8080 when port 80 is taken. Trusts the root, then opens the site below.                                            |
 | Production  | Employee site + API | `https://sns-leave:8443`             | Also `https://sns-leave.local:8443`. The LAN IP address is the fallback. The name defaults to `sns-leave` and is changed in settings |
-| Production  | Host panel          | `https://127.0.0.1:8443/host`        | This computer only. Status, QR, service, backup, restore, waiting browsers, health                                                   |
+| Production  | Host panel          | `https://127.0.0.1:8443/host`        | This computer only. Status, setup QR, service, backup, restore, waiting browsers, health                                             |
 | Production  | Health endpoint     | `https://<lan-address>:8443/healthz` | No authentication, no data — liveness only                                                                                           |
 | Development | Vite dev server     | `http://localhost:5173`              | Proxies `/api` to the server                                                                                                         |
 | Development | Fastify             | `http://localhost:3000`              | HTTP. Tests stay on HTTP                                                                                                             |
@@ -94,7 +98,8 @@ adapter. Neither path rewrites the rules.
 Port and hostname are configurable at first run. A port conflict is detected at startup
 and reported as a human-readable error with the occupying process named, not as a stack trace.
 
-The office name defaults to `sns-leave`. Staff open `https://sns-leave:8443` and
+The office name defaults to `sns-leave`. First-time staff open `http://sns-leave` (or
+`http://sns-leave:8080`). After trust, the site is `https://sns-leave:8443` and
 `https://sns-leave.local:8443`. The host answers mDNS A queries for `sns-leave.local` and
 publishes an `_https._tcp` service record. It also answers LLMNR for the single-label name
 `sns-leave`, which is how Windows resolves a name without `.local`. The LAN IP address
@@ -246,8 +251,9 @@ The office control panel is `GET /host` on the server. It answers only for loopb
 
 It shows whether the server is answering, the database check, and the Windows service
 as **Running** when the service is running. It shows backup age, certificate expiry, and
-free disk. It shows `https://sns-leave:<port>`, `https://sns-leave.local:<port>`, and the
-LAN IP address, each with a QR code. The office name is edited on that page.
+free disk. It shows the first-time setup links `http://sns-leave`, `http://sns-leave.local`,
+and the LAN address (with `:8080` when that is the setup port), each with a QR code. The
+office name is edited on that page.
 Forms start, stop, or restart the `LeaveOS` service, take a backup, stage a restore for
 the next start, and approve a browser that is waiting. Posts carry a confirmation token
 from the page.

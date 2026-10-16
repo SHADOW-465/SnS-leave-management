@@ -42,15 +42,16 @@ The wizard shows Next, then the install progress, then Finish. It does not ask f
 - Copies the server, the web build, and `node.exe` under `Program Files\SimonAndSons\LeaveOS`.
 - Saves the current plugged-in sleep and hibernate timeouts, then sets both to never (`powercfg /change standby-timeout-ac 0` and `hibernate-timeout-ac 0`). This runs only when the setup program is installed. Building the setup program does not change this computer's power settings. If the previous timeouts could not be read, uninstall restores 30 minutes of plugged-in sleep and leaves hibernate at never.
 - Creates the backup folder `%PROGRAMDATA%\SimonAndSons\LeaveOS\backups`. Daily copies go there until an administrator changes the folder.
-- Writes the local HTTPS certificate into `%PROGRAMDATA%\SimonAndSons\LeaveOS\certs` and trusts it on this computer (`certutil -addstore`). Other staff computers still follow `docs/TLS-TRUST.md`. A certificate warning is a defect. Do not continue past one.
+- Writes a local root and a site certificate into `%PROGRAMDATA%\SimonAndSons\LeaveOS\certs` and trusts the root on this computer (`certutil -addstore` of `ca.pem`). Other staff computers open the setup page. Trust is one click (`docs/TLS-TRUST.md`). A certificate warning is a defect. Do not continue past one.
 - Registers a service named `LeaveOS` that starts at boot, starts it, and waits until `https://127.0.0.1:8443/healthz` answers. Registration uses `node-windows` when that package is present, and otherwise `sc.exe` (the same registrar as `scripts/service.mjs`). NSSM is not required.
-- Adds firewall rules for TCP port 8443, and for UDP 5353 (mDNS) and UDP 5355 (LLMNR) so staff computers can resolve the office name.
-- The office name is `sns-leave` until an administrator changes it on the host panel or with `PUT /api/v1/settings/hostname`. Staff use `https://sns-leave:8443` and `https://sns-leave.local:8443`. The LAN address is the fallback. A NetBIOS alias is not registered: Windows applies one only by restarting the Server service or renaming the PC. Uninstall removes the mDNS and LLMNR firewall rules with the TCP rule.
+- Adds firewall rules for TCP port 8443, for the setup ports TCP 80 and 8080 (`Leave OS HTTP`), and for UDP 5353 (mDNS) and UDP 5355 (LLMNR) so staff computers can resolve the office name.
+- The office name is `sns-leave` until an administrator changes it on the host panel or with `PUT /api/v1/settings/hostname`. First-time staff use `http://sns-leave` (or `http://sns-leave:8080`). After trust they use `https://sns-leave:8443` and `https://sns-leave.local:8443`. The LAN address is the fallback. A NetBIOS alias is not registered: Windows applies one only by restarting the Server service or renaming the PC. Uninstall removes the HTTP, mDNS, and LLMNR firewall rules with the TCP 8443 rule.
 - Puts a **Leave OS** shortcut on the desktop. It opens `https://127.0.0.1:8443/host`.
 - Finish opens that same control panel. When the service is up, the page shows **Running**, the staff link, and a QR code.
 
 The service runs `leaveos-run.cjs`, which binds all interfaces in production on port 8443
-and serves HTTPS. HTTP is only used when `LEAVEOS_HTTP_FALLBACK=true`.
+and serves HTTPS. It also listens on port 80, or 8080 when 80 is taken, for the staff
+setup page. The app itself is HTTP only when `LEAVEOS_HTTP_FALLBACK=true`.
 Data stays in `%PROGRAMDATA%\SimonAndSons\LeaveOS`.
 
-Uninstall stops and removes the service, removes the firewall rule, removes the desktop shortcut, removes this computer's trust for the Leave OS certificate, and restores the saved power timeouts. It keeps the data folder and the backups folder unless the person uninstalling chooses to delete them. The delete question defaults to No.
+Uninstall stops and removes the service, removes the firewall rules (including `Leave OS HTTP`), removes the desktop shortcut, removes this computer's trust for the Leave OS root, and restores the saved power timeouts. It keeps the data folder and the backups folder unless the person uninstalling chooses to delete them. The delete question defaults to No.

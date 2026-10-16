@@ -12,6 +12,24 @@ export type StaffUrls = {
   ip: string | null;
 };
 
+/** First-time staff open HTTP. Port 80 is omitted so the address is `http://sns-leave`. */
+export function setupStaffUrls(input: {
+  hostname?: string | null;
+  setupPort: number;
+  address?: string | null;
+}): StaffUrls {
+  const name =
+    (input.hostname || DEFAULT_LAN_HOSTNAME).trim().toLowerCase() || DEFAULT_LAN_HOSTNAME;
+  const withPort = (host: string) =>
+    input.setupPort === 80 ? `http://${host}` : `http://${host}:${input.setupPort}`;
+  return {
+    name,
+    hostname: withPort(name),
+    mdns: withPort(`${name}.local`),
+    ip: input.address ? withPort(input.address) : null,
+  };
+}
+
 export function staffUrls(input: {
   hostname?: string | null;
   port: number;

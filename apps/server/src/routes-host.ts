@@ -17,8 +17,9 @@ import {
   serviceHeadline,
   serviceStatus,
 } from './host-local.js';
-import { republishHostname, staffUrls, type StaffUrls } from './discovery.js';
+import { republishHostname, setupStaffUrls, staffUrls, type StaffUrls } from './discovery.js';
 import { readLanHostname, writeLanHostname } from './hostname.js';
+import { currentSetupPort } from './setup-http.js';
 import { ensureLanCertificate } from './tls.js';
 import { collectHealth, type HostHealth } from './health.js';
 import { sendError } from './http.js';
@@ -175,11 +176,20 @@ async function hostHealth(ctx: RequestContext): Promise<HostHealth> {
 }
 
 async function officeLinks(ctx: RequestContext): Promise<StaffUrls> {
+  const hostname = await readLanHostname(ctx.sqlite);
+  const address = lanAddress();
+  if (ctx.config.tlsEnabled) {
+    return setupStaffUrls({
+      hostname,
+      setupPort: currentSetupPort() ?? 80,
+      address,
+    });
+  }
   return staffUrls({
-    hostname: await readLanHostname(ctx.sqlite),
+    hostname,
     port: ctx.config.port,
-    tls: ctx.config.tlsEnabled,
-    address: lanAddress(),
+    tls: false,
+    address,
   });
 }
 
@@ -315,7 +325,7 @@ async function renderHost(
       </section>
       <section>
         <h2>Staff link</h2>
-        <p>People on the office network open this name.</p>
+        <p>${req.ctx.config.tlsEnabled ? 'People on the office network open this address the first time. It sets up trust on that computer, then opens Leave OS.' : 'People on the office network open this name.'}</p>
         <p class="mono" id="staff-url">${esc(links.hostname)}</p>
         ${qrImg('hostname', links.hostname)}
         <p class="mono" id="mdns-url">${esc(links.mdns)}</p>

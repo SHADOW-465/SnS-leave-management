@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { lanHostnameSettingsSchema } from '@sns/contracts';
-import { answersForQuery, encodeDnsQuestion, llmnrAnswer, staffUrls } from './discovery.js';
+import {
+  answersForQuery,
+  encodeDnsQuestion,
+  llmnrAnswer,
+  setupStaffUrls,
+  staffUrls,
+} from './discovery.js';
 
 describe('office name', () => {
   it('builds the staff links and keeps the IP as a fallback', () => {
@@ -9,6 +15,15 @@ describe('office name', () => {
     expect(links.mdns).toBe('https://sns-leave.local:8443');
     expect(links.ip).toBe('https://10.0.0.8:8443');
     expect(staffUrls({ port: 8443, tls: true, address: null }).name).toBe('sns-leave');
+    expect(setupStaffUrls({ hostname: 'sns-leave', setupPort: 80, address: '10.0.0.8' })).toEqual({
+      name: 'sns-leave',
+      hostname: 'http://sns-leave',
+      mdns: 'http://sns-leave.local',
+      ip: 'http://10.0.0.8',
+    });
+    expect(setupStaffUrls({ setupPort: 8080, address: null }).hostname).toBe(
+      'http://sns-leave:8080',
+    );
   });
 
   it('answers an A query for sns-leave.local and publishes the https service', () => {

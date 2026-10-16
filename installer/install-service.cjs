@@ -40,6 +40,7 @@ function allowInbound(name, protocol, port) {
 
 function openFirewall() {
   allowInbound('Leave OS', 'TCP', PORT);
+  allowInbound('Leave OS HTTP', 'TCP', '80,8080');
   allowInbound('Leave OS mDNS', 'UDP', '5353');
   allowInbound('Leave OS LLMNR', 'UDP', '5355');
 }

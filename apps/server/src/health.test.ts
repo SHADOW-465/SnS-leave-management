@@ -68,6 +68,14 @@ describe('host health', () => {
     expect(iss).toContain('https://127.0.0.1:8443/host');
     expect(iss).toContain('Also delete Leave OS data and backups?');
     expect(iss).toContain('advfirewall firewall delete rule name=""Leave OS""');
+    expect(iss).toContain('advfirewall firewall delete rule name=""Leave OS HTTP""');
+    expect(iss).toContain('certs\\ca.pem');
+    expect(iss).toContain('Leave OS Local CA');
     expect(iss).not.toContain('[UninstallDelete]\nType: filesandordirs; Name: "{commonappdata}');
+    const service = fs.readFileSync(
+      fileURLToPath(new URL('../../../installer/install-service.cjs', import.meta.url)),
+      'utf8',
+    );
+    expect(service).toContain("allowInbound('Leave OS HTTP', 'TCP', '80,8080')");
   });
 });

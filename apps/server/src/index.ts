@@ -1,11 +1,14 @@
+import { pathsFor } from '@sns/config';
 import { lanAddress } from './host-local.js';
 import { readLanHostname } from './hostname.js';
 import { createRuntime } from './runtime.js';
+import { startStaffSetup } from './setup-http.js';
 
 const runtime = await createRuntime();
 const { app, config } = runtime;
 const host = config.bindAll ? '0.0.0.0' : config.host;
 let stopDiscovery = () => {};
+let stopSetup = async () => {};
 
 if (process.argv.includes('--prepare')) {
   app.log.info('Prepared the data folder, backup folder, and local certificate.');
@@ -31,6 +34,23 @@ if (!process.env.VERCEL) {
         app.log.error({ err }, 'The office name was not published. The IP address still works.');
       }
     }
+    if (config.tlsEnabled && config.env !== 'test' && !config.hostedPreview) {
+      try {
+        const setup = await startStaffSetup({
+          hostname: await readLanHostname(runtime.db),
+          httpsPort: config.port,
+          certDir: pathsFor(config).certs,
+        });
+        if (setup) {
+          stopSetup = setup.close;
+          app.log.info(`Staff setup page on port ${setup.port}`);
+        } else {
+          app.log.error('The staff setup page could not listen on port 80 or 8080.');
+        }
+      } catch (err) {
+        app.log.error({ err }, 'The staff setup page did not start.');
+      }
+    }
   } catch (err) {
     app.log.error(err);
     process.exit(1);
@@ -40,6 +60,7 @@ if (!process.env.VERCEL) {
 async function shutdown(signal: string) {
   app.log.info({ signal }, 'graceful shutdown');
   stopDiscovery();
+  await stopSetup();
   await runtime.close();
   process.exit(0);
 }

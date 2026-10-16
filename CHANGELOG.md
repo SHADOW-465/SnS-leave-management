@@ -10,6 +10,9 @@
 - **Daily database copy.** A production office host copies the SQLite database once a day with `VACUUM INTO` into a second folder (14 days by default). An administrator changes the folder, the retention, and the on/off switch at `PUT /api/v1/settings/backup`. Copies older than the retention are removed. The preview database is skipped. Development stays off until the switch is turned on.
 - **Host stays awake, and the panel shows health.** Setup sets plugged-in sleep and hibernate to never. It does not change the computer where the setup program is only built. The host panel shows database integrity, backup age, certificate expiry, and free disk. The same check is stored every few minutes. `/healthz` stays a plain liveness check.
 
+### Changed
+- **Hosted preview is frozen.** A Vercel deploy no longer loads or resets the Navalur demo. `pnpm db:reset:navalur` still does, when someone runs it.
+
 ## 0.2.4 — 2026-09-26
 
 ### Added

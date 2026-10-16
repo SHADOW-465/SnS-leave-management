@@ -91,11 +91,11 @@ against a Supabase Postgres database. This is **not** the office product (DW-29,
    Never put a Supabase anon key in the browser — the browser talks only to this API.
 2. In the Vercel project, set `DATABASE_URL` to that URI (Production + Preview).
    Optional: `CRON_SECRET` for the daily job tick, `LEAVEOS_PUBLIC_URL` to the deployment URL.
-3. Deploy. The first request migrates the schema and seeds the synthetic demo accounts.
+3. Deploy. The first request migrates the schema. It does **not** load or reset the
+   Navalur demo. That preview is frozen.
 
-Sign-in (synthetic only): the same sample organisation as above. A preview database seeded
-by an older version is upgraded in place on the next cold start — the placeholder people are
-renamed, never deleted.
+To load the Navalur dataset yourself, run `pnpm db:reset:navalur` against the preview
+database. A cold start will not do it again.
 
 Attachments and file backups do not persist on Vercel. Unset `DATABASE_URL` and drop the
 preview project when verification is finished.

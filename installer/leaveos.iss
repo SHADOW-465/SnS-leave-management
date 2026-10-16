@@ -30,6 +30,8 @@ Source: "..\dist\installer\payload\*"; DestDir: "{app}"; Flags: recursesubdirs c
 Name: "{autodesktop}\Leave OS"; Filename: "{app}\Leave OS.url"; Comment: "Open the Leave OS host panel"
 
 [Run]
+Filename: "{sys}\powercfg.exe"; Parameters: "/change standby-timeout-ac 0"; StatusMsg: "Keeping the host awake on mains power..."; Flags: runhidden waituntilterminated
+Filename: "{sys}\powercfg.exe"; Parameters: "/change hibernate-timeout-ac 0"; StatusMsg: "Disabling hibernate while plugged in..."; Flags: runhidden waituntilterminated
 Filename: "{app}\node.exe"; Parameters: """{app}\install-service.cjs"""; StatusMsg: "Registering the Leave OS service..."; Flags: runhidden waituntilterminated
 
 [UninstallRun]

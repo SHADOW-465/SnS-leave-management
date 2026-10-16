@@ -1,14 +1,16 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { pathsFor } from '@sns/config';
-import { integrityCheck } from '@sns/database';
+
 import type { RequestContext } from './ctx.js';
 import { approveDevice } from './usecases/devices.js';
 import { createBackupFile, stageRestoreFile } from './backup-file.js';
 import { readBackupPolicy } from './backup-job.js';
 import { isLoopback, lanAddress, serviceControl, serviceStatus } from './host-local.js';
+import { collectHealth, type HostHealth } from './health.js';
 import { sendError } from './http.js';
 
 const require = createRequire(import.meta.url);
@@ -45,15 +47,16 @@ export function registerHostRoutes(app: FastifyInstance): void {
   });
 
   app.get('/api/v1/host/status', async (req, reply) => {
-    const integrity = await integrityCheck(req.ctx.sqlite);
+    const health = await hostHealth(req.ctx);
     const pending = await pendingCount(req);
     return reply.send({
-      ok: integrity === 'ok',
-      at: req.ctx.now,
-      integrity,
+      ok: health.integrity === 'ok',
+      at: health.at,
+      integrity: health.integrity,
       pending,
       lanUrl: lanUrl(req.ctx.config.port, req.ctx.config.tlsEnabled),
       service: serviceStatus(req.ctx.config.env),
+      health,
     });
   });
 
@@ -128,6 +131,13 @@ export function registerHostRoutes(app: FastifyInstance): void {
 
 export { isLoopback };
 
+async function hostHealth(ctx: RequestContext): Promise<HostHealth> {
+  return collectHealth(ctx.sqlite, {
+    backupsRoot: ctx.backupsRoot,
+    certPath: path.join(pathsFor(ctx.config).certs, 'cert.pem'),
+  });
+}
+
 function lanUrl(port: number, tls: boolean): string | null {
   const ip = lanAddress();
   if (!ip) return null;
@@ -179,7 +189,8 @@ async function renderHost(
 ): Promise<string> {
   const query = (req.query ?? {}) as { q?: string; notice?: string; error?: string };
   const q = String(query.q ?? '').trim();
-  const integrity = await integrityCheck(req.ctx.sqlite);
+  const health = await hostHealth(req.ctx);
+  const integrity = health.integrity;
   const service = serviceStatus(req.ctx.config.env);
   const url = lanUrl(req.ctx.config.port, req.ctx.config.tlsEnabled);
   const pending = (await req.ctx.sqlite
@@ -252,6 +263,9 @@ async function renderHost(
         <dl>
           <dt>Server</dt><dd>Answering on port ${esc(String(req.ctx.config.port))}${req.ctx.config.bindAll ? ', including the office network' : ', this computer only'}</dd>
           <dt>Database</dt><dd>${esc(integrity)} (${esc(req.ctx.sqlite.dialect)})</dd>
+          <dt>Last backup</dt><dd>${health.backupAgeHours === null ? 'No backup yet' : `${health.backupAgeHours.toFixed(1)} hours ago`}</dd>
+          <dt>Certificate</dt><dd>${health.certExpiresAt ? `Expires ${esc(health.certExpiresAt)}` : 'No certificate file yet'}</dd>
+          <dt>Disk</dt><dd>${health.diskFreeBytes === null ? 'Unknown' : `${(health.diskFreeBytes / 1024 ** 3).toFixed(1)} GB free`}</dd>
           <dt>Windows service</dt><dd>${esc(service.state)}. ${esc(service.detail)}</dd>
           <dt>As of</dt><dd><time id="as-of">${esc(req.ctx.now)}</time> <button type="button" id="refresh">Refresh</button></dd>
         </dl>

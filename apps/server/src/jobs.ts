@@ -1,16 +1,17 @@
 import type { Db } from '@sns/database';
 import { drainOutbox } from './email.js';
 import { runScheduledBackup } from './backup-job.js';
+import { writeHealth } from './health.js';
 import { expireCarriedDays, openCurrentPeriod, runMonthlyAccrual } from './jobs/balance.js';
 import { nowIso } from './time.js';
 
 export async function runJobsTick(
   sqlite: Db,
-  opts: { backupsRoot?: string; backupByDefault?: boolean } = {},
+  opts: { backupsRoot?: string; backupByDefault?: boolean; certPath?: string } = {},
 ): Promise<void> {
   await drainOutbox(sqlite);
   await sweepSessions(sqlite);
-  await healthProbe(sqlite);
+  await healthProbe(sqlite, opts);
   if (opts.backupsRoot) {
     await runScheduledBackup(sqlite, opts.backupsRoot, { enabledByDefault: opts.backupByDefault });
   }
@@ -23,7 +24,12 @@ export async function runJobsTick(
 
 export function startJobs(
   sqlite: Db,
-  opts: { timers?: boolean; backupsRoot?: string; backupByDefault?: boolean } = {},
+  opts: {
+    timers?: boolean;
+    backupsRoot?: string;
+    backupByDefault?: boolean;
+    certPath?: string;
+  } = {},
 ): {
   stop: () => void;
 } {
@@ -34,7 +40,8 @@ export function startJobs(
   const timers: NodeJS.Timeout[] = [];
   timers.push(setInterval(() => runSafe(() => drainOutbox(sqlite)), 60000));
   timers.push(setInterval(() => runSafe(() => sweepSessions(sqlite)), 60 * 60000));
-  timers.push(setInterval(() => runSafe(() => healthProbe(sqlite)), 5 * 60000));
+  timers.push(setInterval(() => runSafe(() => healthProbe(sqlite, opts)), 5 * 60000));
+  runSafe(() => healthProbe(sqlite, opts));
   // Balance movements are idempotent, so running hourly is safe and means a new leave
   // year opens within the hour rather than waiting for a restart.
   timers.push(setInterval(() => runSafe(() => balanceTick(sqlite)), 60 * 60000));
@@ -72,12 +79,13 @@ async function sweepSessions(sqlite: Db) {
     )
     .run(nowIso(), nowIso());
 }
-async function healthProbe(sqlite: Db) {
+async function healthProbe(sqlite: Db, opts: { backupsRoot?: string; certPath?: string } = {}) {
   if (sqlite.dialect === 'sqlite') {
     await sqlite.exec('PRAGMA wal_checkpoint(PASSIVE)');
   } else {
     await sqlite.prepare('SELECT 1 AS n').get();
   }
+  await writeHealth(sqlite, opts);
 }
 async function balanceTick(sqlite: Db): Promise<void> {
   await openCurrentPeriod(sqlite);

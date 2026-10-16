@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-10-16** (daily SQLite backup).
+Last reviewed: **2026-10-16** (host power and health).
 Next review: at the next scheduled release milestone.
 
 ---
@@ -196,6 +196,7 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 | DW-87 | Localhost host panel: status, LAN address and QR code, service start/stop/restart, backup now, restore on next start, approve a waiting browser. Other addresses are refused.                                                     | DONE 2026-10-16 | `host-panel.test.ts`. Not opened in a desktop browser. Service calls are skipped when `LEAVEOS_ENV=test`.          |
 | DW-88 | Production generates a local HTTPS certificate (localhost, 127.0.0.1, host name, LAN address) and serves it. HTTP only via `LEAVEOS_HTTP_FALLBACK`. Trust steps are in `docs/TLS-TRUST.md`. DW-13 stays blocked.                  | DONE 2026-10-16 | `tls.test.ts`; `packages/config` production TLS test. Trust on a staff PC is not verified.                         |
 | DW-89 | Daily SQLite `VACUUM INTO` copy to a configurable folder, with retention. Off until enabled, except production where it defaults on. Postgres is skipped.                                                                         | DONE 2026-10-16 | `backup-job.test.ts`. A 24-hour timer on a running host was not watched.                                           |
+| DW-90 | Setup keeps a plugged-in host awake (`powercfg` standby and hibernate timeouts 0). The host panel shows integrity, backup age, certificate expiry, and free disk.                                                                 | DONE 2026-10-16 | `health.test.ts` reads `installer/leaveos.iss`. `powercfg` was not run on the build machine.                       |
 
 ---
 

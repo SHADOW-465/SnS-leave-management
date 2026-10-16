@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { loadConfig, loadDotEnv, pathsFor, type AppConfig } from '@sns/config';
 import { openDatabaseFromEnv, type Db } from '@sns/database';
@@ -88,6 +89,7 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
   const jobs = startJobs(db, {
     timers: !config.hostedPreview,
     backupsRoot: dirs.backups,
+    certPath: path.join(dirs.certs, 'cert.pem'),
     backupByDefault: config.env === 'production' && db.dialect === 'sqlite',
   });
   return {

@@ -8,6 +8,7 @@
 - **Host control panel.** `http://127.0.0.1:<port>/host` is served only to this computer. It shows status, the office address with a QR code, start/stop/restart of the Windows service, backup now, restore on the next start, and browsers waiting for approval. A request from any other address is refused. On the installed host the shortcut uses HTTPS.
 - **Office HTTPS.** A production host generates a local certificate on first start and serves HTTPS. Staff computers trust it by installing `cert.pem` (see `docs/TLS-TRUST.md`). Do not continue past a certificate warning. HTTP is only used when `LEAVEOS_HTTP_FALLBACK=true`. The hosted preview stays on the platform certificate. DW-13 remains open.
 - **Daily database copy.** A production office host copies the SQLite database once a day with `VACUUM INTO` into a second folder (14 days by default). An administrator changes the folder, the retention, and the on/off switch at `PUT /api/v1/settings/backup`. Copies older than the retention are removed. The preview database is skipped. Development stays off until the switch is turned on.
+- **Host stays awake, and the panel shows health.** Setup sets plugged-in sleep and hibernate to never. It does not change the computer where the setup program is only built. The host panel shows database integrity, backup age, certificate expiry, and free disk. The same check is stored every few minutes. `/healthz` stays a plain liveness check.
 
 ## 0.2.4 — 2026-09-26
 

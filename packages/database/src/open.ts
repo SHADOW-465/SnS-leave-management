@@ -100,8 +100,35 @@ export async function migrate(db: Db): Promise<void> {
   }
 }
 
+/** Swap in a staged restore before the connection opens. Returns whether a swap happened. */
+export function applyPendingRestore(dbPath: string): boolean {
+  const staged = `${dbPath}.restore`;
+  if (!fs.existsSync(staged)) return false;
+  const header = Buffer.alloc(16);
+  const fd = fs.openSync(staged, 'r');
+  try {
+    fs.readSync(fd, header, 0, 16, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (header.toString('utf8') !== 'SQLite format 3\0') {
+    fs.renameSync(staged, `${staged}.rejected`);
+    return false;
+  }
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  if (fs.existsSync(dbPath)) fs.copyFileSync(dbPath, `${dbPath}.before-restore`);
+  for (const suffix of ['-wal', '-shm']) {
+    const side = `${dbPath}${suffix}`;
+    if (fs.existsSync(side)) fs.rmSync(side);
+  }
+  fs.copyFileSync(staged, dbPath);
+  fs.rmSync(staged);
+  return true;
+}
+
 export async function openDatabase(dbPath: string): Promise<Db> {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  applyPendingRestore(dbPath);
   const raw = new DatabaseSync(dbPath);
   const db = wrapSqliteWithRaw(raw);
   await applyPragmas(db);

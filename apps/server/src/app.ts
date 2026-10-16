@@ -19,6 +19,8 @@ import { resolveSession } from './usecases/auth.js';
 import { hashToken } from '@sns/auth';
 import { nowIso, todayInTimeZone } from './time.js';
 import { sendError } from './http.js';
+import { hostDeniedPage, registerHostRoutes } from './routes-host.js';
+import { isLoopback } from './host-local.js';
 const here =
   import.meta.url && import.meta.url !== 'undefined'
     ? path.dirname(fileURLToPath(import.meta.url))
@@ -103,8 +105,22 @@ export async function buildApp(config: AppConfig, sqlite: Db): Promise<FastifyIn
     if (sqlite.dialect === 'postgres') {
       await sqlite.prepare(`SELECT set_config('app.user_account_id', '', false)`).get();
     }
-    const key = `${req.method} ${req.url.split('?')[0]}`;
-    const isPublic = PUBLIC.has(key) || req.url.startsWith('/assets') || req.method === 'OPTIONS';
+    const pathOnly = req.url.split('?')[0] ?? '';
+    const hostLocal =
+      pathOnly === '/host' || pathOnly.startsWith('/host/') || pathOnly.startsWith('/api/v1/host');
+    if (hostLocal && !isLoopback(req.ip)) {
+      const message =
+        'You do not have permission to view this. The host panel is only on the office computer that runs Leave OS. Open it from that computer.';
+      if (pathOnly.startsWith('/api/')) {
+        return reply.status(403).send({
+          error: { code: 'HOST_LOCAL_ONLY', message, requestId },
+        });
+      }
+      return reply.status(403).type('text/html; charset=utf-8').send(hostDeniedPage(message));
+    }
+    const key = `${req.method} ${pathOnly}`;
+    const isPublic =
+      hostLocal || PUBLIC.has(key) || req.url.startsWith('/assets') || req.method === 'OPTIONS';
     const token = req.cookies['leaveos.sid'];
     if (token) {
       const session = await resolveSession(ctx, token);
@@ -138,6 +154,7 @@ export async function buildApp(config: AppConfig, sqlite: Db): Promise<FastifyIn
   });
   app.setErrorHandler((err, req, reply) => sendError(req, reply, err));
   await registerRoutes(app);
+  registerHostRoutes(app);
   // `here` is apps/server/src, so the built web app is two levels up under apps/web.
   // The previous path resolved to <repo>/web/dist, which never exists — in production
   // the server answered 404 for every page and served no interface at all.

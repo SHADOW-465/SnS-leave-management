@@ -107,11 +107,10 @@ import {
 } from './queries.js';
 import { previewLeaveEmail } from './email.js';
 import { storeAttachment, safeStoredPath } from './files.js';
-import { backupTo, integrityCheck, withTx } from '@sns/database';
-import { DatabaseSync } from 'node:sqlite';
+import { integrityCheck, withTx } from '@sns/database';
 import fs from 'node:fs';
 import path from 'node:path';
-import { sha256Hex } from '@sns/auth';
+import { createBackupFile } from './backup-file.js';
 import type { z } from 'zod';
 declare module 'fastify' {
   interface FastifyRequest {
@@ -1940,38 +1939,8 @@ export async function registerRoutes(app: FastifyInstance) {
   app.post('/api/v1/ops/backup', async (req, reply) => {
     try {
       await authorizeAction(req.ctx, 'system.backup.create', null);
-      if (req.ctx.sqlite.dialect !== 'sqlite') {
-        throw new Error(
-          'File backup is available on the office SQLite deployment, not on the preview database.',
-        );
-      }
-      fs.mkdirSync(req.ctx.backupsRoot, { recursive: true });
-      const dest = path.join(req.ctx.backupsRoot, `backup-${Date.now()}.db`);
-      await backupTo(req.ctx.sqlite, dest);
-      const copy = new DatabaseSync(dest, { readOnly: true });
-      const checkRow = copy.prepare('PRAGMA integrity_check').get() as {
-        integrity_check: string;
-      };
-      const check = checkRow.integrity_check;
-      copy.close();
-      const buf = fs.readFileSync(dest);
-      const id = newId();
-      await req.ctx.sqlite
-        .prepare(
-          `INSERT INTO backup_record (id, path, started_at, finished_at, size_bytes, sha256, integrity_check_result, schema_version, trigger, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, '0001_init', 'manual', ?)`,
-        )
-        .run(
-          id,
-          dest,
-          req.ctx.now,
-          new Date().toISOString(),
-          buf.length,
-          sha256Hex(buf),
-          String(check),
-          String(check) === 'ok' ? 'ok' : 'failed',
-        );
-      return reply.send(ok({ id, path: dest, integrity: check }, req.ctx.requestId));
+      const saved = await createBackupFile(req.ctx, 'manual');
+      return reply.send(ok(saved, req.ctx.requestId));
     } catch (err) {
       return sendError(req, reply, err);
     }

@@ -1,6 +1,7 @@
 export {
   openDatabase,
   openDatabaseFromEnv,
+  applyPendingRestore,
   withTx,
   verifyPragmas,
   applyPragmas,

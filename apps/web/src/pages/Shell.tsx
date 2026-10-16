@@ -22,6 +22,7 @@ import {
   Scale,
   GitBranch,
   KeyRound,
+  Monitor,
   History,
   UserRound,
   Tags,
@@ -109,6 +110,16 @@ function navFor(me: Me): NavItem[] {
   }
   if (can(me, 'approval.routing.manage') || can(me, 'employee.update:company')) {
     items.push({ to: '/admin/routing', label: 'Reporting managers', icon: GitBranch });
+  }
+  if (can(me, 'workstation.manage')) {
+    items.push({
+      to: '/admin/devices',
+      label: 'Browsers',
+      icon: Monitor,
+      ...(can(me, 'leave.policy.manage') || can(me, 'approval.routing.manage')
+        ? {}
+        : { section: 'Administration' }),
+    });
   }
   if (can(me, 'user.account.create')) {
     items.push({

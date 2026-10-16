@@ -17,6 +17,8 @@ import {
   setDisabledBodySchema,
   assignManagerBodySchema,
   setRolesBodySchema,
+  deviceBindingSettingsSchema,
+  rebindDeviceBodySchema,
 } from '@sns/contracts';
 import { DomainError, type RoleCode } from '@sns/domain';
 import { authorizeAction } from './ctx.js';
@@ -53,6 +55,14 @@ import {
   setWorkWeek,
   workWeek,
 } from './usecases/allowances.js';
+import {
+  approveDevice,
+  listDevices,
+  readDevicePolicy,
+  rebindDevice,
+  revokeDevice,
+  saveDevicePolicy,
+} from './usecases/devices.js';
 
 /** Wraps a handler so every administrator route answers with the same envelope. */
 function handle(
@@ -155,6 +165,35 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.post(
     '/api/v1/admin/users/:id/release-workstation',
     handle((req) => releaseWorkstations(req.ctx, param(req, 'id'))),
+  );
+  app.get(
+    '/api/v1/admin/devices',
+    handle((req) => listDevices(req.ctx)),
+  );
+  app.get(
+    '/api/v1/settings/device-binding',
+    handle(async (req) => {
+      await authorizeAction(req.ctx, 'workstation.manage', null);
+      return readDevicePolicy(req.ctx);
+    }),
+  );
+  app.put(
+    '/api/v1/settings/device-binding',
+    handle((req) => saveDevicePolicy(req.ctx, body(deviceBindingSettingsSchema, req))),
+  );
+  app.post(
+    '/api/v1/admin/devices/:id/approve',
+    handle((req) => approveDevice(req.ctx, param(req, 'id'))),
+  );
+  app.post(
+    '/api/v1/admin/devices/:id/revoke',
+    handle((req) => revokeDevice(req.ctx, param(req, 'id'))),
+  );
+  app.post(
+    '/api/v1/admin/devices/:id/rebind',
+    handle((req) =>
+      rebindDevice(req.ctx, param(req, 'id'), body(rebindDeviceBodySchema, req).userId),
+    ),
   );
   app.post(
     '/api/v1/admin/users/:id/sign-out-everywhere',

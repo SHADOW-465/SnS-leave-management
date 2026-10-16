@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-09-24** (department/team member assignment, attendance entry/logout, reports earned-leave balances, dashboard who-is-out, username sign-in and password privacy).
+Last reviewed: **2026-10-16** (browser device binding).
 Next review: at the next scheduled release milestone.
 
 ---
@@ -183,6 +183,15 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 | DW-81 | Profile, in-app password change, and sign-in with employee ID                                | DONE 2026-09-22 | `Profile.tsx`; `usecases/auth.ts`                                                                             |
 | DW-82 | Duplicate casual and sick opening grant reversed on existing databases                       | DONE 2026-09-22 | Migration `0007_fix_double_opening_grant.sql`; `doc-requirements.test.ts` yearly entitlement is credited once |
 | DW-83 | Simon & Sons sample organisation (17 people, designations, managers, holidays, sample leave) | DONE 2026-09-22 | `doc-requirements.test.ts` sample organisation; `usecases/demo.ts`                                            |
+
+---
+
+## 4g. Office host — 2026-10-16
+
+| ID    | Item                                                                                                                                                                                                                              | Status          | Evidence                                                                     |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| DW-84 | Signed browser cookie replaces `X-Workstation-Id`. Pending until an administrator approves; cross-account and second-browser sign-ins are blocked, audited, and notified. Settings: enabled, require approval, LAN address match. | DONE 2026-10-16 | `device-binding.test.ts`; migration `0013_browser_device.sql`; Browsers page |
+| DW-85 | An administrator's own browser is allowed through the pending gate so the first approval is possible. Everyone else waits.                                                                                                        | DONE 2026-10-16 | `claimDeviceForLogin` admin-role exemption; `device-binding.test.ts`         |
 
 ---
 

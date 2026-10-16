@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 — 2026-10-16
+
+### Added
+- **Browser binding.** A signed httpOnly cookie identifies the browser. The first sign-in creates a pending device; an administrator approves, revokes, or rebinds it under Browsers. A different person on a bound browser, or a person who already has one, is blocked, audited, and reported to administrators. An optional LAN-address check, and the on/off switches, are in those settings. The `X-Workstation-Id` header is no longer consulted.
+
 ## 0.2.4 — 2026-09-26
 
 ### Added

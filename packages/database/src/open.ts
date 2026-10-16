@@ -70,6 +70,7 @@ export async function migrate(db: Db): Promise<void> {
     { id: '0010_attendance_logout' },
     { id: '0011_account_username' },
     { id: '0012_password_rls', postgresOnly: true },
+    { id: '0013_browser_device' },
   ];
   for (const m of files) {
     if (applied.has(m.id)) continue;

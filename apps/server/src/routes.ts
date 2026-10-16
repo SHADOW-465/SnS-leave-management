@@ -47,6 +47,7 @@ import {
   logout,
   resolveSession,
 } from './usecases/auth.js';
+import { DeviceAccessError } from './usecases/devices.js';
 import {
   adjustBalance,
   decideLeave,
@@ -169,19 +170,27 @@ export async function registerRoutes(app: FastifyInstance) {
   app.post('/api/v1/auth/login', async (req, reply) => {
     try {
       const body = parse(loginBodySchema, req.body);
-      const workstationHeader = req.headers['x-workstation-id'];
-      const workstationId =
-        body.workstationId ??
-        (typeof workstationHeader === 'string' ? workstationHeader : undefined);
       const result = await login(req.ctx, {
         ...body,
-        workstationId,
+        deviceCookie: req.cookies['leaveos.device'],
       });
+      if (result.deviceCookie) {
+        reply.setCookie('leaveos.device', result.deviceCookie, {
+          ...cookieOpts(req.ctx, true),
+          maxAge: 400 * 24 * 60 * 60,
+        });
+      }
       reply
         .setCookie('leaveos.sid', result.token, cookieOpts(req.ctx, true))
         .setCookie('leaveos.csrf', result.csrf, { ...cookieOpts(req.ctx, false), httpOnly: false });
       return reply.send(ok({ mustChangePassword: result.mustChangePassword }, req.ctx.requestId));
     } catch (err) {
+      if (err instanceof DeviceAccessError && err.deviceCookie) {
+        reply.setCookie('leaveos.device', err.deviceCookie, {
+          ...cookieOpts(req.ctx, true),
+          maxAge: 400 * 24 * 60 * 60,
+        });
+      }
       return sendError(req, reply, err);
     }
   });

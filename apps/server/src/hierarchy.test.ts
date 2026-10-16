@@ -474,7 +474,7 @@ describe('Downstream higher-up notifications and on-behalf leave', () => {
 });
 
 describe('Office Security: Workstation Binding & Network Perimeter', () => {
-  it('enforces 1:1 workstation device pairing and rejects cross-account logins in production', async () => {
+  it('records a pending browser and blocks a second person on that cookie', async () => {
     const prodApp = await buildApp(
       loadConfig({
         LEAVEOS_DATA_DIR: opened[0]!.dir,
@@ -485,56 +485,36 @@ describe('Office Security: Workstation Binding & Network Perimeter', () => {
     );
     await prodApp.ready();
 
-    // 1. Amina logs in from Workstation-101 -> pairs device
     const res1 = await prodApp.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: {
-        email: 'vijay@sns.test',
-        password: 'ChangeMe_demo_1',
-        workstationId: 'ws-terminal-101',
-      },
+      payload: { email: 'vijay@sns.test', password: 'ChangeMe_demo_1' },
     });
-    expect(res1.statusCode).toBe(200);
+    expect(res1.statusCode).toBe(403);
+    const pending = res1.json() as { error: { code: string } };
+    expect(pending.error.code).toBe('DEVICE_PENDING_APPROVAL');
+    const set = res1.headers['set-cookie'];
+    const deviceCookie = (Array.isArray(set) ? set : [String(set ?? '')])
+      .map((c) => c.split(';')[0] ?? '')
+      .find((c) => c.startsWith('leaveos.device='));
+    expect(deviceCookie).toBeTruthy();
 
-    // Binding exists in workstation_device
-    const device = (await sqlite
-      .prepare(`SELECT * FROM workstation_device WHERE device_fingerprint = 'ws-terminal-101'`)
-      .get()) as { employee_id: string; is_active: number } | undefined;
-    expect(device).toBeDefined();
-    expect(device?.is_active).toBe(1);
+    const row = (await sqlite.prepare(`SELECT status FROM browser_device`).get()) as
+      { status: string } | undefined;
+    expect(row?.status).toBe('pending');
 
-    // 2. Paul attempts to log in on Workstation-101 in production -> 403 WORKSTATION_MISMATCH
     const resPaul = await prodApp.inject({
       method: 'POST',
       url: '/api/v1/auth/login',
-      payload: {
-        email: 'ramesh@sns.test',
-        password: 'ChangeMe_demo_1',
-        workstationId: 'ws-terminal-101',
-      },
+      headers: { cookie: deviceCookie ?? '' },
+      payload: { email: 'ramesh@sns.test', password: 'ChangeMe_demo_1' },
     });
     expect(resPaul.statusCode).toBe(403);
-    const bodyPaul = resPaul.json() as { error: { code: string; message: string } };
-    expect(bodyPaul.error.code).toBe('WORKSTATION_MISMATCH');
-
-    // Violation logged to audit_event
+    expect((resPaul.json() as { error: { code: string } }).error.code).toBe('DEVICE_BOUND');
     const auditViolation = (await sqlite
-      .prepare(`SELECT * FROM audit_event WHERE action = 'auth.workstation_violation'`)
+      .prepare(`SELECT action FROM audit_event WHERE action = 'auth.device_violation'`)
       .get()) as { action: string } | undefined;
     expect(auditViolation).toBeDefined();
-
-    // 3. Amina logs in again on her assigned workstation -> succeeds
-    const resAminaAgain = await prodApp.inject({
-      method: 'POST',
-      url: '/api/v1/auth/login',
-      payload: {
-        email: 'vijay@sns.test',
-        password: 'ChangeMe_demo_1',
-        workstationId: 'ws-terminal-101',
-      },
-    });
-    expect(resAminaAgain.statusCode).toBe(200);
     await prodApp.close();
   });
 

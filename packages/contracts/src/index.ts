@@ -15,6 +15,13 @@ export {
   setupBodySchema,
 } from './auth.js';
 export {
+  backupSettingsSchema,
+  deviceBindingSettingsSchema,
+  rebindDeviceBodySchema,
+  type BackupSettings,
+  type DeviceBindingSettings,
+} from './settings.js';
+export {
   adjustBalanceBodySchema,
   cancelLeaveBodySchema,
   decideLeaveBodySchema,

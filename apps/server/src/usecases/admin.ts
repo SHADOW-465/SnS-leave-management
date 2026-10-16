@@ -871,12 +871,22 @@ export async function listUsers(ctx: RequestContext) {
               d.name AS "departmentName", t.name AS "teamName",
               (SELECT COUNT(*) FROM session s WHERE s.user_account_id = ua.id
                   AND s.revoked_at IS NULL AND s.expires_at > ?) AS "activeSessions",
-              (SELECT w.last_seen_ip FROM workstation_device w
-                WHERE w.employee_id = ua.employee_id AND w.is_active = 1
-                ORDER BY w.last_seen_at DESC LIMIT 1) AS "workstationIp",
-              (SELECT w.last_seen_at FROM workstation_device w
-                WHERE w.employee_id = ua.employee_id AND w.is_active = 1
-                ORDER BY w.last_seen_at DESC LIMIT 1) AS "workstationSeenAt"
+              COALESCE(
+                (SELECT b.lan_ip FROM browser_device b
+                  WHERE b.user_account_id = ua.id AND b.status = 'approved'
+                  ORDER BY b.last_seen_at DESC LIMIT 1),
+                (SELECT w.last_seen_ip FROM workstation_device w
+                  WHERE w.employee_id = ua.employee_id AND w.is_active = 1
+                  ORDER BY w.last_seen_at DESC LIMIT 1)
+              ) AS "workstationIp",
+              COALESCE(
+                (SELECT b.last_seen_at FROM browser_device b
+                  WHERE b.user_account_id = ua.id AND b.status = 'approved'
+                  ORDER BY b.last_seen_at DESC LIMIT 1),
+                (SELECT w.last_seen_at FROM workstation_device w
+                  WHERE w.employee_id = ua.employee_id AND w.is_active = 1
+                  ORDER BY w.last_seen_at DESC LIMIT 1)
+              ) AS "workstationSeenAt"
          FROM user_account ua
          LEFT JOIN employee e ON e.id = ua.employee_id
          LEFT JOIN department d ON d.id = e.department_id
@@ -1160,22 +1170,39 @@ export async function releaseWorkstations(ctx: RequestContext, userId: string) {
     .prepare(`SELECT id, email, employee_id FROM user_account WHERE id = ?`)
     .get(userId)) as { id: string; email: string; employee_id: string | null } | undefined;
   if (!user) throw new DomainError('NOT_FOUND', 'Account not found.', { httpStatus: 404 });
-  if (!user.employee_id) {
-    return { ok: true, message: `${user.email} has no workstation to release.` };
-  }
-  const devices = (await ctx.sqlite
-    .prepare(`SELECT * FROM workstation_device WHERE employee_id = ?`)
-    .all(user.employee_id)) as Record<string, unknown>[];
-  if (devices.length === 0) {
+  const devices = user.employee_id
+    ? ((await ctx.sqlite
+        .prepare(`SELECT * FROM workstation_device WHERE employee_id = ?`)
+        .all(user.employee_id)) as Record<string, unknown>[])
+    : [];
+  const browsers = (await ctx.sqlite
+    .prepare(`SELECT * FROM browser_device WHERE user_account_id = ? AND status = 'approved'`)
+    .all(userId)) as Record<string, unknown>[];
+  if (devices.length === 0 && browsers.length === 0) {
     return { ok: true, message: `${user.email} is not tied to any computer.` };
   }
   await withTx(ctx.sqlite, async () => {
     // The binding is an operational link, not employee history; the audit event keeps a
     // full copy of what was released.
+    if (user.employee_id) {
+      await ctx.sqlite
+        .prepare(`DELETE FROM workstation_device WHERE employee_id = ?`)
+        .run(user.employee_id);
+    }
     await ctx.sqlite
-      .prepare(`DELETE FROM workstation_device WHERE employee_id = ?`)
-      .run(user.employee_id);
-    await audit(ctx, 'user.workstation.released', 'user_account', userId, { devices }, null);
+      .prepare(
+        `UPDATE browser_device SET status = 'revoked', revoked_at = ?, approved_at = NULL, approved_by = NULL
+          WHERE user_account_id = ? AND status = 'approved'`,
+      )
+      .run(ctx.now, userId);
+    await audit(
+      ctx,
+      'user.workstation.released',
+      'user_account',
+      userId,
+      { devices, browsers },
+      null,
+    );
   });
   return {
     ok: true,

@@ -22,6 +22,7 @@ import { PasswordPage } from './pages/Password.js';
 import { LeaveTypesPage } from './pages/LeaveTypes.js';
 import { ProfilePage } from './pages/Profile.js';
 import { TransactionsPage } from './pages/Transactions.js';
+import { DevicesPage } from './pages/Devices.js';
 
 export function App() {
   const setup = useQuery({
@@ -103,6 +104,16 @@ export function App() {
         <Route path="/password" element={<PasswordPage me={me.data} voluntary />} />
         <Route path="/transactions" element={<TransactionsPage me={me.data} />} />
         <Route path="/allowances" element={<AllowancesPage />} />
+        <Route
+          path="/admin/devices"
+          element={
+            can(me.data, 'workstation.manage') ? (
+              <DevicesPage me={me.data} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
         <Route
           path="/admin/users"
           element={

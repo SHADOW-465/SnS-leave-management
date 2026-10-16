@@ -29,8 +29,14 @@ export const appConfigSchema = z.object({
   showDemoAccounts: bool.default(false),
   /** First-run seed when the database is empty. Hosted preview only. */
   seedOnEmpty: bool.default(false),
-  /** Enforce 1:1 workstation device binding to prevent cross-account logins / buddy punching. */
+  /** Enforce 1:1 browser binding. A signed cookie replaces the old X-Workstation-Id header. */
   enforceWorkstationBinding: bool.default(false),
+  /** When binding is on, a new browser stays pending until an administrator approves it. */
+  deviceRequireApproval: bool.default(true),
+  /** When binding is on, an approved browser may only sign in from its recorded LAN address. */
+  deviceIpMatch: bool.default(false),
+  /** Production serves HTTPS unless this is set. Development and tests stay on HTTP. */
+  httpFallback: bool.default(false),
   /** Optional. When set, the API uses Postgres (Supabase preview). Unset for office SQLite. */
   databaseUrl: z
     .string()
@@ -126,6 +132,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env.LEAVEOS_ENFORCE_WORKSTATION !== undefined
         ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_ENFORCE_WORKSTATION.toLowerCase())
         : envName === 'production',
+    deviceRequireApproval:
+      env.LEAVEOS_DEVICE_REQUIRE_APPROVAL !== undefined
+        ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_DEVICE_REQUIRE_APPROVAL.toLowerCase())
+        : true,
+    deviceIpMatch:
+      env.LEAVEOS_DEVICE_IP_MATCH !== undefined
+        ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_DEVICE_IP_MATCH.toLowerCase())
+        : false,
+    httpFallback:
+      env.LEAVEOS_HTTP_FALLBACK !== undefined
+        ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_HTTP_FALLBACK.toLowerCase())
+        : Boolean(file.httpFallback),
     databaseUrl:
       env.DATABASE_URL ??
       env.SUPABASE_DB_URL ??

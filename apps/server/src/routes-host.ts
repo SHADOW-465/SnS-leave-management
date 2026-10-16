@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { pathsFor } from '@sns/config';
+import { lanHostnameSettingsSchema } from '@sns/contracts';
 
 import type { RequestContext } from './ctx.js';
 import { approveDevice } from './usecases/devices.js';
@@ -16,6 +17,9 @@ import {
   serviceHeadline,
   serviceStatus,
 } from './host-local.js';
+import { republishHostname, staffUrls, type StaffUrls } from './discovery.js';
+import { readLanHostname, writeLanHostname } from './hostname.js';
+import { ensureLanCertificate } from './tls.js';
 import { collectHealth, type HostHealth } from './health.js';
 import { sendError } from './http.js';
 
@@ -46,7 +50,9 @@ export function registerHostRoutes(app: FastifyInstance): void {
   });
 
   app.get('/api/v1/host/qr.svg', async (req, reply) => {
-    const url = lanUrl(req.ctx.config.port, req.ctx.config.tlsEnabled);
+    const links = await officeLinks(req.ctx);
+    const which = String((req.query as { for?: string } | undefined)?.for ?? 'mdns');
+    const url = which === 'hostname' ? links.hostname : which === 'ip' ? links.ip : links.mdns;
     if (!url) return reply.status(404).send('No LAN address');
     const svg = await (require('qrcode') as QrModule).toString(url, { type: 'svg', margin: 1 });
     return reply.type('image/svg+xml').send(svg);
@@ -60,7 +66,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
       at: health.at,
       integrity: health.integrity,
       pending,
-      lanUrl: lanUrl(req.ctx.config.port, req.ctx.config.tlsEnabled),
+      links: await officeLinks(req.ctx),
       service: serviceStatus(req.ctx.config.env),
       health,
     });
@@ -83,6 +89,30 @@ export function registerHostRoutes(app: FastifyInstance): void {
           }),
         );
     }
+  });
+
+  app.post('/api/v1/host/hostname', async (req, reply) => {
+    if (!tokenOk(req)) return back(reply, { error: 'Refresh the page and try that again.' });
+    const raw = String((req.body as { hostname?: string })?.hostname ?? '');
+    const parsed = lanHostnameSettingsSchema.safeParse({ hostname: raw });
+    if (!parsed.success) {
+      return back(reply, {
+        error: 'Use a short name such as sns-leave. Letters, numbers, and hyphens only.',
+      });
+    }
+    await writeLanHostname(req.ctx.sqlite, parsed.data.hostname, {
+      userId: null,
+      label: 'host-panel',
+      now: req.ctx.now,
+      requestId: req.ctx.requestId,
+      ip: req.ctx.ip,
+      userAgent: req.ctx.userAgent,
+    });
+    await ensureLanCertificate(pathsFor(req.ctx.config).certs, { hostname: parsed.data.hostname });
+    await republishHostname(parsed.data.hostname);
+    return back(reply, {
+      notice: 'Office name saved. Restart the service so the certificate includes the new name.',
+    });
   });
 
   app.post('/api/v1/host/service', async (req, reply) => {
@@ -144,10 +174,17 @@ async function hostHealth(ctx: RequestContext): Promise<HostHealth> {
   });
 }
 
-function lanUrl(port: number, tls: boolean): string | null {
-  const ip = lanAddress();
-  if (!ip) return null;
-  return `${tls ? 'https' : 'http'}://${ip}:${port}`;
+async function officeLinks(ctx: RequestContext): Promise<StaffUrls> {
+  return staffUrls({
+    hostname: await readLanHostname(ctx.sqlite),
+    port: ctx.config.port,
+    tls: ctx.config.tlsEnabled,
+    address: lanAddress(),
+  });
+}
+
+function qrImg(which: 'hostname' | 'mdns' | 'ip', url: string): string {
+  return `<img class="qr" alt="QR code for ${esc(url)}" src="/api/v1/host/qr.svg?for=${which}" width="180" height="180">`;
 }
 
 async function pendingCount(req: {
@@ -198,7 +235,7 @@ async function renderHost(
   const health = await hostHealth(req.ctx);
   const integrity = health.integrity;
   const service = serviceStatus(req.ctx.config.env);
-  const url = lanUrl(req.ctx.config.port, req.ctx.config.tlsEnabled);
+  const links = await officeLinks(req.ctx);
   const pending = (await req.ctx.sqlite
     .prepare(
       `SELECT b.id, b.lan_ip AS "lanIp", b.created_at AS "createdAt", COALESCE(ua.email, '') AS email
@@ -225,9 +262,9 @@ async function renderHost(
     : backups;
   const searchMiss = Boolean(needle) && shownPending.length === 0 && shownBackups.length === 0;
 
-  const qr = url
-    ? `<img class="qr" alt="QR code for ${esc(url)}" src="/api/v1/host/qr.svg" width="180" height="180">`
-    : `<p class="state" id="empty-lan">No office network address was found. Other computers cannot open Leave OS until this host has a LAN address. You can still use it on this computer.</p>`;
+  const ipBlock = links.ip
+    ? `<p>If a computer cannot open the name, use this address.</p><p class="mono" id="lan-url">${esc(links.ip)}</p>${qrImg('ip', links.ip)}`
+    : `<p class="state" id="empty-lan">No office network address was found. Other computers cannot open Leave OS by number until this host has a LAN address. The name above still works once an address is present. You can still use it on this computer.</p>`;
 
   const pendingHtml = shownPending.length
     ? shownPending
@@ -277,8 +314,19 @@ async function renderHost(
         </dl>
       </section>
       <section>
-        <h2>Office address</h2>
-        ${url ? `<p class="mono" id="lan-url">${esc(url)}</p>${qr}` : qr}
+        <h2>Staff link</h2>
+        <p>People on the office network open this name.</p>
+        <p class="mono" id="staff-url">${esc(links.hostname)}</p>
+        ${qrImg('hostname', links.hostname)}
+        <p class="mono" id="mdns-url">${esc(links.mdns)}</p>
+        ${qrImg('mdns', links.mdns)}
+        ${ipBlock}
+        <form method="post" action="/api/v1/host/hostname">
+          ${hidden(token)}
+          <label for="hostname">Office name</label>
+          <input id="hostname" name="hostname" value="${esc(links.name)}" autocomplete="off" required>
+          <button type="submit">Save name</button>
+        </form>
       </section>
       <section>
         <h2>Service</h2>

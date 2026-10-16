@@ -44,7 +44,8 @@ The wizard shows Next, then the install progress, then Finish. It does not ask f
 - Creates the backup folder `%PROGRAMDATA%\SimonAndSons\LeaveOS\backups`. Daily copies go there until an administrator changes the folder.
 - Writes the local HTTPS certificate into `%PROGRAMDATA%\SimonAndSons\LeaveOS\certs` and trusts it on this computer (`certutil -addstore`). Other staff computers still follow `docs/TLS-TRUST.md`. A certificate warning is a defect. Do not continue past one.
 - Registers a service named `LeaveOS` that starts at boot, starts it, and waits until `https://127.0.0.1:8443/healthz` answers. Registration uses `node-windows` when that package is present, and otherwise `sc.exe` (the same registrar as `scripts/service.mjs`). NSSM is not required.
-- Adds a firewall rule for TCP port 8443.
+- Adds firewall rules for TCP port 8443, and for UDP 5353 (mDNS) and UDP 5355 (LLMNR) so staff computers can resolve the office name.
+- The office name is `sns-leave` until an administrator changes it on the host panel or with `PUT /api/v1/settings/hostname`. Staff use `https://sns-leave:8443` and `https://sns-leave.local:8443`. The LAN address is the fallback. A NetBIOS alias is not registered: Windows applies one only by restarting the Server service or renaming the PC. Uninstall removes the mDNS and LLMNR firewall rules with the TCP rule.
 - Puts a **Leave OS** shortcut on the desktop. It opens `https://127.0.0.1:8443/host`.
 - Finish opens that same control panel. When the service is up, the page shows **Running**, the staff link, and a QR code.
 

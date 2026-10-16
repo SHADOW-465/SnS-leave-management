@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { loadConfig, loadDotEnv, pathsFor, type AppConfig } from '@sns/config';
 import { openDatabaseFromEnv, type Db } from '@sns/database';
 import { buildApp } from './app.js';
+import { readLanHostname } from './hostname.js';
 import { resolveTlsMaterial } from './tls.js';
 import { startJobs } from './jobs.js';
 import { nowIso, todayInTimeZone } from './time.js';
@@ -86,7 +87,8 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
       await ensureDemoHierarchy(ctx);
     }
   }
-  const https = await resolveTlsMaterial(config);
+  const lanHostname = await readLanHostname(db);
+  const https = await resolveTlsMaterial(config, lanHostname);
   const app = await buildApp(config, db, https ? { https } : undefined);
   const jobs = startJobs(db, {
     timers: !config.hostedPreview,

@@ -66,6 +66,10 @@ describe('host control panel', () => {
     expect(local.res.statusCode).toBe(200);
     expect(local.res.body).toContain('Host control');
     expect(local.res.body).toContain('id="service-state">Not queried');
+    expect(local.res.body).toContain('id="staff-url">http://sns-leave:');
+    expect(local.res.body).toContain('sns-leave.local');
+    expect(local.res.body).toContain('/api/v1/host/qr.svg?for=hostname');
+    expect(local.res.body).toContain('/api/v1/host/qr.svg?for=mdns');
     expect(local.res.body).toContain('No browsers are waiting');
     expect(local.res.body).toContain('No backup files yet');
     expect(local.token).toHaveLength(64);
@@ -161,5 +165,52 @@ describe('host control panel', () => {
     };
     expect(company.name).toBe('Test Co');
     expect(fs.existsSync(`${dbPath}.restore`)).toBe(false);
+  });
+
+  it('saves an office name and rejects a name with a space', async () => {
+    const { app, sqlite } = await boot();
+    const panel = await openPanel(app);
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/hostname',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: panel.cookie },
+      payload: `token=${panel.token}&hostname=Front-Desk.local`,
+    });
+    expect(saved.statusCode).toBe(303);
+    const row = (await sqlite
+      .prepare(`SELECT value_json FROM app_setting WHERE key = 'ops.hostname'`)
+      .get()) as { value_json: string };
+    expect(JSON.parse(row.value_json).hostname).toBe('front-desk');
+    const again = await openPanel(app);
+    expect(again.res.body).toContain('front-desk.local');
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/hostname',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: panel.cookie },
+      payload: `token=${panel.token}&hostname=not%20a%20name`,
+    });
+    expect(String(bad.headers.location)).toContain('error=');
+
+    const anonymous = await app.inject({ method: 'GET', url: '/api/v1/settings/hostname' });
+    expect(anonymous.statusCode).toBe(401);
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'admin@example.invalid', password: 'ChangeMe_admin_1' },
+    });
+    const pairs = (
+      Array.isArray(login.headers['set-cookie'])
+        ? login.headers['set-cookie']
+        : [String(login.headers['set-cookie'])]
+    ).map((c) => String(c).split(';')[0] ?? '');
+    const csrf = pairs.find((p) => p.startsWith('leaveos.csrf='))?.slice('leaveos.csrf='.length);
+    const named = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/hostname',
+      headers: { cookie: pairs.join('; '), 'x-csrf-token': csrf },
+      payload: { hostname: 'sns-leave' },
+    });
+    expect(named.statusCode).toBe(200);
+    expect(named.json().data.hostname).toBe('sns-leave');
   });
 });

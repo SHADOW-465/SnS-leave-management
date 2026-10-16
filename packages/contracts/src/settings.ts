@@ -22,4 +22,24 @@ export const backupSettingsSchema = z
 
 export type BackupSettings = z.infer<typeof backupSettingsSchema>;
 
+/** Office LAN name. `sns-leave` is what staff type. `.local` is added for mDNS. */
+export const DEFAULT_LAN_HOSTNAME = 'sns-leave';
+
+export const lanHostnameSettingsSchema = z
+  .object({
+    hostname: z.preprocess(
+      (value) => {
+        if (typeof value !== 'string') return value;
+        return value
+          .trim()
+          .toLowerCase()
+          .replace(/\.local$/, '');
+      },
+      z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+    ),
+  })
+  .strict();
+
+export type LanHostnameSettings = z.infer<typeof lanHostnameSettingsSchema>;
+
 export const rebindDeviceBodySchema = z.object({ userId: z.string().min(1).max(40) }).strict();

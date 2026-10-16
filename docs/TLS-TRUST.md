@@ -8,7 +8,9 @@ for this computer under the data folder:
 %PROGRAMDATA%\SimonAndSons\LeaveOS\certs\key.pem
 ```
 
-The certificate names `localhost`, `127.0.0.1`, this computer's name, and its LAN address.
+The certificate names `sns-leave`, `sns-leave.local`, `localhost`, `127.0.0.1`, this
+computer's name, and its LAN address. If the office name is changed, the next certificate
+includes that name and `<name>.local` as well.
 It is created on this computer. It is not a public certificate. DW-13 stays open until
 the company decides whether an internal certificate authority already exists.
 
@@ -23,15 +25,15 @@ is not trusted yet. Fix the trust, then open the site again.
 4. Choose **Local Machine** (an administrator password is required).
 5. Choose **Place all certificates in the following store**.
 6. Browse to **Trusted Root Certification Authorities** and finish.
-7. Close the browser and open the office address again, for example `https://192.168.1.20:8443`.
+7. Close the browser and open the office address again, for example `https://sns-leave.local:8443`. The IP address printed on the host panel is the fallback.
 
 The address must be the one printed on the host panel, including `https://`. A bookmark
 that still says `http://` will not match this certificate.
 
 ## This computer
 
-The desktop shortcut opens `https://127.0.0.1:8443/host`. Install the same certificate
-into Trusted Root on the host if that page shows a warning.
+The desktop shortcut opens `https://127.0.0.1:8443/host`. Setup trusts the certificate on
+this computer. Install it again only if that page shows a warning.
 
 ## Replace the certificate
 

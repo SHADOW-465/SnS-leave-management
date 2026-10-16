@@ -48,6 +48,8 @@ Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root ""Leave OS"""; Flags
 Filename: "{sys}\sc.exe"; Parameters: "stop LeaveOS"; Flags: runhidden waituntilterminated; RunOnceId: "StopLeaveOS"
 Filename: "{sys}\sc.exe"; Parameters: "delete LeaveOS"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLeaveOS"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Leave OS"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLeaveOSFirewall"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Leave OS mDNS"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLeaveOSMdns"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Leave OS LLMNR"""; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLeaveOSLlmnr"
 
 [UninstallDelete]
 Type: files; Name: "{autodesktop}\Leave OS.lnk"

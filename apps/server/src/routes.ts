@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { pathsFor } from '@sns/config';
 import {
   adjustBalanceBodySchema,
   bulkProvisionBodySchema,
@@ -19,6 +20,7 @@ import {
   recordAttendanceCorrectionBodySchema,
   rejectLeaveBodySchema,
   backupSettingsSchema,
+  lanHostnameSettingsSchema,
   setupBodySchema,
   submitLeaveBodySchema,
   submitPermissionBodySchema,
@@ -113,6 +115,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createBackupFile } from './backup-file.js';
 import { readBackupPolicy, saveBackupPolicy } from './backup-job.js';
+import { republishHostname } from './discovery.js';
+import { readLanHostname, saveLanHostname } from './hostname.js';
+import { ensureLanCertificate } from './tls.js';
 import type { z } from 'zod';
 declare module 'fastify' {
   interface FastifyRequest {
@@ -1961,6 +1966,25 @@ export async function registerRoutes(app: FastifyInstance) {
     try {
       const body = backupSettingsSchema.parse(req.body);
       return reply.send(ok(await saveBackupPolicy(req.ctx, body), req.ctx.requestId));
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.get('/api/v1/settings/hostname', async (req, reply) => {
+    try {
+      await authorizeAction(req.ctx, 'system.config.manage', null);
+      return reply.send(ok({ hostname: await readLanHostname(req.ctx.sqlite) }, req.ctx.requestId));
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.put('/api/v1/settings/hostname', async (req, reply) => {
+    try {
+      const body = lanHostnameSettingsSchema.parse(req.body);
+      const saved = await saveLanHostname(req.ctx, body);
+      await ensureLanCertificate(pathsFor(req.ctx.config).certs, { hostname: saved.hostname });
+      await republishHostname(saved.hostname);
+      return reply.send(ok(saved, req.ctx.requestId));
     } catch (err) {
       return sendError(req, reply, err);
     }

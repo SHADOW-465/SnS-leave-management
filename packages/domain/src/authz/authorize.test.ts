@@ -3,6 +3,12 @@ import { assertNoManagerCycle, collectReports, permissionsForRoles } from './aut
 import { ROLE_PERMISSIONS } from './roles.js';
 
 describe('RBAC', () => {
+  it('lets only an administrator change the office name setting', () => {
+    expect(ROLE_PERMISSIONS.admin).toContain('system.config.manage:company');
+    expect(ROLE_PERMISSIONS.employee).not.toContain('system.config.manage:company');
+    expect(ROLE_PERMISSIONS.hr_officer).not.toContain('system.config.manage:company');
+  });
+
   it('does not grant managers approve', () => {
     const perms = permissionsForRoles(['manager']);
     expect(perms.some((p) => p.startsWith('leave.request.approve'))).toBe(false);

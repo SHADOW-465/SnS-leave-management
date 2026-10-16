@@ -17,7 +17,7 @@ function sc(args) {
   return spawnSync('sc.exe', args, { encoding: 'utf8' });
 }
 
-function openFirewall() {
+function allowInbound(name, protocol, port) {
   const firewall = spawnSync(
     'netsh',
     [
@@ -25,17 +25,23 @@ function openFirewall() {
       'firewall',
       'add',
       'rule',
-      'name=Leave OS',
+      `name=${name}`,
       'dir=in',
       'action=allow',
-      'protocol=TCP',
-      `localport=${PORT}`,
+      `protocol=${protocol}`,
+      `localport=${port}`,
     ],
     { encoding: 'utf8' },
   );
   if (firewall.status !== 0) {
     console.error(firewall.stderr || firewall.stdout);
   }
+}
+
+function openFirewall() {
+  allowInbound('Leave OS', 'TCP', PORT);
+  allowInbound('Leave OS mDNS', 'UDP', '5353');
+  allowInbound('Leave OS LLMNR', 'UDP', '5355');
 }
 
 async function installWithServiceControl() {

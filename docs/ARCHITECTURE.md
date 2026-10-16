@@ -83,22 +83,30 @@ adapter. Neither path rewrites the rules.
 
 ## 3. Ports and addresses
 
-| Environment | What                | Address                              | Notes                                                                              |
-| ----------- | ------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
-| Production  | Employee site + API | `https://<lan-address>:8443`         | The service binds all interfaces so the office LAN can open it                     |
-| Production  | Host panel          | `https://127.0.0.1:8443/host`        | This computer only. Status, QR, service, backup, restore, waiting browsers, health |
-| Production  | Health endpoint     | `https://<lan-address>:8443/healthz` | No authentication, no data — liveness only                                         |
-| Development | Vite dev server     | `http://localhost:5173`              | Proxies `/api` to the server                                                       |
-| Development | Fastify             | `http://localhost:3000`              | HTTP. Tests stay on HTTP                                                           |
+| Environment | What                | Address                              | Notes                                                                                                                                |
+| ----------- | ------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Production  | Employee site + API | `https://sns-leave:8443`             | Also `https://sns-leave.local:8443`. The LAN IP address is the fallback. The name defaults to `sns-leave` and is changed in settings |
+| Production  | Host panel          | `https://127.0.0.1:8443/host`        | This computer only. Status, QR, service, backup, restore, waiting browsers, health                                                   |
+| Production  | Health endpoint     | `https://<lan-address>:8443/healthz` | No authentication, no data — liveness only                                                                                           |
+| Development | Vite dev server     | `http://localhost:5173`              | Proxies `/api` to the server                                                                                                         |
+| Development | Fastify             | `http://localhost:3000`              | HTTP. Tests stay on HTTP                                                                                                             |
 
 Port and hostname are configurable at first run. A port conflict is detected at startup
 and reported as a human-readable error with the occupying process named, not as a stack trace.
 
-**Nothing about the network is finalised yet (D-17).** The responsible IT/network person has
-not been identified, so the first-run wizard **must not require** a final hostname: it offers
-running on the machine's current IP address for a pilot, or entering a hostname once one
-exists, and either can be changed later without reinstalling. The firewall rule is proposed,
-shown in full, and applied only with explicit consent. Tracked as DW-12.
+The office name defaults to `sns-leave`. Staff open `https://sns-leave:8443` and
+`https://sns-leave.local:8443`. The host answers mDNS A queries for `sns-leave.local` and
+publishes an `_https._tcp` service record. It also answers LLMNR for the single-label name
+`sns-leave`, which is how Windows resolves a name without `.local`. The LAN IP address
+remains on the host panel as a fallback, with its own QR code.
+
+A NetBIOS alias is not set. Windows reads an extra NetBIOS name from `OptionalNames` only
+when the Server service restarts, and restarting that service drops file shares. Renaming
+the computer would replace its own name and needs a reboot. Neither belongs in a setup
+program that asks no questions. DW-12 stays open until the company names the network person
+who will confirm the final hostname. An administrator can change `sns-leave` later, on the
+host panel or with `PUT /api/v1/settings/hostname`, without reinstalling. The certificate
+is rewritten to include the new name; the service must be restarted before staff use it.
 
 ---
 
@@ -238,7 +246,8 @@ The office control panel is `GET /host` on the server. It answers only for loopb
 
 It shows whether the server is answering, the database check, and the Windows service
 as **Running** when the service is running. It shows backup age, certificate expiry, and
-free disk. It shows the LAN URL and a QR code for it.
+free disk. It shows `https://sns-leave:<port>`, `https://sns-leave.local:<port>`, and the
+LAN IP address, each with a QR code. The office name is edited on that page.
 Forms start, stop, or restart the `LeaveOS` service, take a backup, stage a restore for
 the next start, and approve a browser that is waiting. Posts carry a confirmation token
 from the page.

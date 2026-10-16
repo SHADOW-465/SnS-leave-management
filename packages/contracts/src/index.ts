@@ -16,10 +16,13 @@ export {
 } from './auth.js';
 export {
   backupSettingsSchema,
+  DEFAULT_LAN_HOSTNAME,
   deviceBindingSettingsSchema,
+  lanHostnameSettingsSchema,
   rebindDeviceBodySchema,
   type BackupSettings,
   type DeviceBindingSettings,
+  type LanHostnameSettings,
 } from './settings.js';
 export {
   adjustBalanceBodySchema,

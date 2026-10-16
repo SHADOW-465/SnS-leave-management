@@ -1,46 +1,50 @@
 # Architecture
 
-Planning document. Nothing described here is built yet.
+What ships for the office: one Windows computer runs Leave OS as a Windows service.
+Staff use a browser on the office LAN. There is no cloud dependency for leave,
+sign-in, or the ledger.
+
+The hosted Vercel preview is frozen. A deploy migrates and does not load the Navalur
+dataset. That load is `pnpm db:reset:navalur` only.
+
+`apps/desktop` (Electron) is not the office install.
 
 ---
 
 ## 1. Processes and boundaries
 
-Three processes on one Windows machine. This separation is the most important
-structural decision in the system: **the visible window is not the server.**
-
 ```mermaid
 flowchart TB
   subgraph host["Office host PC — Windows"]
-    subgraph electron["Electron app"]
-      main["Main process<br/>supervisor, tray, single-instance lock"]
-      rend["Renderer<br/>control panel UI<br/>sandboxed, no Node, context-isolated"]
-      main -- "typed preload API only" --> rend
-    end
-    srv["Server process (Node)<br/>Fastify + better-sqlite3<br/>sole owner of the DB"]
-    db[("SQLite<br/>app.db + WAL")]
-    files[("attachments/<br/>outside webroot")]
-    bak[("backups/")]
-    main -- "spawn / health / graceful stop<br/>IPC over stdio" --> srv
-    srv --> db
-    srv --> files
-    srv --> bak
+    svc["Windows service LeaveOS<br/>portable Node + Fastify"]
+    panel["Host panel /host<br/>loopback only"]
+    db[("SQLite node:sqlite<br/>app.db + WAL")]
+    bak[("daily VACUUM INTO copy")]
+    cert[("local HTTPS certificate")]
+    svc --> db
+    svc --> bak
+    svc --> cert
+    panel -- "127.0.0.1 only" --> svc
   end
-  emp["Employee / manager / HR browsers<br/>on the office LAN"] -- "HTTPS 8443" --> srv
+  emp["Staff browsers on the LAN"] -- "HTTPS :8443<br/>signed device cookie" --> svc
 ```
 
-**Rules that follow from this diagram:**
-
-- Only the server process ever opens the database. Not the Electron main process, not a
-  backup script, not the operator.
-- Closing the control panel window minimises to the tray. It does not stop the server.
-- Stopping the server is an explicit action, with a warning, a graceful shutdown, and an
-  extra confirmation when sessions are currently active.
-- The renderer is sandboxed with context isolation and no Node integration. Its only
-  capability is a narrow typed preload API — an explicit allowlist of commands, no
-  generic IPC passthrough — under a strict CSP.
-- The SQLite file lives on local disk. **Never** on a network share, and never reachable
-  from an employee machine.
+- Only the server process opens the database.
+- The host panel is a page on that server, not a second process. Requests that are not
+  from this computer are refused.
+- Staff sign in from a browser. The first browser gets a signed httpOnly device cookie
+  and a pending row. An administrator approves it. Another person on that browser, or
+  the same person on a second approved browser, is blocked, audited, and reported.
+- Production serves HTTPS with a certificate written on first start. HTTP is only
+  `LEAVEOS_HTTP_FALLBACK`. Staff trust `cert.pem` (see `docs/TLS-TRUST.md`). Do not
+  continue past a certificate warning. DW-13 stays open.
+- Setup (`docs/INSTALLER.md`) registers the service, opens TCP 8443, adds a desktop
+  shortcut to the host panel, and sets plugged-in sleep and hibernate to never. The
+  setup program is unsigned (DW-14).
+- A production host copies the database once a day with `VACUUM INTO` into a configurable
+  folder and drops copies older than the retention. Restore is staged and applied the
+  next time the database opens.
+- The SQLite file stays on this computer's disk. It is not on a network share.
 
 ---
 
@@ -50,10 +54,10 @@ flowchart TB
 apps/
   web/          React + Vite. The employee/manager/HR/admin site.
   server/       Fastify API, static serving, scheduled jobs, migrations runner.
-  desktop/      Electron control panel and server supervisor.
+  desktop/      Not the office install.
 packages/
   domain/       Business rules. No SQLite, no Fastify, no React. Pure TypeScript.
-  database/     Drizzle schema, migrations, repository implementations, seeds.
+  database/     node:sqlite (and a Postgres adapter for the frozen preview), SQL migrations.
   auth/         Password hashing, sessions, CSRF, lockout, permission evaluation.
   contracts/    Zod schemas and shared types. Source of both validation and OpenAPI.
   ui/           Design tokens and reusable components.
@@ -68,22 +72,20 @@ and `ui` only. `desktop` depends on `config` only — it never imports the datab
 Enforced by an ESLint boundary rule, not by good intentions.
 
 **Why `domain` is storage-agnostic.** It defines repository _interfaces_; `database`
-provides the SQLite implementation. Adding PostgreSQL later means adding an adapter, not
-rewriting the rules. This is the only abstraction in the plan that exists before its
-second implementation, and it is there because the brief explicitly requires a future
-cloud path.
+implements them. The office host uses `node:sqlite`. The frozen preview uses the Postgres
+adapter. Neither path rewrites the rules.
 
 ---
 
 ## 3. Ports and addresses
 
-| Environment | What                | Address                           | Notes                                                                                  |
-| ----------- | ------------------- | --------------------------------- | -------------------------------------------------------------------------------------- |
-| Production  | Employee site + API | `https://<hostname>:8443`         | Bound to the configured LAN interface only, never `0.0.0.0` unless deliberately chosen |
-| Production  | Health endpoint     | `https://<hostname>:8443/healthz` | No authentication, no data — liveness only                                             |
-| Production  | Supervisor IPC      | stdio pipe                        | No TCP port. Nothing to attack.                                                        |
-| Development | Vite dev server     | `http://localhost:5173`           | Proxies `/api` to the server                                                           |
-| Development | Fastify             | `http://localhost:3000`           | HTTP in dev; HTTPS is exercised in a dedicated pre-release test                        |
+| Environment | What                | Address                              | Notes                                                                              |
+| ----------- | ------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
+| Production  | Employee site + API | `https://<lan-address>:8443`         | The service binds all interfaces so the office LAN can open it                     |
+| Production  | Host panel          | `https://127.0.0.1:8443/host`        | This computer only. Status, QR, service, backup, restore, waiting browsers, health |
+| Production  | Health endpoint     | `https://<lan-address>:8443/healthz` | No authentication, no data — liveness only                                         |
+| Development | Vite dev server     | `http://localhost:5173`              | Proxies `/api` to the server                                                       |
+| Development | Fastify             | `http://localhost:3000`              | HTTP. Tests stay on HTTP                                                           |
 
 Port and hostname are configurable at first run. A port conflict is detected at startup
 and reported as a human-readable error with the occupying process named, not as a stack trace.
@@ -225,37 +227,23 @@ rather than acting twice.
 
 ---
 
-## 8. Desktop control panel
+## 8. Host control panel
 
-**States:** `stopped`, `starting`, `running`, `degraded`, `backing-up`, `restoring`,
-`migrating`, `error`. `degraded` means the server answers but a health check is failing —
-low disk, a stale backup, or a failed outbox drain.
+The office control panel is `GET /host` on the server. It answers only for loopback
+(`127.0.0.1`, `::1`). A LAN address receives a permission-denied page.
 
-**Displays:** hostname, LAN URL, port, TLS state and certificate expiry, application
-version, database schema version, uptime, active session count, last backup time and
-result, next scheduled backup, free disk space.
+It shows whether the server is answering, the database check, the Windows service state,
+backup age, certificate expiry, and free disk. It shows the LAN URL and a QR code for it.
+Forms start, stop, or restart the `LeaveOS` service, take a backup, stage a restore for
+the next start, and approve a browser that is waiting. Posts carry a confirmation token
+from the page.
 
-**Actions:** Start · Stop · Restart · Open Admin Site · Copy Employee URL · Create Backup ·
-Restore Backup · View Logs · Open Data Folder · Run Health Check · Export Support Bundle.
+Windows service calls are not made when `LEAVEOS_ENV` is `test`.
 
-**Behaviour:**
-
-- Single-instance lock. A second launch focuses the existing window.
-- Tray icon; optional start-with-Windows.
-- Closing the window minimises to tray. "Stop server and exit" is a separate, warned action,
-  with an extra confirmation and an active-session count when sessions exist.
-- Graceful shutdown: stop accepting new connections → let in-flight requests finish (bounded
-  timeout, then abort) → roll back anything incomplete → WAL checkpoint → close the database →
-  exit. Report each step in the UI.
-- Crash detection with backoff (1s, 5s, 15s, 60s) and **a hard cap of 5 restarts in 10 minutes**,
-  after which it stays down in `error` state and asks for a human. Never an infinite loop.
-- Errors are shown as a plain sentence with a suggested action, plus a collapsed
-  "technical details" section carrying the request id and stack.
-- A permanent, visible notice: sleeping, shutting down, or disconnecting this computer makes
-  the system unavailable to everyone.
-
-**Support bundle** — versions, configuration with secrets redacted, recent logs, health
-check output, migration status, disk and certificate state. No employee data, no database.
+`apps/desktop` is not this panel. A support bundle and a tray icon are not part of the
+install. Sleeping or switching off this computer still makes Leave OS unavailable. Setup
+sets the plugged-in sleep and hibernate timeouts to never so that is less likely while
+the machine is on mains power.
 
 ---
 
@@ -266,12 +254,12 @@ record, and writes an audit event.
 
 | Job           | Default                          | Purpose                                                                                                                                                             |
 | ------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backup        | nightly                          | SQLite online backup API, then verify by opening the copy and running an integrity check                                                                            |
+| Backup        | daily, production on by default  | `VACUUM INTO` into a configurable folder, then an integrity check. Copies older than the retention are removed. Postgres is skipped.                                |
 | Accrual       | monthly, on the leave-year rule  | Writes `ACCRUAL` ledger entries                                                                                                                                     |
 | Carry-forward | at the leave-year boundary       | Preview then commit; `CARRY_FORWARD` entries, cap applied                                                                                                           |
 | Expiry        | at the carry-forward expiry date | `EXPIRY` entries                                                                                                                                                    |
 | Outbox drain  | every minute                     | Sends queued email via the configured mailbox; retries with backoff, dead-letters after N attempts. A failure never affects the business transaction that queued it |
-| Health check  | every 5 minutes                  | Disk, WAL size, backup freshness, certificate expiry, outbox depth                                                                                                  |
+| Health check  | every 5 minutes                  | Integrity, backup age, certificate expiry, and free disk, stored as `host.health` and shown on the host panel                                                       |
 | Session sweep | hourly                           | Removes expired sessions                                                                                                                                            |
 
 ---
@@ -300,12 +288,16 @@ idea kept from the prototype's email preview screen.
 
 ---
 
-## 10. Local mode now, cloud mode later
+## 10. Office host, and the frozen preview
 
-The current deployment is local-only. To keep a cloud path open without pretending it
-exists today:
+The product that ships is the office host: one Windows service and browsers on the LAN.
+The hosted preview is a separate Postgres deployment. A deploy migrates and does not
+seed Navalur. It is not the office install, and it is not a switch that turns the
+SQLite host into a cloud app.
 
-- `domain` defines repository interfaces; `database` implements them for SQLite.
+The repository stays ready for a real cloud mode, which is not what the preview is:
+
+- `domain` defines repository interfaces. `database` implements them for SQLite on the office host and for Postgres on the frozen preview.
 - No SQLite-specific type or SQL leaks above the repository layer.
 - Migrations are written in portable SQL where practical, with any dialect divergence
   isolated in the adapter.
@@ -321,11 +313,9 @@ deployed to a serverless platform, and no part of this design pretends otherwise
 
 ## 11. Technology choices, fixed
 
-React + Vite · Fastify · better-sqlite3 + Drizzle · Zod · Electron + Electron Forge ·
-TanStack Query for server state · Vitest · Playwright · one icon family (Lucide) ·
-all fonts and assets bundled locally.
+React + Vite · Fastify · Node 24 `node:sqlite` · Zod · a Windows service (portable Node
+and Inno Setup) · Vitest · one icon family (Lucide) · all fonts and assets bundled
+locally. The office host does not use Electron. The frozen preview can use Postgres.
 
-Client state beyond React's own: **none planned.** TanStack Query owns server state; URL
-search params own filters and pagination so views are linkable and back/forward works. A
-client-state library is added only if something concrete needs it, and the reason goes in
-an ADR.
+TanStack Query owns server state. URL search params own filters and pagination so views
+are linkable and back/forward works.

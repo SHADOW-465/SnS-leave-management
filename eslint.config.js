@@ -129,4 +129,9 @@ export default tseslint.config(
     files: ['**/*.{js,cjs,mjs}'],
     languageOptions: { globals: { ...globals.node } },
   },
+  {
+    // The service entry and the setup helper are CommonJS so sc.exe and node-windows can load them.
+    files: ['installer/**/*.cjs'],
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
 );

@@ -116,11 +116,18 @@ describe('working week and day counting (§5, §10)', () => {
   it('the administrator changes the weekend and upcoming leave is recounted', async () => {
     await boot();
     const vijay = await signIn('vijay@sns.test');
-    // Mon 5 Oct – Sat 10 Oct 2026: five working days with a Saturday–Sunday weekend.
+    // Next Monday through Saturday, still ahead of today, so the recount includes it.
+    // Five working days with a Saturday–Sunday weekend; Saturday counts once it is a working day.
+    const [year, month, day] = todayInTimeZone('UTC').split('-').map(Number);
+    const start = new Date(Date.UTC(year!, month! - 1, day));
+    const untilMonday = (8 - start.getUTCDay()) % 7 || 7;
+    start.setUTCDate(start.getUTCDate() + untilMonday);
+    const end = new Date(start);
+    end.setUTCDate(start.getUTCDate() + 5);
     const submitted = await call(vijay, 'POST', '/api/v1/leave-requests', {
       leaveTypeId: await typeId('AL'),
-      startDate: '2026-10-05',
-      endDate: '2026-10-10',
+      startDate: start.toISOString().slice(0, 10),
+      endDate: end.toISOString().slice(0, 10),
       reason: 'Checking the working week',
     });
     expect(submitted.statusCode).toBe(201);

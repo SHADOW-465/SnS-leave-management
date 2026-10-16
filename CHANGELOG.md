@@ -12,6 +12,7 @@
 
 ### Changed
 - **Hosted preview is frozen.** A Vercel deploy no longer loads or resets the Navalur demo. `pnpm db:reset:navalur` still does, when someone runs it.
+- **Architecture.** `docs/ARCHITECTURE.md` describes the office install: a Windows service, staff browsers, HTTPS, browser binding, the host panel, the installer, and the daily database copy.
 
 ### Fixed
 - The two **0.2.1** sections are one section.

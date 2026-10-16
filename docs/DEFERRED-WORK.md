@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-10-16** (changelog and Navalur shortfall wording).
+Last reviewed: **2026-10-16** (architecture matches the office install).
 Next review: at the next scheduled release milestone.
 
 ---

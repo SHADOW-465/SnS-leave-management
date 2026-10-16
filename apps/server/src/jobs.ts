@@ -1,12 +1,19 @@
 import type { Db } from '@sns/database';
 import { drainOutbox } from './email.js';
+import { runScheduledBackup } from './backup-job.js';
 import { expireCarriedDays, openCurrentPeriod, runMonthlyAccrual } from './jobs/balance.js';
 import { nowIso } from './time.js';
 
-export async function runJobsTick(sqlite: Db): Promise<void> {
+export async function runJobsTick(
+  sqlite: Db,
+  opts: { backupsRoot?: string; backupByDefault?: boolean } = {},
+): Promise<void> {
   await drainOutbox(sqlite);
   await sweepSessions(sqlite);
   await healthProbe(sqlite);
+  if (opts.backupsRoot) {
+    await runScheduledBackup(sqlite, opts.backupsRoot, { enabledByDefault: opts.backupByDefault });
+  }
   // Order matters: open the period first so a new leave year has its entitlement before
   // anything is accrued into it or expired out of it.
   await openCurrentPeriod(sqlite);
@@ -16,12 +23,12 @@ export async function runJobsTick(sqlite: Db): Promise<void> {
 
 export function startJobs(
   sqlite: Db,
-  opts: { timers?: boolean } = {},
+  opts: { timers?: boolean; backupsRoot?: string; backupByDefault?: boolean } = {},
 ): {
   stop: () => void;
 } {
   if (opts.timers === false) {
-    runSafe(() => runJobsTick(sqlite));
+    runSafe(() => runJobsTick(sqlite, opts));
     return { stop() {} };
   }
   const timers: NodeJS.Timeout[] = [];
@@ -34,6 +41,14 @@ export function startJobs(
   // Catch up immediately on start: if the host was switched off over the new year, the
   // period must open as soon as it comes back rather than at the next timer.
   runSafe(() => balanceTick(sqlite));
+  if (opts.backupsRoot) {
+    const backup = () =>
+      runScheduledBackup(sqlite, opts.backupsRoot!, {
+        enabledByDefault: opts.backupByDefault,
+      }).then(() => undefined);
+    timers.push(setInterval(() => runSafe(backup), 24 * 60 * 60 * 1000));
+    runSafe(backup);
+  }
   return {
     stop() {
       for (const t of timers) clearInterval(t);

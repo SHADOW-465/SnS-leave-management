@@ -85,7 +85,11 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
   }
   const https = await resolveTlsMaterial(config);
   const app = await buildApp(config, db, https ? { https } : undefined);
-  const jobs = startJobs(db, { timers: !config.hostedPreview });
+  const jobs = startJobs(db, {
+    timers: !config.hostedPreview,
+    backupsRoot: dirs.backups,
+    backupByDefault: config.env === 'production' && db.dialect === 'sqlite',
+  });
   return {
     app,
     db,

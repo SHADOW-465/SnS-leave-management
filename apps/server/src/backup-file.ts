@@ -4,19 +4,21 @@ import { DatabaseSync } from 'node:sqlite';
 import { sha256Hex } from '@sns/auth';
 import { backupTo } from '@sns/database';
 import { newId } from '@sns/domain';
-import type { RequestContext } from './ctx.js';
+import type { Db } from '@sns/database';
 
 export async function createBackupFile(
-  ctx: RequestContext,
+  ctx: { sqlite: Db; backupsRoot: string; now: string },
   trigger: 'manual' | 'scheduled' = 'manual',
+  directory?: string,
 ): Promise<{ id: string; path: string; integrity: string }> {
   if (ctx.sqlite.dialect !== 'sqlite') {
     throw new Error(
       'File backup is available on the office SQLite deployment, not on the preview database.',
     );
   }
-  fs.mkdirSync(ctx.backupsRoot, { recursive: true });
-  const dest = path.join(ctx.backupsRoot, `backup-${Date.now()}.db`);
+  const folder = directory && directory.trim() ? directory : ctx.backupsRoot;
+  fs.mkdirSync(folder, { recursive: true });
+  const dest = path.join(folder, `backup-${Date.now()}.db`);
   await backupTo(ctx.sqlite, dest);
   const copy = new DatabaseSync(dest, { readOnly: true });
   const checkRow = copy.prepare('PRAGMA integrity_check').get() as { integrity_check: string };
@@ -43,14 +45,26 @@ export async function createBackupFile(
   return { id, path: dest, integrity: String(check) };
 }
 
-/** Copy a backup that already lives in the backup folder to `<db>.restore` for the next open. */
-export function stageRestoreFile(backupsRoot: string, dbPath: string, fileName: string): string {
+/** Copy a backup that already lives in an allowed folder to `<db>.restore` for the next open. */
+export function stageRestoreFile(
+  backupsRoot: string | string[],
+  dbPath: string,
+  fileName: string,
+): string {
   if (!/^backup-[A-Za-z0-9._-]+\.db$/.test(fileName)) {
     throw new Error('Choose a backup file from the list.');
   }
-  const source = path.resolve(backupsRoot, fileName);
-  const root = path.resolve(backupsRoot);
-  if (source !== path.join(root, fileName) || !fs.existsSync(source)) {
+  const roots = (Array.isArray(backupsRoot) ? backupsRoot : [backupsRoot]).filter(Boolean);
+  let source = '';
+  for (const root of roots) {
+    const candidate = path.resolve(root, fileName);
+    if (path.resolve(path.dirname(candidate)) !== path.resolve(root)) continue;
+    if (fs.existsSync(candidate)) {
+      source = candidate;
+      break;
+    }
+  }
+  if (!source) {
     throw new Error('That backup file is not in the backup folder.');
   }
   const staged = `${dbPath}.restore`;

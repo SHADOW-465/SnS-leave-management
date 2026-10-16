@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-10-16** (office HTTPS certificate).
+Last reviewed: **2026-10-16** (daily SQLite backup).
 Next review: at the next scheduled release milestone.
 
 ---
@@ -194,7 +194,8 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 | DW-85 | An administrator's own browser is allowed through the pending gate so the first approval is possible. Everyone else waits.                                                                                                        | DONE 2026-10-16 | `claimDeviceForLogin` admin-role exemption; `device-binding.test.ts`                                               |
 | DW-86 | Windows setup script: portable Node, service registration, firewall rule for port 8443, desktop shortcut. Unsigned. DW-14 stays blocked until a code-signing certificate exists.                                                  | DONE 2026-10-16 | `node scripts/build-installer.mjs` produced `dist\installer\LeaveOS-Setup.exe` (not executed). `docs/INSTALLER.md` |
 | DW-87 | Localhost host panel: status, LAN address and QR code, service start/stop/restart, backup now, restore on next start, approve a waiting browser. Other addresses are refused.                                                     | DONE 2026-10-16 | `host-panel.test.ts`. Not opened in a desktop browser. Service calls are skipped when `LEAVEOS_ENV=test`.          |
-| DW-88 | Production generates a local HTTPS certificate (localhost, 127.0.0.1, host name, LAN address) and serves it. HTTP only via `LEAVEOS_HTTP_FALLBACK`. Trust steps are in `docs/TLS-TRUST.md`. DW-13 stays blocked.                    | DONE 2026-10-16 | `tls.test.ts`; `packages/config` production TLS test. Trust on a staff PC is not verified.                         |
+| DW-88 | Production generates a local HTTPS certificate (localhost, 127.0.0.1, host name, LAN address) and serves it. HTTP only via `LEAVEOS_HTTP_FALLBACK`. Trust steps are in `docs/TLS-TRUST.md`. DW-13 stays blocked.                  | DONE 2026-10-16 | `tls.test.ts`; `packages/config` production TLS test. Trust on a staff PC is not verified.                         |
+| DW-89 | Daily SQLite `VACUUM INTO` copy to a configurable folder, with retention. Off until enabled, except production where it defaults on. Postgres is skipped.                                                                         | DONE 2026-10-16 | `backup-job.test.ts`. A 24-hour timer on a running host was not watched.                                           |
 
 ---
 

@@ -7,6 +7,7 @@ import { integrityCheck } from '@sns/database';
 import type { RequestContext } from './ctx.js';
 import { approveDevice } from './usecases/devices.js';
 import { createBackupFile, stageRestoreFile } from './backup-file.js';
+import { readBackupPolicy } from './backup-job.js';
 import { isLoopback, lanAddress, serviceControl, serviceStatus } from './host-local.js';
 import { sendError } from './http.js';
 
@@ -102,7 +103,8 @@ export function registerHostRoutes(app: FastifyInstance): void {
       if (!tokenOk(req)) return back(reply, { error: 'Refresh the page and try that again.' });
       const file = String((req.body as { file?: string })?.file ?? '');
       const dbPath = pathsFor(req.ctx.config).db;
-      stageRestoreFile(req.ctx.backupsRoot, dbPath, file);
+      const policy = await readBackupPolicy(req.ctx.sqlite, req.ctx.backupsRoot, false);
+      stageRestoreFile([req.ctx.backupsRoot, policy.directory], dbPath, file);
       return back(reply, {
         notice: `Restore staged from ${file}. Stop and start the service to apply it. A copy of the current database is kept beside it.`,
       });
@@ -189,7 +191,14 @@ async function renderHost(
         ORDER BY b.created_at`,
     )
     .all()) as { id: string; lanIp: string | null; createdAt: string; email: string }[];
-  const backups = listBackups(req.ctx.backupsRoot);
+  const backupPolicy = await readBackupPolicy(req.ctx.sqlite, req.ctx.backupsRoot, false);
+  const backups = [
+    ...new Set(
+      [req.ctx.backupsRoot, backupPolicy.directory]
+        .filter(Boolean)
+        .flatMap((dir) => listBackups(dir)),
+    ),
+  ];
   const needle = q.toLowerCase();
   const shownPending = needle
     ? pending.filter((d) => `${d.email} ${d.id}`.toLowerCase().includes(needle))

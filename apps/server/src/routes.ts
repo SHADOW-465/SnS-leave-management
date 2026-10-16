@@ -18,6 +18,7 @@ import {
   reactivateEmployeeBodySchema,
   recordAttendanceCorrectionBodySchema,
   rejectLeaveBodySchema,
+  backupSettingsSchema,
   setupBodySchema,
   submitLeaveBodySchema,
   submitPermissionBodySchema,
@@ -111,6 +112,7 @@ import { integrityCheck, withTx } from '@sns/database';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createBackupFile } from './backup-file.js';
+import { readBackupPolicy, saveBackupPolicy } from './backup-job.js';
 import type { z } from 'zod';
 declare module 'fastify' {
   interface FastifyRequest {
@@ -1941,6 +1943,24 @@ export async function registerRoutes(app: FastifyInstance) {
       await authorizeAction(req.ctx, 'system.backup.create', null);
       const saved = await createBackupFile(req.ctx, 'manual');
       return reply.send(ok(saved, req.ctx.requestId));
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.get('/api/v1/settings/backup', async (req, reply) => {
+    try {
+      await authorizeAction(req.ctx, 'system.backup.create', null);
+      return reply.send(
+        ok(await readBackupPolicy(req.ctx.sqlite, req.ctx.backupsRoot, false), req.ctx.requestId),
+      );
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.put('/api/v1/settings/backup', async (req, reply) => {
+    try {
+      const body = backupSettingsSchema.parse(req.body);
+      return reply.send(ok(await saveBackupPolicy(req.ctx, body), req.ctx.requestId));
     } catch (err) {
       return sendError(req, reply, err);
     }

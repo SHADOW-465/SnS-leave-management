@@ -96,6 +96,10 @@ await esbuild.build({
   target: 'node24',
   format: 'esm',
   outfile: path.join(payload, 'server.mjs'),
+  // CJS deps (fastify, avvio) call require() on node builtins; ESM output has no require.
+  banner: {
+    js: "import { createRequire as __leaveosCreateRequire } from 'node:module';\nconst require = __leaveosCreateRequire(import.meta.url);",
+  },
   logLevel: 'info',
   plugins: [
     {

@@ -46,9 +46,11 @@ flowchart TB
   TCP 8443 and the setup ports 80 and 8080, writes the certificate and trusts the local
   root on this computer, creates the backup folder under ProgramData, and sets plugged-in
   sleep and hibernate to never. Finish
-  opens the host panel. Uninstall reverses the service, the firewall rule, the shortcut,
-  the certificate trust, and the power change. It keeps the data and backups unless the
-  person uninstalling chooses to delete them. The setup program is unsigned (DW-14).
+  opens the host panel. A failed post-install step stops setup with a non-zero exit
+  code. Uninstall reverses the service, the firewall rule, the shortcut, the certificate
+  trust, and the power change, and removes the program folder. It keeps the ProgramData
+  folder (database, backups, certificates, and logs) unless the person uninstalling
+  chooses to delete it. The setup program is unsigned (DW-14).
 - A production host copies the database once a day with `VACUUM INTO` into a configurable
   folder and drops copies older than the retention. Restore is staged and applied the
   next time the database opens.

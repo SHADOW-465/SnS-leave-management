@@ -86,5 +86,13 @@ describe('host health', () => {
     expect(iss).toContain('LeaveOS-service.exe');
     expect(iss).toContain('Parameters: "stop"');
     expect(iss).toContain('Parameters: "uninstall"');
+    expect(iss).toContain('ssPostInstall');
+    expect(iss).toContain('ResultCode');
+    expect(iss).toContain('SuppressibleMsgBox');
+    expect(iss).toContain('verify ca.pem');
+    expect(iss).toContain('install.log');
+    expect(iss).toContain('power-previous.json');
+    expect(iss).toContain('Type: filesandordirs; Name: "{app}"');
+    expect(iss).not.toMatch(/^\[Run\]/m);
   });
 });

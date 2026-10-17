@@ -51,8 +51,11 @@ The wizard shows Next, then the install progress, then Finish. It does not ask f
 - Each of those steps is checked. Setup runs them in order: prepare the host, set the plugged-in power timeouts, create the certificate (`leaveos-run.cjs --prepare`), confirm `ca.pem` exists, trust that file with `certutil`, then register and start the service. Output is appended to `%PROGRAMDATA%\SimonAndSons\LeaveOS\logs\install.log`. If a program exits non-zero, or `ca.pem` is missing, setup shows the step name and that log path (the message is skipped in silent mode) and exits with code 1. It does not open the host panel after a failed step.
 
 The service runs `leaveos-run.cjs`, which binds all interfaces in production on port 8443
-and serves HTTPS. It also listens on port 80, or 8080 when 80 is taken, for the staff
-setup page. The app itself is HTTP only when `LEAVEOS_HTTP_FALLBACK=true`.
+and serves HTTPS. It tries port 80 for the staff setup page. If that listen fails with
+`EADDRINUSE` or `EACCES` (Windows `http.sys` reports one of those), it listens on 8080
+and logs the address it opened. The host panel, the setup page, and `/api/v1/host/status`
+use that address: `http://sns-leave` when 80 opened, `http://sns-leave:8080` when it did
+not. The app itself is HTTP only when `LEAVEOS_HTTP_FALLBACK=true`.
 Data stays in `%PROGRAMDATA%\SimonAndSons\LeaveOS`.
 
 Uninstall stops and removes the service (`LeaveOS-service.exe stop` and `uninstall`), removes the firewall rules (including `Leave OS HTTP`), removes the desktop shortcut, removes this computer's trust for the Leave OS root, and restores the saved power timeouts. It then deletes `power-previous.json` and the program folder `Program Files\SimonAndSons\LeaveOS`.

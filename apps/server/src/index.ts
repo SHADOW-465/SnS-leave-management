@@ -40,10 +40,10 @@ if (!process.env.VERCEL) {
           hostname: await readLanHostname(runtime.db),
           httpsPort: config.port,
           certDir: pathsFor(config).certs,
+          log: (message) => app.log.info(message),
         });
         if (setup) {
           stopSetup = setup.close;
-          app.log.info(`Staff setup page on port ${setup.port}`);
         } else {
           app.log.error('The staff setup page could not listen on port 80 or 8080.');
         }

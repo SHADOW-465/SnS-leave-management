@@ -21,8 +21,13 @@ describe('office name', () => {
       mdns: 'http://sns-leave.local',
       ip: 'http://10.0.0.8',
     });
-    expect(setupStaffUrls({ setupPort: 8080, address: null }).hostname).toBe(
-      'http://sns-leave:8080',
+    expect(setupStaffUrls({ hostname: 'sns-leave', setupPort: 8080, address: '10.0.0.8' })).toEqual(
+      {
+        name: 'sns-leave',
+        hostname: 'http://sns-leave:8080',
+        mdns: 'http://sns-leave.local:8080',
+        ip: 'http://10.0.0.8:8080',
+      },
     );
   });
 

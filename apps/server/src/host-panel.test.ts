@@ -96,8 +96,32 @@ describe('host control panel', () => {
     expect(local.res.statusCode).toBe(200);
     expect(local.res.body).toContain('id="staff-url">http://sns-leave:8080');
     expect(local.res.body).toContain('id="mdns-url">http://sns-leave.local:8080');
+    expect(local.res.body).toContain('alt="QR code for http://sns-leave:8080"');
+    expect(local.res.body).toContain('data-for="hostname"');
+    expect(local.res.body).toContain('src="/host/panel.js"');
+    const panelJs = await app.inject({ method: 'GET', url: '/host/panel.js' });
+    expect(panelJs.body).toContain('links.hostname');
+    expect(panelJs.body).toContain('/api/v1/host/qr.svg?for=');
     expect(local.res.body).toContain('sets up trust');
     expect(local.res.body).not.toContain('https://sns-leave:8443');
+
+    const status = await app.inject({ method: 'GET', url: '/api/v1/host/status' });
+    expect(status.statusCode).toBe(200);
+    expect(status.json().links.hostname).toBe('http://sns-leave:8080');
+    expect(status.json().links.mdns).toBe('http://sns-leave.local:8080');
+    const qr = await app.inject({ method: 'GET', url: '/api/v1/host/qr.svg?for=hostname' });
+    expect(qr.statusCode).toBe(200);
+    expect(String(qr.headers['content-type'])).toContain('image/svg+xml');
+    expect(qr.body).toContain('<svg');
+
+    noteSetupPort(80);
+    const plain = await openPanel(app);
+    expect(plain.res.body).toContain('id="staff-url">http://sns-leave</p>');
+    expect(plain.res.body).toContain('id="mdns-url">http://sns-leave.local</p>');
+    expect(plain.res.body).not.toContain('http://sns-leave:80');
+    const status80 = await app.inject({ method: 'GET', url: '/api/v1/host/status' });
+    expect(status80.json().links.hostname).toBe('http://sns-leave');
+    expect(status80.json().links.mdns).toBe('http://sns-leave.local');
   });
 
   it('backs up, stages a restore, and approves a waiting browser', async () => {

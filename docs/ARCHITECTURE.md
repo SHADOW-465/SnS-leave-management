@@ -36,8 +36,10 @@ flowchart TB
   and a pending row. An administrator approves it. Another person on that browser, or
   the same person on a second approved browser, is blocked, audited, and reported.
 - Production serves HTTPS. A local root signs the site certificate, which is rewritten
-  when the LAN addresses change. Staff open `http://sns-leave` (or port 8080 when port 80
-  is taken). One click trusts that root for the current Windows user (`docs/TLS-TRUST.md`).
+  when the LAN addresses change. Staff open `http://sns-leave` when port 80 opened, or
+  `http://sns-leave:8080` when it did not. The host panel, the setup page, and
+  `/api/v1/host/status` use the port that opened. One click trusts that root for the
+  current Windows user (`docs/TLS-TRUST.md`).
   Do not continue past a certificate warning. The app is HTTP only with
   `LEAVEOS_HTTP_FALLBACK`. DW-13 stays open.
 - Setup (`docs/INSTALLER.md`) is one program with a Next page and a Finish page. It
@@ -255,8 +257,9 @@ The office control panel is `GET /host` on the server. It answers only for loopb
 It shows whether the server is answering, the database check, and the Windows service
 as **Running** when the service is running. It shows backup age, certificate expiry, and
 free disk. It shows the first-time setup links `http://sns-leave`, `http://sns-leave.local`,
-and the LAN address (with `:8080` when that is the setup port), each with a QR code. The
-office name is edited on that page.
+and the LAN address. Those links include `:8080` when that is the port the setup page
+opened, and omit the port when 80 opened. Each has a QR code. A refresh copies the same
+links from `/api/v1/host/status`. The office name is edited on that page.
 Forms start, stop, or restart the `LeaveOS` service, take a backup, stage a restore for
 the next start, and approve a browser that is waiting. Posts carry a confirmation token
 from the page.

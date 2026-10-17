@@ -4,7 +4,8 @@ Trust is one click.
 
 On a staff computer, open the address on the host panel. That is `http://sns-leave` when
 port 80 is free. If something else is already using port 80, the panel shows
-`http://sns-leave:8080` instead.
+`http://sns-leave:8080` instead. The setup page and `GET /api/v1/host/status` use that
+same address. The office computer logs which port opened.
 
 The page checks whether this computer already trusts Leave OS. When it does, the browser
 goes straight to `https://sns-leave:8443`. When it does not, the page shows **Set up this

@@ -12,6 +12,13 @@ type QrModule = {
 
 export const SETUP_PORTS = [80, 8080] as const;
 
+export type SetupLog = (message: string) => void;
+
+/** http.sys (PID 4) reports EACCES or EADDRINUSE when it already holds the port. */
+export function setupListenErrorFallsBack(code: string | undefined): boolean {
+  return code === 'EADDRINUSE' || code === 'EACCES';
+}
+
 let activePort: number | null = null;
 
 export function currentSetupPort(): number | null {
@@ -204,26 +211,69 @@ export function createSetupHandler(input: {
   };
 }
 
+function listenOn(
+  server: Server,
+  port: number,
+  host: string,
+): Promise<{ ok: true; port: number } | { ok: false; code?: string }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (value: { ok: true; port: number } | { ok: false; code?: string }) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(value);
+    };
+    const fail = (err: NodeJS.ErrnoException) => {
+      const code = err.code;
+      try {
+        server.close(() => finish({ ok: false, code }));
+      } catch {
+        finish({ ok: false, code });
+      }
+    };
+    timer = setTimeout(() => {
+      try {
+        server.close(() => finish({ ok: false, code: 'timeout' }));
+      } catch {
+        finish({ ok: false, code: 'timeout' });
+      }
+    }, 2000);
+    timer.unref?.();
+    server.once('error', fail);
+    try {
+      server.listen(port, host, () => {
+        server.off('error', fail);
+        const address = server.address();
+        const bound = typeof address === 'object' && address ? address.port : port;
+        finish({ ok: true, port: bound });
+      });
+    } catch (err) {
+      server.off('error', fail);
+      fail(err as NodeJS.ErrnoException);
+    }
+  });
+}
+
 export async function bindSetupServer(
   handler: RequestListener,
   ports: readonly number[],
+  log: SetupLog = () => {},
 ): Promise<{ server: Server; port: number } | null> {
-  for (const port of ports) {
+  for (let index = 0; index < ports.length; index += 1) {
+    const port = ports[index]!;
     const server = createServer(handler);
-    const opened = await new Promise<boolean>((resolve) => {
-      const onError = () => {
-        server.close(() => resolve(false));
-      };
-      server.once('error', onError);
-      server.listen(port, '0.0.0.0', () => {
-        server.off('error', onError);
-        resolve(true);
-      });
-    });
-    if (!opened) continue;
-    const address = server.address();
-    const bound = typeof address === 'object' && address ? address.port : port;
-    return { server, port: bound };
+    const result = await listenOn(server, port, '0.0.0.0');
+    if (result.ok) return { server, port: result.port };
+    const code = result.code ?? 'unknown';
+    const next = ports[index + 1];
+    if (next !== undefined && setupListenErrorFallsBack(result.code)) {
+      log(`Port ${port} is not available (${code}). Trying port ${next}.`);
+      continue;
+    }
+    log(`Staff setup page could not listen on port ${port} (${code}).`);
+    return null;
   }
   return null;
 }
@@ -233,13 +283,23 @@ export async function startStaffSetup(input: {
   httpsPort: number;
   certDir: string;
   ports?: readonly number[];
+  log?: SetupLog;
 }): Promise<{ port: number; close: () => Promise<void> } | null> {
-  let port = input.ports?.[0] ?? 80;
+  const ports = input.ports ?? SETUP_PORTS;
+  const log = input.log ?? (() => {});
+  let port = ports[0] ?? 80;
   const handler = createSetupHandler({ ...input, setupPort: () => port });
-  const bound = await bindSetupServer(handler, input.ports ?? SETUP_PORTS);
+  const bound = await bindSetupServer(handler, ports, log);
   if (!bound) return null;
   port = bound.port;
   noteSetupPort(port);
+  const name = input.hostname.trim().toLowerCase() || 'sns-leave';
+  const link = port === 80 ? `http://${name}` : `http://${name}:${port}`;
+  if ((ports[0] ?? 80) === 80 && port !== 80) {
+    log(`Port 80 was not available. Staff setup page is using ${link}.`);
+  } else {
+    log(`Staff setup page is using ${link}.`);
+  }
   return {
     port,
     async close() {

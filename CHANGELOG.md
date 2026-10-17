@@ -19,6 +19,7 @@
 ### Fixed
 - **Windows service.** Setup registers Leave OS with WinSW (`LeaveOS-service.exe`) instead of `node.exe`. Windows no longer times out with error 1053, because the wrapper speaks to the Service Control Manager. The service id is `LeaveOS`, it starts automatically, restarts after a failure, and logs under `%PROGRAMDATA%\SimonAndSons\LeaveOS\logs`. Uninstall stops and removes it with the same wrapper.
 - **Setup stops when a step fails.** Certificate preparation, `certutil`, and the other post-install steps are checked. A non-zero exit, or a missing `ca.pem`, names the step, points at `%PROGRAMDATA%\SimonAndSons\LeaveOS\logs\install.log`, and makes setup exit with code 1. Uninstall removes `power-previous.json` and the program folder. The database, backups, certificates, and logs under ProgramData stay unless the uninstall question is answered Yes.
+- **Setup port.** If port 80 is already in use, the staff setup page listens on 8080 and logs that address. The host panel, its QR codes, the setup page, and `/api/v1/host/status` use it (`http://sns-leave:8080`, and the same port on the `.local` name and the LAN address). When port 80 opens, those links stay `http://sns-leave`. The desktop shortcut still opens `https://127.0.0.1:8443/host`.
 - The two **0.2.1** sections are one section.
 - The Navalur demo's Saravanan request is Annual Leave. The days his balance does not cover are loss of pay. There is no Loss of Pay leave type in that dataset.
 

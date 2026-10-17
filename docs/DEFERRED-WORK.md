@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-10-17** (WinSW service wrapper and setup step checks).
+Last reviewed: **2026-10-17** (WinSW service wrapper, setup step checks, and setup port fallback).
 Next review: at the next scheduled release milestone.
 
 ---
@@ -204,6 +204,7 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 | DW-95 | Staff trust is one click. HTTP on port 80 (8080 if 80 is taken) serves a setup page. A downloaded `.cmd` runs `certutil -user -addstore Root` for the app's local root, then opens HTTPS. The site certificate is signed by that root and rewritten when LAN addresses change. The host panel QR codes use the setup URL. Firewall rule `Leave OS HTTP` covers TCP 80 and 8080. | DONE 2026-10-16 | `tls.test.ts`, `setup-http.test.ts`, `host-panel.test.ts`, `health.test.ts`. A staff PC click was not run.          |
 | DW-96 | Windows service error 1053. sc.exe registered node.exe, which never reached Running.                                                                                                                                                                                                                                                                                            | DONE 2026-10-17 | `install-service.test.ts`. WinSW 2.12 x64 as `LeaveOS-service.exe`. Not installed here.                             |
 | DW-97 | Setup reported success when a post-install step failed, and left power-previous.json behind.                                                                                                                                                                                                                                                                                    | DONE 2026-10-17 | `health.test.ts` reads `leaveos.iss`. Setup was not executed.                                                       |
+| DW-98 | Port 80 was already taken, so the staff setup page and the host panel still showed http://sns-leave.                                                                                                                                                                                                                                                                            | DONE 2026-10-17 | `setup-http.test.ts`, `host-panel.test.ts`. An installed host was not checked.                                      |
 
 ---
 

@@ -194,7 +194,7 @@ async function officeLinks(ctx: RequestContext): Promise<StaffUrls> {
 }
 
 function qrImg(which: 'hostname' | 'mdns' | 'ip', url: string): string {
-  return `<img class="qr" alt="QR code for ${esc(url)}" src="/api/v1/host/qr.svg?for=${which}" width="180" height="180">`;
+  return `<img class="qr" data-for="${which}" alt="QR code for ${esc(url)}" src="/api/v1/host/qr.svg?for=${which}" width="180" height="180">`;
 }
 
 async function pendingCount(req: {
@@ -432,6 +432,21 @@ async function refresh() {
     const res = await fetch('/api/v1/host/status', { headers: { accept: 'application/json' } });
     if (!res.ok) throw new Error('status');
     const body = await res.json();
+    const links = body.links || {};
+    const staff = document.getElementById('staff-url');
+    if (staff && links.hostname) staff.textContent = links.hostname;
+    const mdns = document.getElementById('mdns-url');
+    if (mdns && links.mdns) mdns.textContent = links.mdns;
+    const lan = document.getElementById('lan-url');
+    if (lan && links.ip) lan.textContent = links.ip;
+    const stamp = String(Date.now());
+    document.querySelectorAll('img.qr').forEach(function (img) {
+      const which = img.getAttribute('data-for');
+      const url = which === 'hostname' ? links.hostname : which === 'ip' ? links.ip : links.mdns;
+      if (!which || !url) return;
+      img.alt = 'QR code for ' + url;
+      img.src = '/api/v1/host/qr.svg?for=' + encodeURIComponent(which) + '&t=' + stamp;
+    });
     const at = document.getElementById('as-of');
     if (at && body.at) at.textContent = body.at;
     const svc = document.getElementById('service-state');

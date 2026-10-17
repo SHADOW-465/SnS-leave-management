@@ -77,5 +77,14 @@ describe('host health', () => {
       'utf8',
     );
     expect(service).toContain("allowInbound('Leave OS HTTP', 'TCP', '80,8080')");
+    expect(service).toContain('LeaveOS-service.exe');
+    expect(service).toContain("winsw(['install'])");
+    expect(service).toContain("winsw(['start'])");
+    expect(service).toContain("winsw(['status'])");
+    expect(service).toContain('Leave OS service state is Running.');
+    expect(service).not.toContain('node-windows');
+    expect(iss).toContain('LeaveOS-service.exe');
+    expect(iss).toContain('Parameters: "stop"');
+    expect(iss).toContain('Parameters: "uninstall"');
   });
 });

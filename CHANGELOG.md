@@ -17,6 +17,7 @@
 - **Architecture.** `docs/ARCHITECTURE.md` describes the office install: a Windows service, staff browsers, HTTPS, browser binding, the host panel, the installer, and the daily database copy.
 
 ### Fixed
+- **Windows service.** Setup registers Leave OS with WinSW (`LeaveOS-service.exe`) instead of `node.exe`. Windows no longer times out with error 1053, because the wrapper speaks to the Service Control Manager. The service id is `LeaveOS`, it starts automatically, restarts after a failure, and logs under `%PROGRAMDATA%\SimonAndSons\LeaveOS\logs`. Uninstall stops and removes it with the same wrapper.
 - The two **0.2.1** sections are one section.
 - The Navalur demo's Saravanan request is Annual Leave. The days his balance does not cover are loss of pay. There is no Loss of Pay leave type in that dataset.
 

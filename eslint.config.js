@@ -130,7 +130,7 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
   },
   {
-    // The service entry and the setup helper are CommonJS so sc.exe and node-windows can load them.
+    // Setup scripts stay CommonJS so the bundled node.exe can load them beside the ESM server.
     files: ['installer/**/*.cjs'],
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },

@@ -9,8 +9,8 @@ process.env.LEAVEOS_BIND_ALL ||= 'true';
 process.env.LEAVEOS_PORT ||= '8443';
 process.env.LEAVEOS_WEB_DIST = path.join(__dirname, 'web');
 
-// The server bundle is ESM (top-level await). Dynamic import works from this CJS runner,
-// which sc.exe can still launch as `node leaveos-run.cjs`.
+// The server bundle is ESM (top-level await). Dynamic import works from this CJS runner.
+// WinSW starts it as node.exe with this file as the argument.
 import('./server.mjs').catch((error) => {
   console.error(error);
   process.exit(1);

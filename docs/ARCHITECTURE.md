@@ -41,7 +41,8 @@ flowchart TB
   Do not continue past a certificate warning. The app is HTTP only with
   `LEAVEOS_HTTP_FALLBACK`. DW-13 stays open.
 - Setup (`docs/INSTALLER.md`) is one program with a Next page and a Finish page. It
-  copies the bundled Node runtime and the app, registers and starts the service, opens
+  copies the bundled Node runtime and the app, registers and starts the service with
+  WinSW (`LeaveOS-service.exe`, not `node.exe` itself), opens
   TCP 8443 and the setup ports 80 and 8080, writes the certificate and trusts the local
   root on this computer, creates the backup folder under ProgramData, and sets plugged-in
   sleep and hibernate to never. Finish

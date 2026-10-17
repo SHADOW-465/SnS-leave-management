@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-10-16** (staff setup page and local root).
+Last reviewed: **2026-10-17** (WinSW service wrapper).
 Next review: at the next scheduled release milestone.
 
 ---
@@ -202,6 +202,7 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 | DW-93 | Zero-config office setup: Next and Finish only. Installs Node and the app, starts the service, opens the firewall, writes and trusts the certificate, creates the ProgramData backup folder, and keeps the host awake. Finish opens the host panel. Uninstall reverses the service, firewall, shortcut, certificate trust, and power change, and keeps data unless chosen.      | DONE 2026-10-16 | `health.test.ts` reads `installer/leaveos.iss`. `prepare-host.test.ts`. The setup program was not executed on a PC. |
 | DW-94 | Office name `sns-leave` on the LAN: mDNS A record for `sns-leave.local`, HTTPS service record, LLMNR for the single-label name, certificate SANs, and a setting that defaults to `sns-leave`. NetBIOS is not set.                                                                                                                                                               | DONE 2026-10-16 | `discovery.test.ts`, `tls.test.ts`, `host-panel.test.ts`. Name resolution was not tried from a second PC.           |
 | DW-95 | Staff trust is one click. HTTP on port 80 (8080 if 80 is taken) serves a setup page. A downloaded `.cmd` runs `certutil -user -addstore Root` for the app's local root, then opens HTTPS. The site certificate is signed by that root and rewritten when LAN addresses change. The host panel QR codes use the setup URL. Firewall rule `Leave OS HTTP` covers TCP 80 and 8080. | DONE 2026-10-16 | `tls.test.ts`, `setup-http.test.ts`, `host-panel.test.ts`, `health.test.ts`. A staff PC click was not run.          |
+| DW-96 | Windows service error 1053. sc.exe registered node.exe, which never reached Running.                                                                                                                                                                                                                                                                                            | DONE 2026-10-17 | `install-service.test.ts`. WinSW 2.12 x64 as `LeaveOS-service.exe`. Not installed here.                             |
 
 ---
 

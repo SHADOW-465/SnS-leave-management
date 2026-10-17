@@ -1,0 +1,19 @@
+<service>
+  <id>LeaveOS</id>
+  <name>Simon and Sons Leave OS</name>
+  <description>Leave management for the office network. Staff use a browser.</description>
+  <executable>%BASE%\node.exe</executable>
+  <arguments>"%BASE%\leaveos-run.cjs"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <startmode>Automatic</startmode>
+  <logpath>%PROGRAMDATA%\SimonAndSons\LeaveOS\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+  <onfailure action="restart" delay="5 sec"/>
+  <onfailure action="restart" delay="15 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 day</resetfailure>
+  <stoptimeout>15 sec</stoptimeout>
+</service>

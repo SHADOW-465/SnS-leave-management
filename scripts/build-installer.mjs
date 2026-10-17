@@ -7,6 +7,7 @@
  * the long build and tells you where to get it.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -18,6 +19,12 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const payload = path.join(repoRoot, 'dist', 'installer', 'payload');
 const cache = path.join(repoRoot, 'installer', 'cache');
+
+// WinSW 2.12.0 WinSW-x64.exe from github.com/winsw/winsw. Self-contained x64 build.
+const WINSW_VERSION = '2.12.0';
+const WINSW_BYTES = 18243033;
+const WINSW_SHA256 = '05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da';
+const WINSW_URL = `https://github.com/winsw/winsw/releases/download/v${WINSW_VERSION}/WinSW-x64.exe`;
 
 const ISCC_CANDIDATES = [
   process.env.ISCC,
@@ -128,10 +135,17 @@ await esbuild.build({
 });
 
 copyArgon(path.join(payload, 'node_modules'));
-for (const file of ['install-service.cjs', 'leaveos-run.cjs', 'prepare-host.cjs', 'Leave OS.url']) {
+for (const file of [
+  'install-service.cjs',
+  'leaveos-run.cjs',
+  'prepare-host.cjs',
+  'Leave OS.url',
+  'LeaveOS-service.xml',
+]) {
   fs.copyFileSync(path.join(repoRoot, 'installer', file), path.join(payload, file));
 }
 await copyNodeExe(path.join(payload, 'node.exe'));
+await copyWinSw(path.join(payload, 'LeaveOS-service.exe'));
 
 const compiled = spawnSync(iscc, [path.join(repoRoot, 'installer', 'leaveos.iss')], {
   cwd: repoRoot,
@@ -173,6 +187,36 @@ function copyArgon(nativeRoot) {
       }
     }
   }
+}
+
+function winSwIsValid(file) {
+  if (!fs.existsSync(file)) return false;
+  const buf = fs.readFileSync(file);
+  if (buf.length !== WINSW_BYTES || buf[0] !== 0x4d || buf[1] !== 0x5a) return false;
+  const pe = buf.readUInt32LE(0x3c);
+  if (pe <= 0 || pe + 6 > buf.length || buf.readUInt16LE(pe + 4) !== 0x8664) return false;
+  return createHash('sha256').update(buf).digest('hex') === WINSW_SHA256;
+}
+
+async function copyWinSw(dest) {
+  const cached = path.join(cache, `WinSW-x64-${WINSW_VERSION}.exe`);
+  fs.mkdirSync(cache, { recursive: true });
+  if (!winSwIsValid(cached)) {
+    if (fs.existsSync(cached)) fs.rmSync(cached);
+    console.log(`Downloading WinSW ${WINSW_VERSION} x64…`);
+    const res = await fetch(WINSW_URL);
+    if (!res.ok || !res.body) {
+      console.error(`Could not download ${WINSW_URL} (${res.status}).`);
+      process.exit(1);
+    }
+    await pipeline(Readable.fromWeb(res.body), createWriteStream(cached));
+  }
+  if (!winSwIsValid(cached)) {
+    console.error(`WinSW at ${cached} failed the x64, size, or sha256 check for ${WINSW_VERSION}.`);
+    process.exit(1);
+  }
+  console.log(`WinSW ${WINSW_VERSION} x64 verified (${WINSW_SHA256}).`);
+  fs.copyFileSync(cached, dest);
 }
 
 async function copyNodeExe(dest) {

@@ -30,7 +30,8 @@ function output(result) {
 
 function serviceStateFromStatus(text) {
   const line = String(text ?? '');
-  if (/\bRunning\b/.test(line)) return 'running';
+  // WinSW v2 prints Started/Stopped; v3 prints Running.
+  if (/\b(Running|Started)\b/.test(line)) return 'running';
   if (/\bStartPending\b/.test(line)) return 'start-pending';
   if (/\bStopped\b/.test(line)) return 'stopped';
   if (/\bNonExistent\b/.test(line)) return 'missing';

@@ -25,6 +25,8 @@ describe('WinSW service registration', () => {
     expect(serviceStateFromStatus('Stopped')).toBe('stopped');
     expect(serviceStateFromStatus('NonExistent')).toBe('missing');
     expect(nextRunningWait('Running', 2)).toEqual({ done: true, ok: true, stoppedPolls: 0 });
+    // WinSW v2 (the bundled wrapper) reports a live service as Started.
+    expect(nextRunningWait('Started', 0)).toEqual({ done: true, ok: true, stoppedPolls: 0 });
     expect(nextRunningWait('StartPending', 2).done).toBe(false);
     expect(nextRunningWait('Stopped', 0)).toEqual({ done: false, ok: false, stoppedPolls: 1 });
     expect(nextRunningWait('Stopped', 2)).toEqual({ done: true, ok: false, stoppedPolls: 3 });

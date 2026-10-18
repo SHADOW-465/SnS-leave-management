@@ -160,10 +160,11 @@ begin
   begin
     Exec(ExpandConstant('{app}\LeaveOS-service.exe'), 'stop', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Exec(ExpandConstant('{app}\LeaveOS-service.exe'), 'uninstall', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    if MsgBox('Also delete Leave OS data and backups?' + #13#10 + #13#10 +
+    // SuppressibleMsgBox: a plain MsgBox hangs /VERYSILENT uninstalls. Silent keeps the data.
+    if SuppressibleMsgBox('Also delete Leave OS data and backups?' + #13#10 + #13#10 +
       'This removes ProgramData\SimonAndSons\LeaveOS: the database, backup files, certificates, and logs.' + #13#10 +
       'Choose No to keep that folder. The program files are removed either way.',
-      mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
     begin
       DelTree(ExpandConstant('{commonappdata}\SimonAndSons\LeaveOS'), True, True, True);
     end;

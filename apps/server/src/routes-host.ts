@@ -1,7 +1,8 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
+// Static import so esbuild bundles qrcode; the installer ships no node_modules for it.
+import QRCode from 'qrcode';
 import type { FastifyInstance } from 'fastify';
 import { pathsFor } from '@sns/config';
 import { lanHostnameSettingsSchema } from '@sns/contracts';
@@ -24,7 +25,6 @@ import { ensureLanCertificate } from './tls.js';
 import { collectHealth, type HostHealth } from './health.js';
 import { sendError } from './http.js';
 
-const require = createRequire(import.meta.url);
 
 type QrModule = {
   toString: (text: string, opts: { type: 'svg'; margin: number }) => Promise<string>;
@@ -55,7 +55,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
     const which = String((req.query as { for?: string } | undefined)?.for ?? 'mdns');
     const url = which === 'hostname' ? links.hostname : which === 'ip' ? links.ip : links.mdns;
     if (!url) return reply.status(404).send('No LAN address');
-    const svg = await (require('qrcode') as QrModule).toString(url, { type: 'svg', margin: 1 });
+    const svg = await (QRCode as unknown as QrModule).toString(url, { type: 'svg', margin: 1 });
     return reply.type('image/svg+xml').send(svg);
   });
 

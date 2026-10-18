@@ -1,10 +1,10 @@
 import { createServer, type RequestListener, type Server } from 'node:http';
-import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
+// Static import so esbuild bundles qrcode; the installer ships no node_modules for it.
+import QRCode from 'qrcode';
 import { CA_FILE } from './tls.js';
 
-const require = createRequire(import.meta.url);
 
 type QrModule = {
   toString: (text: string, opts: { type: 'svg'; margin: number }) => Promise<string>;
@@ -191,7 +191,7 @@ export function createSetupHandler(input: {
       const setupUrl = setupOrigin(host, input.setupPort());
       let qrSvg = '';
       try {
-        qrSvg = await (require('qrcode') as QrModule).toString(setupUrl, {
+        qrSvg = await (QRCode as unknown as QrModule).toString(setupUrl, {
           type: 'svg',
           margin: 1,
         });

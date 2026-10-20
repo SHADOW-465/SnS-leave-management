@@ -401,6 +401,88 @@ export async function changePassword(
       .run(newId(), ctx.now, p.userId, p.email, p.userId, ctx.requestId);
   });
 }
+async function hasRole(ctx: RequestContext, userId: string, role: string): Promise<boolean> {
+  const row = await ctx.sqlite
+    .prepare(
+      `SELECT 1 AS x FROM user_role ur JOIN role r ON r.id = ur.role_id
+        WHERE ur.user_account_id = ? AND r.code = ?`,
+    )
+    .get(userId, role);
+  return Boolean(row);
+}
+
+/**
+ * Writes a fresh random temporary password, forces a change at next sign-in, lifts any
+ * lockout, and signs the account out everywhere. Returns the password for one-time display.
+ */
+async function issueTemporaryPassword(
+  ctx: RequestContext,
+  userId: string,
+  audit: { action: string; actorUserId: string | null; actorLabel: string },
+): Promise<string> {
+  const exists = await ctx.sqlite.prepare(`SELECT id FROM user_account WHERE id = ?`).get(userId);
+  if (!exists) throw new DomainError('NOT_FOUND', 'Account not found.', { httpStatus: 404 });
+  const temp = generateTemporaryPassword();
+  const hash = await hashPassword(temp);
+  await withTx(ctx.sqlite, async () => {
+    await ctx.sqlite
+      .prepare(
+        `UPDATE user_account SET password_hash = ?, must_change_password = 1, password_changed_at = ?,
+                failed_attempts = 0, locked_until = NULL,
+                updated_at = ?, updated_by = ? WHERE id = ?`,
+      )
+      .run(hash, ctx.now, ctx.now, audit.actorUserId ?? audit.actorLabel, userId);
+    await ctx.sqlite
+      .prepare(
+        `UPDATE session SET revoked_at = ?, revoked_reason = 'admin_reset' WHERE user_account_id = ? AND revoked_at IS NULL`,
+      )
+      .run(ctx.now, userId);
+    await ctx.sqlite
+      .prepare(
+        `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, request_id, result)
+         VALUES (?, ?, ?, ?, ?, 'user_account', ?, ?, 'ok')`,
+      )
+      .run(
+        newId(),
+        ctx.now,
+        audit.actorUserId,
+        audit.actorLabel,
+        audit.action,
+        userId,
+        ctx.requestId,
+      );
+  });
+  return temp;
+}
+
+/**
+ * Break-glass: only the host panel calls this, and the panel answers only to the host
+ * computer itself. It resets an administrator account when nobody can sign in as one.
+ */
+export async function hostRecoverAdmin(
+  ctx: RequestContext,
+  userId: string,
+): Promise<{ email: string; temporaryPassword: string }> {
+  if (!(await hasRole(ctx, userId, 'admin'))) {
+    throw new DomainError('NOT_ADMIN', 'That account is not an administrator.', {
+      httpStatus: 400,
+    });
+  }
+  const account = (await ctx.sqlite
+    .prepare(`SELECT email FROM user_account WHERE id = ?`)
+    .get(userId)) as { email: string } | undefined;
+  const temporaryPassword = await issueTemporaryPassword(ctx, userId, {
+    action: 'host.admin.recovered',
+    actorUserId: null,
+    actorLabel: 'host-panel',
+  });
+  // Break-glass also re-enables the account: a disabled last administrator is the case it exists for.
+  await ctx.sqlite
+    .prepare(`UPDATE user_account SET is_disabled = 0, disabled_reason = NULL WHERE id = ?`)
+    .run(userId);
+  return { email: account?.email ?? '', temporaryPassword };
+}
+
 export async function adminResetPassword(ctx: RequestContext, userId: string) {
   const p = requirePrincipal(ctx);
   if (p.userId === userId) {
@@ -410,25 +492,20 @@ export async function adminResetPassword(ctx: RequestContext, userId: string) {
       { httpStatus: 400 },
     );
   }
-  const temp = generateTemporaryPassword();
-  const hash = await hashPassword(temp);
-  await withTx(ctx.sqlite, async () => {
-    await ctx.sqlite
-      .prepare(
-        `UPDATE user_account SET password_hash = ?, must_change_password = 1, password_changed_at = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
-      )
-      .run(hash, ctx.now, ctx.now, ctx.principal!.userId, userId);
-    await ctx.sqlite
-      .prepare(
-        `UPDATE session SET revoked_at = ?, revoked_reason = 'admin_reset' WHERE user_account_id = ? AND revoked_at IS NULL`,
-      )
-      .run(ctx.now, userId);
-    await ctx.sqlite
-      .prepare(
-        `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, request_id, result)
-         VALUES (?, ?, ?, ?, 'user.password.reset', 'user_account', ?, ?, 'ok')`,
-      )
-      .run(newId(), ctx.now, ctx.principal!.userId, ctx.principal!.email, userId, ctx.requestId);
+  // Only an administrator may reset an administrator, or HR could take over that account.
+  if ((await hasRole(ctx, userId, 'admin')) && !p.roles.includes('admin')) {
+    throw new DomainError(
+      'FORBIDDEN',
+      'Only an administrator can reset an administrator password.',
+      {
+        httpStatus: 403,
+      },
+    );
+  }
+  const temp = await issueTemporaryPassword(ctx, userId, {
+    action: 'user.password.reset',
+    actorUserId: p.userId,
+    actorLabel: p.email,
   });
   return { temporaryPassword: temp };
 }

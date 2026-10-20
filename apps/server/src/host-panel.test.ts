@@ -258,6 +258,83 @@ describe('host control panel', () => {
     expect(company.name).toBe('Test Co');
   });
 
+  it('recovers an administrator from the host computer only, with a one-time random password', async () => {
+    const { app, sqlite } = await boot();
+    const panel = await openPanel(app);
+    expect(panel.res.body).toContain('Administrator recovery');
+    const admin = (await sqlite
+      .prepare(`SELECT id FROM user_account WHERE email = 'admin@example.invalid'`)
+      .get()) as { id: string };
+    await sqlite.exec(
+      `UPDATE user_account SET failed_attempts = 9, locked_until = '2999-01-01T00:00:00.000Z', is_disabled = 1 WHERE id = '${admin.id}'`,
+    );
+    const form = { 'content-type': 'application/x-www-form-urlencoded', cookie: panel.cookie };
+    const payload = `token=${panel.token}&userId=${admin.id}`;
+
+    // From another computer on the network: refused, nothing changes.
+    const remote = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/recover-admin',
+      headers: form,
+      payload,
+      remoteAddress: '10.1.1.8',
+    });
+    expect(remote.statusCode).toBe(403);
+    // Without the panel token: refused.
+    const noToken = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/recover-admin',
+      headers: form,
+      payload: `token=nope&userId=${admin.id}`,
+    });
+    expect(String(noToken.headers.location)).toContain('error=');
+    // A non-administrator account is not eligible.
+    const staff = (await sqlite
+      .prepare(`SELECT id FROM user_account WHERE id != '${admin.id}' LIMIT 1`)
+      .get()) as { id: string } | undefined;
+    if (staff) {
+      const notAdmin = await app.inject({
+        method: 'POST',
+        url: '/api/v1/host/recover-admin',
+        headers: form,
+        payload: `token=${panel.token}&userId=${staff.id}`,
+      });
+      expect(String(notAdmin.headers.location)).toContain('error=');
+    }
+
+    const done = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/recover-admin',
+      headers: form,
+      payload,
+    });
+    expect(done.statusCode).toBe(200);
+    expect(done.headers['cache-control']).toBe('no-store');
+    const temp = /id="temp-password">([^<]+)</.exec(done.body)?.[1] ?? '';
+    expect(temp.length).toBeGreaterThanOrEqual(12);
+    expect(temp).not.toBe('ChangeMe_admin_1');
+
+    const old = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'admin@example.invalid', password: 'ChangeMe_admin_1' },
+    });
+    expect(old.statusCode).toBe(401);
+    const fresh = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'admin@example.invalid', password: temp },
+    });
+    expect(fresh.statusCode).toBe(200);
+    expect(
+      (fresh.json() as { data: { mustChangePassword?: boolean } }).data.mustChangePassword,
+    ).toBe(true);
+    const audit = (await sqlite
+      .prepare(`SELECT actor_label AS who FROM audit_event WHERE action = 'host.admin.recovered'`)
+      .get()) as { who: string };
+    expect(audit.who).toBe('host-panel');
+  });
+
   it('saves an office name and rejects a name with a space', async () => {
     const { app, sqlite } = await boot();
     const panel = await openPanel(app);

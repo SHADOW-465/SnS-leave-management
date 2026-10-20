@@ -9,6 +9,7 @@ import { backupSettingsSchema, lanHostnameSettingsSchema } from '@sns/contracts'
 
 import type { RequestContext } from './ctx.js';
 import { approveDevice } from './usecases/devices.js';
+import { hostRecoverAdmin } from './usecases/auth.js';
 import { createBackupFile, stageRestoreFile } from './backup-file.js';
 import { readBackupPolicy, writeBackupPolicy } from './backup-job.js';
 import {
@@ -158,6 +159,31 @@ export function registerHostRoutes(app: FastifyInstance): void {
     }
   });
 
+  // Break-glass. The host panel only answers on this computer, so reaching this at all
+  // means someone is at the office PC; the token stops a web page from posting to it.
+  app.post('/api/v1/host/recover-admin', async (req, reply) => {
+    try {
+      if (!tokenOk(req)) return back(reply, { error: 'Refresh the page and try that again.' });
+      const userId = String((req.body as { userId?: string })?.userId ?? '');
+      const done = await hostRecoverAdmin(req.ctx, userId);
+      return reply
+        .header('cache-control', 'no-store')
+        .type('text/html; charset=utf-8')
+        .send(
+          page({
+            title: 'Administrator recovered',
+            body: `<section id="recovered"><h1>Temporary password</h1>
+              <p>Sign in as <strong>${esc(done.email)}</strong> with this password. It is shown once, here, and is not stored anywhere readable. You must choose a new password at sign-in.</p>
+              <p class="mono" id="temp-password">${esc(done.temporaryPassword)}</p>
+              <p><a href="/host">Back to the host panel</a></p></section>`,
+          }),
+        );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not reset that account.';
+      return back(reply, { error: message });
+    }
+  });
+
   app.post('/api/v1/host/restore', async (req, reply) => {
     try {
       if (!tokenOk(req)) return back(reply, { error: 'Refresh the page and try that again.' });
@@ -275,6 +301,13 @@ async function renderHost(
         ORDER BY b.created_at`,
     )
     .all()) as { id: string; lanIp: string | null; createdAt: string; email: string }[];
+  const admins = (await req.ctx.sqlite
+    .prepare(
+      `SELECT ua.id, ua.email FROM user_account ua
+         JOIN user_role ur ON ur.user_account_id = ua.id JOIN role r ON r.id = ur.role_id
+        WHERE r.code = 'admin' ORDER BY ua.email`,
+    )
+    .all()) as { id: string; email: string }[];
   const backupPolicy = await readBackupPolicy(req.ctx.sqlite, req.ctx.backupsRoot, false);
   const backups = [
     ...new Set(
@@ -385,6 +418,11 @@ async function renderHost(
           <button type="submit">Save backup settings</button>
         </form>
         ${backupHtml}
+      </section>
+      <section id="recovery">
+        <h2>Administrator recovery</h2>
+        <p>If nobody can sign in as an administrator, reset one here. This works only on this computer.</p>
+        ${admins.map((a) => `<form method="post" action="/api/v1/host/recover-admin">${hidden(token)}<input type="hidden" name="userId" value="${esc(a.id)}"><span class="mono">${esc(a.email)}</span> <button type="submit">Reset password</button></form>`).join('') || '<p class="state">No administrator accounts exist.</p>'}
       </section>
       <section>
         <h2>Browsers waiting for approval</h2>

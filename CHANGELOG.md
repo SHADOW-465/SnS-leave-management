@@ -2,7 +2,11 @@
 
 ## Unreleased
 
+### Added
+- **Administrator recovery on the host PC.** The host panel has an Administrator recovery section. It resets any administrator account to a new random temporary password, shown once on a no-store page, lifts the lockout, re-enables the account, signs it out everywhere, and records `host.admin.recovered`. It is reachable only from the host computer (the panel refuses any other address) and needs the panel token. There is deliberately no command-line script: only the server process opens the database.
+
 ### Changed
+- **Password reset.** An administrator or HR reset now also lifts the account lockout, and only an administrator can reset an administrator.
 - **Service recovery.** Setup now also sets the Windows service to start automatically and to restart after 5 s, 15 s and 60 s on failure (a non-zero exit counts), then reads both settings back with `sc qc` and `sc qfailure` and fails setup if either is missing. Not run on a real Windows install yet (DW-16).
 - **Scheduled backups.** Retention is now a count (keep the newest N backup files, default 14) instead of days. The host panel shows the time of the last backup, the backup folder, and a form to set it (a USB drive or network share path), the on/off switch and the count. A scheduled backup that cannot write to the folder is recorded as failed and shown on the panel instead of disappearing. Restore from the configured folder is covered by a test that reopens the database.
 - **One leave type.** Annual Leave (2 days a month, 24 a year, category rates as configured) is the only type. The Leave types page, its nav entry and the add, rename and archive API are removed. Migration `0014_single_leave_type` archives any other type on an upgraded database; their requests, balances and ledger rows are untouched, so reports still count them. The type picker on Apply and the filters that hid casual and sick types on Leave allowances are gone.

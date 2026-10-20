@@ -386,6 +386,39 @@ describe('earned leave context', () => {
 });
 
 describe('sign-in accounts', () => {
+  it('lifts a lockout when the password is reset, and HR cannot reset an administrator', async () => {
+    await sqlite.exec(
+      `UPDATE user_account SET failed_attempts = 5, locked_until = '2999-01-01T00:00:00.000Z' WHERE email = 'vijay@sns.test'`,
+    );
+    const locked = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'vijay@sns.test', password: 'ChangeMe_demo_1' },
+    });
+    expect(locked.statusCode).not.toBe(200);
+    const res = await call(
+      admin,
+      'POST',
+      `/api/v1/accounts/${await userId('vijay@sns.test')}/reset-password`,
+    );
+    expect(res.statusCode).toBe(200);
+    const { temporaryPassword } = (res.json() as { data: { temporaryPassword: string } }).data;
+    const back = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'vijay@sns.test', password: temporaryPassword },
+    });
+    expect(back.statusCode).toBe(200);
+
+    const hr = await signIn('anitha@sns.test');
+    const denied = await call(
+      hr,
+      'POST',
+      `/api/v1/accounts/${await userId('admin@example.invalid')}/reset-password`,
+    );
+    expect(denied.statusCode).toBe(403);
+  });
+
   it('gives every reset its own random temporary password, never a shared one', async () => {
     const seen = new Set<string>();
     for (const email of ['vijay@sns.test', 'ramesh@sns.test', 'sneha@sns.test']) {

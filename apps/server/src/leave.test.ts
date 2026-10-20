@@ -6,6 +6,7 @@ import { openDatabase, type Db } from '@sns/database';
 import { loadConfig } from '@sns/config';
 import { buildApp } from './app.js';
 import type { FastifyInstance } from 'fastify';
+import { decisionAuditAction } from './usecases/leave.js';
 const opened: {
   sqlite: Db;
   dir: string;
@@ -398,5 +399,13 @@ describe('API slice', () => {
     expect(refreshedNotif?.read_at).toBeTruthy();
 
     await app.close();
+  });
+});
+
+describe('decision audit action', () => {
+  it('spells approve and reject correctly', () => {
+    expect(decisionAuditAction('approve', false)).toBe('leave.request.approved');
+    expect(decisionAuditAction('reject', false)).toBe('leave.request.rejected');
+    expect(decisionAuditAction('approve', true)).toBe('leave.self_approved');
   });
 });

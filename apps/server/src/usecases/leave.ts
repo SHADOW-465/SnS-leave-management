@@ -952,10 +952,7 @@ export async function decideLeave(
 
     // Only the employee is told of the decision. HR, administrators and managers see
     // their people's leave on their own dashboards rather than as a stream of notices.
-    const auditAction =
-      isSelf && input.decision === 'approve'
-        ? 'leave.self_approved'
-        : `leave.request.${input.decision}d`;
+    const auditAction = decisionAuditAction(input.decision, isSelf);
     await audit(
       ctx,
       auditAction,
@@ -971,6 +968,10 @@ class ForbiddenErrorSilent extends DomainError {
   constructor() {
     super('FORBIDDEN', 'You do not have permission to view this.', { httpStatus: 403 });
   }
+}
+export function decisionAuditAction(decision: 'approve' | 'reject', isSelf: boolean): string {
+  if (decision === 'approve') return isSelf ? 'leave.self_approved' : 'leave.request.approved';
+  return 'leave.request.rejected';
 }
 export async function withdrawLeave(
   ctx: RequestContext,

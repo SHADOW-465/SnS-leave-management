@@ -44,14 +44,12 @@ type Data = {
 };
 /** Shown once, straight after a login is created or a password is reset. */
 type Issued = { name: string; login: string; employeeCode: string | null; password: string };
-const OFFICE_DEMO_PASSWORD = 'ChangeMe_demo_1';
 
 type NewAccount = {
   firstName: string;
   lastName: string;
   workEmail: string;
   username: string;
-  password: string;
   employeeCode: string;
   departmentId: string;
   jobTitleId: string;
@@ -112,7 +110,6 @@ export function UsersPage({ me }: { me: Me }) {
       lastName: '',
       workEmail: '',
       username: '',
-      password: OFFICE_DEMO_PASSWORD,
       employeeCode: q.data?.nextEmployeeCode ?? '',
       departmentId: directory?.departments[0]?.id ?? '',
       jobTitleId: directory?.jobTitles[0]?.id ?? '',
@@ -135,7 +132,6 @@ export function UsersPage({ me }: { me: Me }) {
           lastName: adding.lastName.trim(),
           workEmail: adding.workEmail.trim(),
           username: adding.username.trim() || undefined,
-          password: adding.password,
           joinedOn: adding.joinedOn,
           locationId: adding.locationId,
           departmentId: adding.departmentId,
@@ -267,7 +263,7 @@ export function UsersPage({ me }: { me: Me }) {
   async function resetPassword(u: User) {
     if (
       !window.confirm(
-        `Reset ${u.name ?? u.email} to the office demo password? They will be signed out and must choose a new password. Their current password cannot be viewed.`,
+        `Reset ${u.name ?? u.email} to a new random temporary password? They will be signed out and must choose a new password. Their current password cannot be viewed.`,
       )
     )
       return;
@@ -339,8 +335,8 @@ export function UsersPage({ me }: { me: Me }) {
               Add an employee and their sign-in, edit the account, or remove it. Removing marks them
               as left and turns the sign-in off. Leave history is kept. Only HR and administrators
               can do this. People sign in with username, work email, or employee ID. New accounts
-              start with the office demo password; each person changes it from Profile. Passwords
-              are never shown on this list.
+              get their own random temporary password, shown once, and the person must change it at
+              first sign-in. Passwords are never shown on this list.
             </p>
           </div>
           {adding ? null : (
@@ -395,8 +391,8 @@ export function UsersPage({ me }: { me: Me }) {
         <section className="card">
           <h2>Add account</h2>
           <p className="muted small">
-            This creates the employee and a sign-in. The first password is the office demo password
-            until they change it from their profile.
+            This creates the employee and a sign-in. A random temporary password is generated for
+            them and shown once. They must change it at first sign-in.
           </p>
           {org.isError ? (
             <p className="bad-text">Could not load departments. Reload and try again.</p>
@@ -437,19 +433,6 @@ export function UsersPage({ me }: { me: Me }) {
                     value={adding.username}
                     onChange={(e) => setAdding({ ...adding, username: e.target.value })}
                   />
-                </label>
-                <label className="small">
-                  Password
-                  <input
-                    className="input"
-                    type="text"
-                    autoComplete="new-password"
-                    value={adding.password}
-                    onChange={(e) => setAdding({ ...adding, password: e.target.value })}
-                  />
-                  <span className="muted small">
-                    Starts as the office demo password. 12+ characters.
-                  </span>
                 </label>
                 <label className="small">
                   Employee ID
@@ -964,7 +947,7 @@ export function UsersPage({ me }: { me: Me }) {
                       ) : null}
                       {!self ? (
                         <Button size="sm" onClick={() => void resetPassword(u)}>
-                          Reset to demo password
+                          Reset password
                         </Button>
                       ) : null}
                       {u.workstationIp ? (

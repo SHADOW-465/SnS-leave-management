@@ -1,5 +1,5 @@
 import { hash, verify } from '@node-rs/argon2';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 
 /** OWASP minimum Argon2id. Recalibrate on the real host (DW-15). */
 export const ARGON2_OPTIONS = {
@@ -53,16 +53,14 @@ export function lockUntil(failedAttempts: number, now = Date.now()): string | nu
   return new Date(now + 15 * 60 * 1000).toISOString();
 }
 
-/** First password for new office accounts. People change it on Profile → Change password. */
-export const OFFICE_DEMO_PASSWORD = 'ChangeMe_demo_1';
-
+/**
+ * A fresh random first password, one per account, shown once to the administrator. No two
+ * accounts ever share one, and the person must change it at first sign-in.
+ */
 export function generateTemporaryPassword(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@$%';
-  const bytes = randomBytes(16);
   let out = '';
-  for (const b of bytes) {
-    out += alphabet[b % alphabet.length];
-  }
+  for (let i = 0; i < 16; i++) out += alphabet[randomInt(alphabet.length)];
   return out;
 }
 

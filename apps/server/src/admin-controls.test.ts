@@ -386,6 +386,36 @@ describe('earned leave context', () => {
 });
 
 describe('sign-in accounts', () => {
+  it('gives every reset its own random temporary password, never a shared one', async () => {
+    const seen = new Set<string>();
+    for (const email of ['vijay@sns.test', 'ramesh@sns.test', 'sneha@sns.test']) {
+      const res = await call(
+        admin,
+        'POST',
+        `/api/v1/accounts/${await userId(email)}/reset-password`,
+      );
+      expect(res.statusCode).toBe(200);
+      const { temporaryPassword } = (res.json() as { data: { temporaryPassword: string } }).data;
+      expect(temporaryPassword).not.toBe('ChangeMe_demo_1');
+      expect(temporaryPassword.length).toBeGreaterThanOrEqual(12);
+      seen.add(temporaryPassword);
+      const login = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        payload: { email, password: temporaryPassword },
+      });
+      expect(login.statusCode).toBe(200);
+      expect(
+        (login.json() as { data: { mustChangePassword?: boolean } }).data.mustChangePassword,
+      ).toBe(true);
+      const row = (await sqlite
+        .prepare(`SELECT must_change_password AS m FROM user_account WHERE email = ?`)
+        .get(email)) as { m: number };
+      expect(Number(row.m)).toBe(1);
+    }
+    expect(seen.size).toBe(3);
+  });
+
   it('creates a login for an employee, who must change the password and can use their ID', async () => {
     await sqlite.exec(
       `DELETE FROM user_role WHERE user_account_id = (SELECT id FROM user_account WHERE email = 'sneha@sns.test')`,

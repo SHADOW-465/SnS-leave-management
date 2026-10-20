@@ -27,7 +27,6 @@ export const createEmployeeBodySchema = z
       .max(40)
       .regex(/^[a-zA-Z0-9._-]+$/, 'Username can only use letters, numbers, dots, _ and -')
       .optional(),
-    password: z.string().min(12).max(200).optional(),
     /** Sign-in roles. Defaults to Employee. Only an administrator may include Administrator. */
     roles: z
       .array(

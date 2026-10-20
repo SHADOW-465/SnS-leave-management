@@ -1,4 +1,4 @@
-import { OFFICE_DEMO_PASSWORD, hashPassword } from '@sns/auth';
+import { generateTemporaryPassword, hashPassword } from '@sns/auth';
 import { uniqueUsername } from '../username.js';
 import { withTx } from '@sns/database';
 import { DomainError, ROLE_CODES, assertNoManagerCycle, newId, type RoleCode } from '@sns/domain';
@@ -365,7 +365,7 @@ export async function createEmployee(
   const userId = newId();
   let temp: string | null = null;
   if (input.createAccount) {
-    temp = input.password?.trim() || OFFICE_DEMO_PASSWORD;
+    temp = generateTemporaryPassword();
   }
   const hash = temp ? await hashPassword(temp) : null;
   const username = input.createAccount
@@ -511,7 +511,7 @@ export async function bulkProvision(ctx: RequestContext, employeeIds: string[]) 
       .prepare(`SELECT id FROM user_account WHERE employee_id = ?`)
       .get(empId);
     if (existing) continue;
-    const temp = OFFICE_DEMO_PASSWORD;
+    const temp = generateTemporaryPassword();
     const hash = await hashPassword(temp);
     const userId = newId();
     const username = await uniqueUsername(ctx.sqlite, emp.employee_code || emp.work_email);

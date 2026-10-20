@@ -1,5 +1,5 @@
 import {
-  OFFICE_DEMO_PASSWORD,
+  generateTemporaryPassword,
   hashPassword,
   hashToken,
   lockUntil,
@@ -410,7 +410,7 @@ export async function adminResetPassword(ctx: RequestContext, userId: string) {
       { httpStatus: 400 },
     );
   }
-  const temp = OFFICE_DEMO_PASSWORD;
+  const temp = generateTemporaryPassword();
   const hash = await hashPassword(temp);
   await withTx(ctx.sqlite, async () => {
     await ctx.sqlite

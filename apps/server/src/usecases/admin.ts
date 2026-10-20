@@ -7,7 +7,7 @@
  * Sign-in accounts (`user.account.create`, `role.assign`, `user.account.disable`) are
  * HR and the administrator. Only an administrator may grant or remove the administrator role.
  */
-import { OFFICE_DEMO_PASSWORD, hashPassword } from '@sns/auth';
+import { generateTemporaryPassword, hashPassword } from '@sns/auth';
 import { uniqueUsername } from '../username.js';
 import { withTx } from '@sns/database';
 import {
@@ -1418,7 +1418,7 @@ export async function createLogin(
   }
   const roles: RoleCode[] = input.roles.length ? [...new Set(input.roles)] : ['employee'];
   assertMayGrantAdmin(p.roles.includes('admin'), roles, []);
-  const temp = input.password?.trim() || OFFICE_DEMO_PASSWORD;
+  const temp = generateTemporaryPassword();
   const hash = await hashPassword(temp);
   const userId = newId();
   const username = await uniqueUsername(ctx.sqlite, input.username || emp.code || email);
@@ -1451,6 +1451,6 @@ export async function createLogin(
     employeeCode: emp.code,
     temporaryPassword: temp,
     username,
-    message: `${emp.name} can now sign in with ${username}, ${email}, or ${emp.code}. The first password is the office demo password; they change it from Profile.`,
+    message: `${emp.name} can now sign in with ${username}, ${email}, or ${emp.code}. They must change the temporary password when they first sign in.`,
   };
 }

@@ -97,7 +97,6 @@ export const createLoginBodySchema = z
       .max(40)
       .regex(/^[a-zA-Z0-9._-]+$/)
       .optional(),
-    password: z.string().min(12).max(200).optional(),
     roles: z
       .array(
         z.enum([

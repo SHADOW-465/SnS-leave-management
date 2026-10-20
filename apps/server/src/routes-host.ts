@@ -411,7 +411,7 @@ async function renderHost(
         <form method="post" action="/api/v1/host/backup-settings" id="backup-settings">
           ${hidden(token)}
           <p><label><input type="checkbox" name="enabled" value="1"${backupPolicy.enabled ? ' checked' : ''}> Back up automatically every day</label></p>
-          <label for="backup-dir">Backup folder (a USB drive or network share, for example E:\LeaveOS-backups)</label>
+          <label for="backup-dir">Backup folder (a USB drive or network share, for example E:&#92;LeaveOS-backups)</label>
           <input id="backup-dir" name="directory" value="${esc(backupPolicy.directory)}" autocomplete="off" required>
           <label for="backup-keep">Backups to keep</label>
           <input id="backup-keep" name="retentionCount" type="number" min="1" max="365" value="${backupPolicy.retentionCount}" required>

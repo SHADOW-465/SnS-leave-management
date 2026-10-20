@@ -1,7 +1,9 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { splitLeaveDays } from '@sns/contracts';
 import { Button, Select } from '@sns/ui';
+import { dayCount, daysLabel } from '../format.js';
 import { api, ApiError, type Me } from '../api.js';
 
 export function ApplyPage({ me }: { me: Me }) {
@@ -73,16 +75,23 @@ export function ApplyPage({ me }: { me: Me }) {
     queryFn: () =>
       api<{
         workingDays: string;
+        countedHalfDays: number;
+        availableHalfDays: number;
         skipped: string;
-        after: string;
-        available: string;
-        lossOfPay?: string;
         ownOverlap: boolean;
         overlaps: { name: string; when: string }[];
         approver: string;
       }>(previewQ),
     enabled: Boolean(previewQ),
   });
+
+  // The same calculation the server stores, so what is shown is what is recorded.
+  const split = preview.data
+    ? splitLeaveDays({
+        availableHalfDays: preview.data.availableHalfDays,
+        requestedHalfDays: preview.data.countedHalfDays,
+      })
+    : null;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -259,30 +268,29 @@ export function ApplyPage({ me }: { me: Me }) {
         <div className="card">
           <h2 style={{ margin: '0 0 12px', fontSize: 14.5 }}>Request summary</h2>
           <dl className="summary-dl">
-            <dt>Available balance</dt>
-            <dd>{preview.data?.available ?? '—'}</dd>
-            <dt>Working days</dt>
+            <dt>Remaining balance</dt>
+            <dd>
+              {preview.data ? `${dayCount(Math.max(0, preview.data.availableHalfDays))}` : '—'}
+            </dd>
+            <dt>Working days requested</dt>
             <dd>{preview.data?.workingDays ?? '—'}</dd>
             <dt>Holidays skipped</dt>
             <dd>{preview.data?.skipped ?? '—'}</dd>
-            <dt>Balance after</dt>
-            <dd>{preview.data?.after ?? '—'}</dd>
-            <dt>Loss of pay</dt>
+            <dt>Paid days</dt>
+            <dd>{split ? dayCount(split.paidHalfDays) : '—'}</dd>
+            <dt>Loss of pay days</dt>
             <dd
+              data-testid="lop-days"
               style={
-                preview.data?.lossOfPay && preview.data.lossOfPay !== '0'
-                  ? { color: '#be123c', fontWeight: 700 }
-                  : undefined
+                split && split.lopHalfDays > 0 ? { color: '#be123c', fontWeight: 700 } : undefined
               }
             >
-              {preview.data?.lossOfPay && preview.data.lossOfPay !== '0'
-                ? `${preview.data.lossOfPay} days`
-                : 'None'}
+              {split ? dayCount(split.lopHalfDays) : '—'}
             </dd>
             <dt>Reporting manager</dt>
             <dd>{preview.data?.approver ?? 'Working it out…'}</dd>
           </dl>
-          {preview.data?.lossOfPay && preview.data.lossOfPay !== '0' ? (
+          {split && split.lopHalfDays > 0 ? (
             <div
               role="note"
               style={{
@@ -296,9 +304,11 @@ export function ApplyPage({ me }: { me: Me }) {
                 lineHeight: 1.4,
               }}
             >
-              ⚠️ <strong>Loss of pay notice:</strong> This request exceeds available balance (
-              {preview.data.available} days). <strong>{preview.data.lossOfPay} days</strong> will be
-              recorded as <strong>Loss of Pay (LOP)</strong>.
+              <strong>Loss of pay:</strong> you have{' '}
+              {daysLabel(Math.max(0, preview.data!.availableHalfDays))} days of leave left.{' '}
+              {dayCount(split.paidHalfDays)} will be paid leave and{' '}
+              <strong>{dayCount(split.lopHalfDays)}</strong> will be recorded as loss of pay (LOP).
+              The request is still sent for approval.
             </div>
           ) : null}
           {preview.data?.ownOverlap ? (

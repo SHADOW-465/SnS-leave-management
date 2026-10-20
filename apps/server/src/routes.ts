@@ -703,7 +703,8 @@ export async function registerRoutes(app: FastifyInstance) {
         'Earned',
         'Adjusted',
         ...data.months,
-        'Used',
+        'Used (paid)',
+        'Loss of pay',
         'Pending',
         'Closing',
       ];
@@ -716,6 +717,7 @@ export async function registerRoutes(app: FastifyInstance) {
         r.adjusted,
         ...r.monthly,
         r.used,
+        r.lossOfPay,
         r.pending,
         r.closing,
       ]);
@@ -774,6 +776,16 @@ export async function registerRoutes(app: FastifyInstance) {
           'Count of approved leave requests',
         ],
         [
+          'Paid Leave Days',
+          data.summary.totalPaidDays,
+          'Approved days covered by the leave balance',
+        ],
+        [
+          'Loss of Pay Days',
+          data.summary.totalLossOfPayDays,
+          'Approved days beyond the balance (unpaid)',
+        ],
+        [
           'Pending Approvals',
           data.summary.pendingCount,
           `${data.summary.pendingDays} days awaiting decision`,
@@ -806,6 +818,8 @@ export async function registerRoutes(app: FastifyInstance) {
         'Department Name',
         'Headcount',
         'Total Days Taken',
+        'Paid Days',
+        'Loss of Pay Days',
         'Avg Days / Employee',
         'Approved Requests',
       ];
@@ -814,6 +828,8 @@ export async function registerRoutes(app: FastifyInstance) {
         d.name,
         d.headcount,
         d.totalDaysTaken,
+        d.paidDays,
+        d.lossOfPayDays,
         Number(d.avgDaysPerEmployee),
         d.requestCount,
       ]);
@@ -833,6 +849,8 @@ export async function registerRoutes(app: FastifyInstance) {
         'Code',
         'Leave Type Name',
         'Total Days Taken',
+        'Paid Days',
+        'Loss of Pay Days',
         '% of Total Leave',
         'Approved Requests',
         'Employees Count',
@@ -841,6 +859,8 @@ export async function registerRoutes(app: FastifyInstance) {
         t.code,
         t.name,
         t.totalDaysTaken,
+        t.paidDays,
+        t.lossOfPayDays,
         `${t.percentOfTotal}%`,
         t.requestCount,
         t.employeeCount,
@@ -861,6 +881,8 @@ export async function registerRoutes(app: FastifyInstance) {
         'Year-Month',
         'Month Label',
         'Approved Days',
+        'Paid Days',
+        'Loss of Pay Days',
         'Requests Count',
         'Employees Out',
       ];
@@ -868,6 +890,8 @@ export async function registerRoutes(app: FastifyInstance) {
         m.ym,
         m.label,
         m.days,
+        m.paidDays,
+        m.lossOfPayDays,
         m.requestCount,
         m.employeeCount,
       ]);
@@ -885,6 +909,7 @@ export async function registerRoutes(app: FastifyInstance) {
         'Joined Date',
         'Entitlement (Days)',
         'Taken (Days)',
+        'Loss of Pay (Days)',
         'Remaining (Days)',
         'Pending (Days)',
       ];
@@ -897,6 +922,7 @@ export async function registerRoutes(app: FastifyInstance) {
         e.joinedOn,
         e.entitlementDays,
         e.takenDays,
+        e.lossOfPayDays,
         e.remainingDays,
         e.pendingDays,
       ]);
@@ -1038,7 +1064,7 @@ export async function registerRoutes(app: FastifyInstance) {
         {
           label: 'Total Leave Taken',
           val: `${data.summary.totalApprovedDays} Days`,
-          note: `${data.summary.totalApprovedRequests} requests approved`,
+          note: `${data.summary.totalApprovedRequests} requests · ${data.summary.totalPaidDays} paid, ${data.summary.totalLossOfPayDays} loss of pay`,
         },
         {
           label: 'Active Headcount',
@@ -1441,11 +1467,12 @@ export async function registerRoutes(app: FastifyInstance) {
       const payHeaders = [
         { label: 'EMP ID', x: margin, right: false },
         { label: 'EMPLOYEE', x: margin + 55, right: false },
-        { label: 'DEPARTMENT', x: margin + 185, right: false },
-        { label: 'OPENING', x: margin + 300, right: true },
-        { label: 'EARNED', x: margin + 345, right: true },
-        { label: 'USED', x: margin + 390, right: true },
-        { label: 'PENDING', x: margin + 435, right: true },
+        { label: 'DEPARTMENT', x: margin + 175, right: false },
+        { label: 'OPENING', x: margin + 270, right: true },
+        { label: 'EARNED', x: margin + 312, right: true },
+        { label: 'USED', x: margin + 354, right: true },
+        { label: 'LOP', x: margin + 396, right: true },
+        { label: 'PENDING', x: margin + 438, right: true },
         { label: 'CLOSING', x: margin + 485, right: true },
       ];
       const drawPayHeader = (p: typeof page, currY: number) => {
@@ -1495,10 +1522,11 @@ export async function registerRoutes(app: FastifyInstance) {
         const cells = [
           String(r.employeeCode),
           String(r.name).slice(0, 24),
-          String(r.department).slice(0, 20),
+          String(r.department).slice(0, 16),
           String(r.opening),
           String(r.earned),
           String(r.used),
+          String(r.lossOfPay),
           String(r.pending),
           String(r.closing),
         ];

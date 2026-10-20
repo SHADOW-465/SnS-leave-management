@@ -47,8 +47,6 @@ export type LeavePolicyRules = {
   probationExperiencedMonthlyHalfDays: number | null;
   /** Monthly credit for a fresher on probation. */
   probationFresherMonthlyHalfDays: number | null;
-  /** A request past the balance is allowed; the shortfall is loss of pay. */
-  lossOfPayOnShortfall: boolean;
 };
 
 export const DEFAULT_POLICY: LeavePolicyRules = {
@@ -76,7 +74,6 @@ export const DEFAULT_POLICY: LeavePolicyRules = {
   confirmedFromMonthlyHalfDays: null,
   probationExperiencedMonthlyHalfDays: null,
   probationFresherMonthlyHalfDays: null,
-  lossOfPayOnShortfall: false,
 };
 
 /**
@@ -119,17 +116,7 @@ export function withCompanyEarnedLeave(
     confirmedFromMonthlyHalfDays: company.confirmedFromMonthlyHalfDays,
     probationExperiencedMonthlyHalfDays: company.probationExperiencedMonthlyHalfDays,
     probationFresherMonthlyHalfDays: company.probationFresherMonthlyHalfDays,
-    lossOfPayOnShortfall: parsed.lossOfPayOnShortfall ?? true,
   };
-}
-
-export function splitLossOfPay(
-  countedHalfDays: number,
-  availableHalfDays: number,
-): { paidHalfDays: number; lopHalfDays: number } {
-  const available = Math.max(0, availableHalfDays);
-  const paidHalfDays = Math.min(countedHalfDays, available);
-  return { paidHalfDays, lopHalfDays: countedHalfDays - paidHalfDays };
 }
 
 export function defaultRulesForCode(code: string): LeavePolicyRules {
@@ -161,7 +148,6 @@ export function defaultRulesForCode(code: string): LeavePolicyRules {
         confirmedFromMonthlyHalfDays: 4,
         probationExperiencedMonthlyHalfDays: 2,
         probationFresherMonthlyHalfDays: 0,
-        lossOfPayOnShortfall: true,
       };
     default:
       return base;
@@ -179,7 +165,6 @@ export function validatePolicyAgainstRequest(input: {
   halfDayStart: DayPortion | null;
   halfDayEnd: DayPortion | null;
   hasAttachment: boolean;
-  availableHalfDays: number;
 }): void {
   const { rules } = input;
 
@@ -245,22 +230,7 @@ export function validatePolicyAgainstRequest(input: {
       { details: [{ path: 'attachment', message: 'Upload the required document.' }] },
     );
   }
-
-  if (
-    !rules.lossOfPayOnShortfall &&
-    !rules.negativeBalanceAllowed &&
-    input.countedHalfDays > input.availableHalfDays
-  ) {
-    const short = (input.countedHalfDays - input.availableHalfDays) / 2;
-    throw new DomainError('LEAVE_INSUFFICIENT_BALANCE', 'Not enough leave for these dates.', {
-      details: [
-        {
-          path: 'endDate',
-          message: `Exceeds available balance by ${short} day(s).`,
-        },
-      ],
-    });
-  }
+  // A request past the balance is never refused: the shortfall is loss of pay.
 }
 
 function addDaysSafe(iso: string, n: number): string {

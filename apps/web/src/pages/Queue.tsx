@@ -470,6 +470,11 @@ export function QueuePage({ me }: { me: Me }) {
                       <dt>Working Days</dt>
                       <dd className="mono">{dayCount(detail.data.total_half_days)} counted</dd>
 
+                      <dt>Paid Days</dt>
+                      <dd className="mono">
+                        {dayCount(detail.data.total_half_days - (detail.data.lop_half_days ?? 0))}
+                      </dd>
+
                       <dt>Loss of Pay</dt>
                       <dd
                         className="mono"
@@ -479,7 +484,7 @@ export function QueuePage({ me }: { me: Me }) {
                         }}
                       >
                         {(detail.data.lop_half_days ?? 0) > 0
-                          ? `${dayCount(detail.data.lop_half_days ?? 0)} days (unpaid)`
+                          ? `${dayCount(detail.data.lop_half_days ?? 0)} (unpaid)`
                           : 'None'}
                       </dd>
 

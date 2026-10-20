@@ -28,7 +28,6 @@ type Rules = {
   confirmedFromMonthlyHalfDays?: number | null;
   probationExperiencedMonthlyHalfDays?: number | null;
   probationFresherMonthlyHalfDays?: number | null;
-  lossOfPayOnShortfall?: boolean;
 };
 
 /** Versions published before a setting existed lack it; fill the same defaults the server uses. */
@@ -40,7 +39,6 @@ function normalise(json: string): Rules {
     joinMonthAccrual: 'prorated',
     probationMonthlyHalfDays: null,
     maxBalanceHalfDays: 0,
-    lossOfPayOnShortfall: raw.lossOfPayOnShortfall ?? true,
     ...raw,
     categoryMonthlyHalfDays: raw.categoryMonthlyHalfDays ?? {},
   } as Rules;
@@ -439,12 +437,6 @@ function PolicyEditor({ policy, readOnly }: { policy: Policy; readOnly: boolean 
           <fieldset disabled={readOnly}>
             <legend>Counting days</legend>
             <div className="fields">
-              <Toggle
-                label="Shortfall is loss of pay"
-                hint="Leave beyond the earned balance is allowed. The extra days are shown as loss of pay and the employee is told."
-                checked={rules.lossOfPayOnShortfall !== false}
-                onChange={(v) => set('lossOfPayOnShortfall', v)}
-              />
               <Toggle
                 label="Weekends are not counted"
                 hint="Leave from Friday to Monday counts 2 days, not 4. The weekend itself is set under Working week."

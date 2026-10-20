@@ -659,6 +659,7 @@ function RequestTable({
     start_date: string;
     end_date: string;
     total_half_days: number;
+    lop_half_days?: number;
     status: string;
   }[];
 }) {
@@ -678,6 +679,8 @@ function RequestTable({
           <th>Type</th>
           <th>Dates</th>
           <th>Days</th>
+          <th>Paid</th>
+          <th>LOP</th>
           <th>Status</th>
         </tr>
       </thead>
@@ -702,6 +705,8 @@ function RequestTable({
             </td>
             <td>{formatRange(r.start_date, r.end_date)}</td>
             <td className="mono">{daysLabel(r.total_half_days)}</td>
+            <td className="mono">{daysLabel(r.total_half_days - (r.lop_half_days ?? 0))}</td>
+            <td className="mono">{daysLabel(r.lop_half_days ?? 0)}</td>
             <td>
               <StatusPill status={r.status} />
             </td>

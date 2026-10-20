@@ -38,7 +38,6 @@ export {
 export {
   DEFAULT_POLICY,
   defaultRulesForCode,
-  splitLossOfPay,
   withCompanyEarnedLeave,
   parseRules,
   validatePolicyAgainstRequest,

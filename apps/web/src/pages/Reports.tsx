@@ -24,6 +24,8 @@ type ReportsResponse = {
   cards: { label: string; value: string; note: string }[];
   summary: {
     totalApprovedDays: number;
+    totalPaidDays: number;
+    totalLossOfPayDays: number;
     totalApprovedRequests: number;
     pendingCount: number;
     pendingDays: number;
@@ -71,6 +73,7 @@ type ReportsResponse = {
     joinedOn: string;
     entitlementDays: number;
     takenDays: number;
+    lossOfPayDays: number;
     remainingDays: number;
     pendingDays: number;
   }[];
@@ -248,7 +251,10 @@ export function ReportsPage() {
               Days
             </span>
           </p>
-          <p className="reports-kpi-note">{summary.totalApprovedRequests} approved requests</p>
+          <p className="reports-kpi-note">
+            {summary.totalApprovedRequests} approved requests · {summary.totalPaidDays} paid,{' '}
+            {summary.totalLossOfPayDays} loss of pay
+          </p>
         </div>
 
         <div className="reports-kpi-card">
@@ -1108,6 +1114,16 @@ export function ReportsPage() {
                           textAlign: 'right',
                         }}
                       >
+                        Loss of pay
+                      </th>
+                      <th
+                        style={{
+                          padding: '11px 14px',
+                          color: 'var(--text-secondary)',
+                          fontWeight: 600,
+                          textAlign: 'right',
+                        }}
+                      >
                         Remaining
                       </th>
                       <th
@@ -1175,6 +1191,16 @@ export function ReportsPage() {
                           }}
                         >
                           {e.takenDays} d
+                        </td>
+                        <td
+                          style={{
+                            padding: '10px 14px',
+                            textAlign: 'right',
+                            fontVariantNumeric: 'tabular-nums',
+                            color: e.lossOfPayDays > 0 ? '#be123c' : undefined,
+                          }}
+                        >
+                          {e.lossOfPayDays} d
                         </td>
                         <td
                           style={{
@@ -1269,7 +1295,7 @@ export function ReportsPage() {
                       <th>Department</th>
                       <th>Opening</th>
                       <th>Earned</th>
-                      <th>Leave taken</th>
+                      <th>Leave taken (paid)</th>
                       <th>Loss of pay</th>
                       <th>Permission (hours)</th>
                       <th>Pending</th>
@@ -1323,6 +1349,7 @@ type Annual = {
     earned: number;
     adjusted: number;
     used: number;
+    lossOfPay: number;
     pending: number;
     closing: number;
     monthly: number[];
@@ -1400,7 +1427,8 @@ function AnnualReport() {
               {d.months.map((m) => (
                 <th key={m}>{m}</th>
               ))}
-              <th>Used</th>
+              <th>Used (paid)</th>
+              <th>Loss of pay</th>
               <th>Pending</th>
               <th>Closing</th>
             </tr>
@@ -1420,6 +1448,7 @@ function AnnualReport() {
                   </td>
                 ))}
                 <td className="mono">{fmt(r.used)}</td>
+                <td className="mono">{fmt(r.lossOfPay)}</td>
                 <td className="mono">{fmt(r.pending)}</td>
                 <td className="mono">
                   <strong>{r.closing}</strong>

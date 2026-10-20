@@ -51,6 +51,7 @@ export const policyRulesSchema = z
     confirmedFromMonthlyHalfDays: z.number().int().min(0).max(62).nullable().default(null),
     probationExperiencedMonthlyHalfDays: z.number().int().min(0).max(62).nullable().default(null),
     probationFresherMonthlyHalfDays: z.number().int().min(0).max(62).nullable().default(null),
-    lossOfPayOnShortfall: z.boolean().default(false),
+    /** Ignored. Leave past the balance is always loss of pay; kept so older stored rules still parse. */
+    lossOfPayOnShortfall: z.boolean().optional(),
   })
   .strict();

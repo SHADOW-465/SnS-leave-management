@@ -11,7 +11,6 @@ import {
   newId,
   parseRules,
   releaseQuantity,
-  splitLossOfPay,
   withCompanyEarnedLeave,
   NoApproverError,
   describeApprover,
@@ -32,6 +31,7 @@ import {
   type ResolvedApprover,
   type RoleCode,
 } from '@sns/domain';
+import { splitLeaveDays } from '@sns/contracts';
 import { authorizeAction, requirePrincipal, type RequestContext } from '../ctx.js';
 import { currentPeriodId } from './setup.js';
 type LeaveRow = {
@@ -220,6 +220,7 @@ export async function previewLeave(
   const counted = totalCountedHalfDays(days);
   const periodId = await currentPeriodId(ctx);
   const available = await availableHalfDays(ctx, employeeId, input.leaveTypeId, periodId);
+  const split = splitLeaveDays({ availableHalfDays: available, requestedHalfDays: counted });
   const type = (await ctx.sqlite
     .prepare(`SELECT name FROM leave_type WHERE id = ?`)
     .get(input.leaveTypeId)) as
@@ -251,14 +252,10 @@ export async function previewLeave(
     skipped: skippedSummary(days),
     days,
     available: formatHalfDays(available),
-    after: formatHalfDays(
-      previewRules.lossOfPayOnShortfall
-        ? available - splitLossOfPay(counted, available).paidHalfDays
-        : available - counted,
-    ),
-    lossOfPay: formatHalfDays(
-      previewRules.lossOfPayOnShortfall ? splitLossOfPay(counted, available).lopHalfDays : 0,
-    ),
+    availableHalfDays: available,
+    after: formatHalfDays(available - split.paidHalfDays),
+    paidDays: formatHalfDays(split.paidHalfDays),
+    lossOfPay: formatHalfDays(split.lopHalfDays),
     leaveTypeName: type?.name ?? '',
     ownOverlap,
     overlaps: overlaps.map((o) => ({
@@ -403,9 +400,7 @@ export async function submitLeave(
   const counted = totalCountedHalfDays(days);
   const periodId = await currentPeriodId(ctx);
   const available = await availableHalfDays(ctx, employeeId, input.leaveTypeId, periodId);
-  const split = policy.rules.lossOfPayOnShortfall
-    ? splitLossOfPay(counted, available)
-    : { paidHalfDays: counted, lopHalfDays: 0 };
+  const split = splitLeaveDays({ availableHalfDays: available, requestedHalfDays: counted });
   validatePolicyAgainstRequest({
     rules: policy.rules,
     countedHalfDays: counted,
@@ -417,7 +412,6 @@ export async function submitLeave(
     halfDayStart: input.halfDayStart ?? null,
     halfDayEnd: input.halfDayEnd ?? null,
     hasAttachment: Boolean(input.attachmentId),
-    availableHalfDays: available,
   });
   if (
     await hasOwnOverlappingLeave(ctx, employeeId, {
@@ -1248,9 +1242,10 @@ async function recalculateRequest(
           .get(req.id)) as { id: string; quantity_half_days: number } | undefined;
         const curAvail = await availableHalfDays(ctx, req.employee_id, req.leave_type_id, periodId);
         const effectiveAvail = curAvail + (hold ? -hold.quantity_half_days : 0);
-        const split = rules.lossOfPayOnShortfall
-          ? splitLossOfPay(counted, effectiveAvail)
-          : { paidHalfDays: counted, lopHalfDays: 0 };
+        const split = splitLeaveDays({
+          availableHalfDays: effectiveAvail,
+          requestedHalfDays: counted,
+        });
         lopHalfDays = split.lopHalfDays;
         paidNow = split.paidHalfDays;
 

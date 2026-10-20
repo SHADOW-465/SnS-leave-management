@@ -12,6 +12,7 @@ type Entry = {
   kind: string;
   label: string;
   days: number;
+  lossOfPayDays: number;
   balanceAfter: number;
   reference: string | null;
   requestId: string | null;
@@ -26,6 +27,7 @@ type Summary = {
   manualCredit: number;
   manualDeduction: number;
   used: number;
+  lossOfPay: number;
   pending: number;
   closing: number;
 };
@@ -154,6 +156,7 @@ export function TransactionsPage({ me }: { me: Me }) {
                       <th>Manual credit</th>
                       <th>Manual deduction</th>
                       <th>Used</th>
+                      <th>Loss of pay</th>
                       <th>Closing</th>
                       <th>Pending approval</th>
                     </tr>
@@ -169,6 +172,7 @@ export function TransactionsPage({ me }: { me: Me }) {
                         <td>{n(s.manualCredit)}</td>
                         <td>{n(s.manualDeduction)}</td>
                         <td>{n(s.used)}</td>
+                        <td>{n(s.lossOfPay)}</td>
                         <td>
                           <strong>{n(s.closing)}</strong>
                         </td>
@@ -224,6 +228,12 @@ export function TransactionsPage({ me }: { me: Me }) {
                               ) : (
                                 e.reference
                               )}
+                            </div>
+                          ) : null}
+                          {e.lossOfPayDays > 0 ? (
+                            <div className="muted small">
+                              Plus {n(e.lossOfPayDays)} day(s) loss of pay, not taken from the
+                              balance
                             </div>
                           ) : null}
                           {e.reason && !e.reason.startsWith('Monthly accrual') ? (

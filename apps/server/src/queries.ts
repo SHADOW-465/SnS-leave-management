@@ -1056,7 +1056,7 @@ export async function leaveTransactions(
       `SELECT l.id, l.leave_type_id AS "leaveTypeId", t.name AS "leaveType", l.entry_type AS "entryType",
               l.quantity_half_days AS q, l.effective_on AS "effectiveOn", l.created_at AS "createdAt",
               l.source_type AS "sourceType", l.source_id AS "sourceId", l.reason,
-              r.start_date AS "reqStart", r.end_date AS "reqEnd",
+              r.start_date AS "reqStart", r.end_date AS "reqEnd", r.lop_half_days AS "reqLop",
               COALESCE(ue.first_name || ' ' || ue.last_name, ua.email, l.created_by) AS "by"
          FROM balance_ledger l
          JOIN leave_type t ON t.id = l.leave_type_id
@@ -1081,6 +1081,7 @@ export async function leaveTransactions(
     reason: string | null;
     reqStart: string | null;
     reqEnd: string | null;
+    reqLop: number | null;
     by: string | null;
   }[];
   const running = new Map<string, number>();
@@ -1105,6 +1106,8 @@ export async function leaveTransactions(
       kind: r.entryType,
       label,
       days: q / 2,
+      // Days of the same request that were not covered by the balance. Payroll shows the same figure.
+      lossOfPayDays: r.entryType === 'DEDUCTION' ? Number(r.reqLop ?? 0) / 2 : 0,
       balanceAfter: after / 2,
       reference: r.reqStart
         ? r.reqStart === r.reqEnd
@@ -1138,6 +1141,7 @@ export async function leaveTransactions(
       manualCredit: manual.filter((e) => e.days > 0).reduce((a, e) => a + e.days, 0),
       manualDeduction: -manual.filter((e) => e.days < 0).reduce((a, e) => a + e.days, 0),
       used: -sum(['DEDUCTION', 'ENCASHMENT', 'EXPIRY']) - sum(['CANCELLATION_CREDIT']),
+      lossOfPay: mine.reduce((a, e) => a + e.lossOfPayDays, 0),
       pending: pendingBy.get(id) ?? 0,
       closing: (running.get(id) ?? 0) / 2,
     };
@@ -1253,6 +1257,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     .prepare(
       `SELECT substr(start_date, 1, 7) AS ym,
               COALESCE(SUM(total_half_days), 0) AS half,
+              COALESCE(SUM(lop_half_days), 0) AS lop_half,
               COUNT(*) AS req_count,
               COUNT(DISTINCT employee_id) AS emp_count
        FROM leave_request
@@ -1263,6 +1268,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     .all()) as {
     ym: string;
     half: number;
+    lop_half: number;
     req_count: number;
     emp_count: number;
   }[];
@@ -1272,6 +1278,8 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     label: m.ym.slice(5),
     days: (Number(m.half) || 0) / 2,
     half: Number(m.half) || 0,
+    lossOfPayDays: (Number(m.lop_half) || 0) / 2,
+    paidDays: ((Number(m.half) || 0) - (Number(m.lop_half) || 0)) / 2,
     requestCount: Number(m.req_count) || 0,
     employeeCount: Number(m.emp_count) || 0,
   }));
@@ -1297,6 +1305,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
 
   const totalApprovedHalf = byMonth.reduce((a, b) => a + b.half, 0);
   const totalApprovedDays = totalApprovedHalf / 2;
+  const totalLossOfPayDays = byMonth.reduce((a, b) => a + b.lossOfPayDays, 0);
   const totalApprovedRequests = byMonth.reduce((a, b) => a + b.requestCount, 0);
   const avgDaysPerEmp =
     activeHeadcount.n > 0 ? (totalApprovedDays / activeHeadcount.n).toFixed(1) : '0.0';
@@ -1306,6 +1315,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
       `SELECT d.id, d.code, d.name,
               COUNT(DISTINCT CASE WHEN e.status != 'exited' THEN e.id ELSE NULL END) AS head_count,
               COALESCE(SUM(CASE WHEN r.status = 'approved' THEN r.total_half_days ELSE 0 END), 0) AS half,
+              COALESCE(SUM(CASE WHEN r.status = 'approved' THEN r.lop_half_days ELSE 0 END), 0) AS lop_half,
               COUNT(DISTINCT CASE WHEN r.status = 'approved' THEN r.id ELSE NULL END) AS req_count
        FROM department d
        LEFT JOIN employee e ON e.department_id = d.id
@@ -1319,6 +1329,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     name: string;
     head_count: number;
     half: number;
+    lop_half: number;
     req_count: number;
   }[];
 
@@ -1331,6 +1342,8 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
       name: d.name,
       headcount: hc,
       totalDaysTaken: days,
+      lossOfPayDays: (Number(d.lop_half) || 0) / 2,
+      paidDays: days - (Number(d.lop_half) || 0) / 2,
       avgDaysPerEmployee: hc > 0 ? (days / hc).toFixed(1) : '0.0',
       requestCount: Number(d.req_count) || 0,
     };
@@ -1340,6 +1353,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     .prepare(
       `SELECT t.id, t.code, t.name, t.colour_token,
               COALESCE(SUM(CASE WHEN r.status = 'approved' THEN r.total_half_days ELSE 0 END), 0) AS half,
+              COALESCE(SUM(CASE WHEN r.status = 'approved' THEN r.lop_half_days ELSE 0 END), 0) AS lop_half,
               COUNT(DISTINCT CASE WHEN r.status = 'approved' THEN r.id ELSE NULL END) AS req_count,
               COUNT(DISTINCT CASE WHEN r.status = 'approved' THEN r.employee_id ELSE NULL END) AS emp_count
        FROM leave_type t
@@ -1353,6 +1367,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     name: string;
     colour_token: string;
     half: number;
+    lop_half: number;
     req_count: number;
     emp_count: number;
   }[];
@@ -1366,6 +1381,8 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
       name: t.name,
       colourToken: t.colour_token,
       totalDaysTaken: days,
+      lossOfPayDays: (Number(t.lop_half) || 0) / 2,
+      paidDays: days - (Number(t.lop_half) || 0) / 2,
       percentOfTotal: pct,
       requestCount: Number(t.req_count) || 0,
       employeeCount: Number(t.emp_count) || 0,
@@ -1436,6 +1453,19 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     );
   }
 
+  const lopByEmpRaw = (await ctx.sqlite
+    .prepare(
+      `SELECT employee_id, COALESCE(SUM(lop_half_days), 0) AS half
+         FROM leave_request
+        WHERE status = 'approved' AND start_date >= ? AND start_date <= ?
+        GROUP BY employee_id`,
+    )
+    .all(
+      period?.starts_on ?? `${ctx.today.slice(0, 4)}-01-01`,
+      period?.ends_on ?? `${ctx.today.slice(0, 4)}-12-31`,
+    )) as { employee_id: string; half: number }[];
+  const lopByEmpMap = new Map(lopByEmpRaw.map((r) => [r.employee_id, (Number(r.half) || 0) / 2]));
+
   const empLedgerMap = new Map<
     string,
     {
@@ -1487,6 +1517,7 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
       joinedOn: e.joined_on,
       entitlementDays: grantedDays,
       takenDays,
+      lossOfPayDays: lopByEmpMap.get(e.id) ?? 0,
       remainingDays,
       pendingDays,
     };
@@ -1516,6 +1547,8 @@ export async function reports(ctx: RequestContext, opts?: { year?: number; month
     ],
     summary: {
       totalApprovedDays,
+      totalLossOfPayDays,
+      totalPaidDays: totalApprovedDays - totalLossOfPayDays,
       totalApprovedRequests,
       pendingCount: pendingAge.n,
       pendingDays: (Number(pendingAge.half) || 0) / 2,
@@ -1782,6 +1815,14 @@ export async function annualReport(
     ym: string;
     n: number;
   }[];
+  const lopRows = (await ctx.sqlite
+    .prepare(
+      `SELECT employee_id AS "employeeId", COALESCE(SUM(lop_half_days), 0) AS n
+         FROM leave_request
+        WHERE leave_type_id = ? AND status = 'approved' AND start_date >= ? AND start_date <= ?
+        GROUP BY employee_id`,
+    )
+    .all(leaveType.id, period.startsOn, period.endsOn)) as { employeeId: string; n: number }[];
   const sum = (id: string, kinds: string[]) =>
     ledgerRows
       .filter((r) => r.employeeId === id && kinds.includes(r.entryType))
@@ -1807,6 +1848,8 @@ export async function annualReport(
       earned,
       adjusted,
       used: usedTotal,
+      lossOfPay:
+        lopRows.filter((l) => l.employeeId === person.id).reduce((a, l) => a + Number(l.n), 0) / 2,
       pending,
       closing: opening + earned + adjusted - usedTotal,
       monthly,

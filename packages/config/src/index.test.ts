@@ -8,6 +8,17 @@ describe('config', () => {
     expect(c.host).toBe('127.0.0.1');
   });
 
+  it('reads the session limits from the environment', () => {
+    expect(loadConfig({ LEAVEOS_DATA_DIR: './data' }).sessionIdleHours).toBe(2);
+    const c = loadConfig({
+      LEAVEOS_DATA_DIR: './data',
+      LEAVEOS_SESSION_IDLE_HOURS: '1',
+      LEAVEOS_SESSION_ABSOLUTE_HOURS: '10',
+    });
+    expect(c.sessionIdleHours).toBe(1);
+    expect(c.sessionAbsoluteHours).toBe(10);
+  });
+
   it('names the offending key', () => {
     expect(() => loadConfig({ LEAVEOS_DATA_DIR: './data', LEAVEOS_PORT: 'nope' })).toThrow(/port/);
   });

@@ -41,6 +41,41 @@ export function isOfficeNetwork(rawIp: string | null | undefined): boolean {
   return false;
 }
 
+/** Failed sign-ins allowed in the window before the next try is refused, whatever the password. */
+export const LOGIN_WINDOW_MINUTES = 15;
+export const LOGIN_LIMIT_PER_IP = 20;
+export const LOGIN_LIMIT_PER_NAME = 10;
+
+/**
+ * The per-account lockout only protects accounts that exist. This limits by the address the
+ * attempts come from and by the name tried, so guessing across many accounts, or at a name
+ * that does not exist, is slowed too.
+ */
+async function assertNotRateLimited(ctx: RequestContext, identifier: string): Promise<void> {
+  const since = new Date(Date.parse(ctx.now) - LOGIN_WINDOW_MINUTES * 60_000).toISOString();
+  const count = async (column: 'ip' | 'email_attempted', value: string | null) => {
+    if (!value) return 0;
+    const row = (await ctx.sqlite
+      .prepare(
+        column === 'ip'
+          ? `SELECT COUNT(*) AS n FROM login_attempt WHERE succeeded = 0 AND created_at > ? AND ip = ?`
+          : `SELECT COUNT(*) AS n FROM login_attempt WHERE succeeded = 0 AND created_at > ? AND LOWER(TRIM(email_attempted)) = LOWER(?)`,
+      )
+      .get(since, value)) as { n: number };
+    return Number(row.n);
+  };
+  if (
+    (await count('ip', ctx.ip || null)) >= LOGIN_LIMIT_PER_IP ||
+    (await count('email_attempted', identifier)) >= LOGIN_LIMIT_PER_NAME
+  ) {
+    throw new DomainError(
+      'LOGIN_RATE_LIMITED',
+      `Too many failed sign-in attempts. Wait ${LOGIN_WINDOW_MINUTES} minutes and try again.`,
+      { httpStatus: 429 },
+    );
+  }
+}
+
 export async function login(
   ctx: RequestContext,
   input: {
@@ -53,6 +88,7 @@ export async function login(
 ) {
   // People sign in with username, work email, or employee ID (e.g. SNS-1001).
   const identifier = input.email.trim();
+  await assertNotRateLimited(ctx, identifier);
   const account = (await ctx.sqlite
     .prepare(
       `SELECT ua.* FROM user_account ua

@@ -124,6 +124,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tlsCertPath: env.LEAVEOS_TLS_CERT ?? file.tlsCertPath,
     tlsKeyPath: env.LEAVEOS_TLS_KEY ?? file.tlsKeyPath,
     logLevel: env.LEAVEOS_LOG_LEVEL ?? file.logLevel,
+    sessionAbsoluteHours: env.LEAVEOS_SESSION_ABSOLUTE_HOURS ?? file.sessionAbsoluteHours,
+    sessionIdleHours: env.LEAVEOS_SESSION_IDLE_HOURS ?? file.sessionIdleHours,
     cookieSecure:
       env.LEAVEOS_COOKIE_SECURE ??
       file.cookieSecure ??

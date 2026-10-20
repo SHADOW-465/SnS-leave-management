@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- **Sign-in rate limiting.** More than 20 failed sign-ins from one address, or 10 at one name (including a name that does not exist), in 15 minutes are refused with `429 LOGIN_RATE_LIMITED`, on top of the existing per-account lockout. Session expiry (2 hours idle, 8 hours absolute) is now covered by tests and set with `LEAVEOS_SESSION_IDLE_HOURS` and `LEAVEOS_SESSION_ABSOLUTE_HOURS`.
 - **Loss of pay confirmation.** When a request includes loss of pay days, Apply shows a tick box ("I understand that N days of this request will be loss of pay") that must be ticked before Submit, and the server refuses the request with `LOP_CONFIRMATION_REQUIRED` unless `confirmLossOfPay` is true. Approvers already see the loss of pay days in the queue and on the request.
 - **Administrator recovery on the host PC.** The host panel has an Administrator recovery section. It resets any administrator account to a new random temporary password, shown once on a no-store page, lifts the lockout, re-enables the account, signs it out everywhere, and records `host.admin.recovered`. It is reachable only from the host computer (the panel refuses any other address) and needs the panel token. There is deliberately no command-line script: only the server process opens the database.
 

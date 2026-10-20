@@ -2,10 +2,13 @@ import { createServer } from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import QRCode from 'qrcode';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ensureLanCertificate } from './tls.js';
 import {
   bindSetupServer,
+  certificateHosts,
+  createSetupHandler,
   currentSetupPort,
   noteSetupPort,
   safeHost,
@@ -41,6 +44,7 @@ describe('staff setup page', () => {
       setupUrl: 'http://sns-leave/',
       httpsPort: 8443,
       qrSvg: '<svg id="qr"></svg>',
+      probeHosts: ['sns-leave', '10.4.4.4'],
     });
     expect(html).toContain('Set up this computer');
     expect(html).toContain('no-cors');
@@ -82,7 +86,9 @@ describe('staff setup page', () => {
     const html = await page.text();
     expect(html).toContain('Set up this computer');
     expect(html).toContain('<svg');
-    expect(html).toContain(`http://127.0.0.1:${started!.port}/`);
+    // The address shown is the office name, not the 127.0.0.1 this request came in on.
+    expect(html).toContain(`http://sns-leave:${started!.port}`);
+    expect(html).not.toContain(`http://127.0.0.1:${started!.port}/`);
 
     const cmdRes = await fetch(`http://127.0.0.1:${started!.port}/setup/trust.cmd`);
     expect(cmdRes.status).toBe(200);
@@ -183,5 +189,63 @@ describe('staff setup page', () => {
     expect(text).toContain('Port 80 is not available');
     expect(text).toContain('Port 80 was not available.');
     expect(text).toContain(`Staff setup page is using http://sns-leave:${started!.port}.`);
+  });
+});
+
+describe('setup page trust check and QR code', () => {
+  it('probes only names the certificate covers, never an arbitrary request host', () => {
+    const base = { hostname: 'sns-leave', address: '10.4.4.4' };
+    expect(certificateHosts({ ...base, requestHost: 'sns-leave' })).toEqual([
+      'sns-leave',
+      'sns-leave.local',
+      '10.4.4.4',
+      'localhost',
+      '127.0.0.1',
+    ]);
+    // A computer name or a stale IP is not on the certificate: it is not probed.
+    const hosts = certificateHosts({ ...base, requestHost: 'office-pc' });
+    expect(hosts).not.toContain('office-pc');
+    expect(hosts[0]).toBe('sns-leave');
+    // A covered name the browser used is tried first.
+    expect(certificateHosts({ ...base, requestHost: 'localhost' })[0]).toBe('localhost');
+  });
+
+  it('succeeds if any covered name completes a secure request', () => {
+    const html = setupPageHtml({
+      setupUrl: 'http://sns-leave',
+      httpsPort: 8443,
+      qrSvg: '',
+      probeHosts: ['sns-leave', '10.4.4.4'],
+    });
+    expect(html).toContain('Promise.any');
+    expect(html).toContain('["sns-leave","10.4.4.4"]');
+    expect(html).not.toContain('location.hostname');
+  });
+
+  it('encodes the office LAN address in the QR code, not the request host', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leaveos-setup-'));
+    dirs.push(dir);
+    await ensureLanCertificate(dir, { addresses: ['10.4.4.4'] });
+    const spy = vi.spyOn(QRCode, 'toString').mockResolvedValue('<svg></svg>' as never);
+    try {
+      const server = createServer(
+        createSetupHandler({
+          hostname: async () => 'sns-leave',
+          httpsPort: 8443,
+          certDir: dir,
+          setupPort: () => 80,
+          lanAddress: () => '10.4.4.4',
+        }),
+      );
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      closers.push(() => new Promise((resolve) => server.close(() => resolve())));
+      const port = (server.address() as { port: number }).port;
+      const res = await fetch(`http://127.0.0.1:${port}/`, { headers: { host: 'localhost' } });
+      expect(res.status).toBe(200);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]![0]).toBe('http://sns-leave');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

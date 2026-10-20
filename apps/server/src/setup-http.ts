@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 // Static import so esbuild bundles qrcode; the installer ships no node_modules for it.
 import QRCode from 'qrcode';
+import { setupStaffUrls } from './discovery.js';
+import { lanAddress } from './host-local.js';
 import { CA_FILE } from './tls.js';
-
 
 type QrModule = {
   toString: (text: string, opts: { type: 'svg'; margin: number }) => Promise<string>;
@@ -69,13 +70,37 @@ function esc(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
+/**
+ * Names the office certificate is issued for. The trust probe must use one of these: probing
+ * whatever name the browser happened to type (a computer name, a changed IP) fails the
+ * certificate check on a computer that does trust the root.
+ */
+export function certificateHosts(input: {
+  hostname: string;
+  address: string | null;
+  requestHost: string;
+}): string[] {
+  const name = input.hostname.trim().toLowerCase() || 'sns-leave';
+  const known = [
+    name,
+    `${name}.local`,
+    ...(input.address ? [input.address] : []),
+    'localhost',
+    '127.0.0.1',
+  ];
+  const asked = input.requestHost.toLowerCase();
+  return known.includes(asked) ? [asked, ...known.filter((h) => h !== asked)] : known;
+}
+
 export function setupPageHtml(input: {
   setupUrl: string;
   httpsPort: number;
   qrSvg: string;
+  probeHosts: string[];
 }): string {
   const qr = input.qrSvg.trim().startsWith('<svg') ? input.qrSvg : '';
   const port = JSON.stringify(input.httpsPort);
+  const hosts = JSON.stringify(input.probeHosts).replaceAll('<', '\u003c');
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -118,16 +143,29 @@ export function setupPageHtml(input: {
   </section>
 </main>
 <script>
-const target = 'https://' + location.hostname + ':' + ${port} + '/';
+const hosts = ${hosts};
 const checking = document.getElementById('checking');
 window.addEventListener('offline', function () {
   const el = document.getElementById('offline');
   if (el) el.hidden = false;
 });
-fetch(target + 'healthz', { mode: 'no-cors', cache: 'no-store' }).then(function () {
+// Trusted means the browser completed a TLS handshake with one of the names the certificate covers.
+function probe(host) {
+  const target = 'https://' + host + ':' + ${port} + '/';
+  const ctl = new AbortController();
+  const timer = setTimeout(function () { ctl.abort(); }, 4000);
+  return fetch(target + 'healthz', { mode: 'no-cors', cache: 'no-store', signal: ctl.signal }).then(function () {
+    clearTimeout(timer);
+    return target;
+  }, function (err) {
+    clearTimeout(timer);
+    throw err;
+  });
+}
+Promise.any(hosts.map(probe)).then(function (target) {
   location.replace(target);
 }).catch(function () {
-  if (checking) checking.textContent = 'This computer has not trusted Leave OS yet.';
+  if (checking) checking.textContent = 'This computer has not trusted Leave OS yet, or the office computer cannot be reached over a secure connection.';
 });
 </script>
 </body>
@@ -139,15 +177,21 @@ function httpsHome(host: string, httpsPort: number): string {
 }
 
 export function createSetupHandler(input: {
-  hostname: string;
+  /** The office name. A function so a rename on the host panel shows without a restart. */
+  hostname: string | (() => Promise<string>);
   httpsPort: number;
   certDir: string;
   setupPort: () => number;
+  lanAddress?: () => string | null;
 }): RequestListener {
-  const fallback = input.hostname.trim().toLowerCase() || 'sns-leave';
+  const officeName = async () =>
+    (typeof input.hostname === 'function' ? await input.hostname() : input.hostname)
+      .trim()
+      .toLowerCase() || 'sns-leave';
   return (req, res) => {
     void (async () => {
-      const host = safeHost(req.headers.host, fallback);
+      const name = await officeName();
+      const host = safeHost(req.headers.host, name);
       const url = new URL(req.url ?? '/', 'http://setup.local');
       const caPath = path.join(input.certDir, CA_FILE);
       if (!fs.existsSync(caPath)) {
@@ -174,7 +218,12 @@ export function createSetupHandler(input: {
         return;
       }
       if (url.pathname === '/setup/trust.cmd') {
-        const cmd = trustHelperCmd(caPem.toString('utf8'), httpsHome(host, input.httpsPort));
+        const [home = name] = certificateHosts({
+          hostname: name,
+          address: (input.lanAddress ?? lanAddress)(),
+          requestHost: host,
+        });
+        const cmd = trustHelperCmd(caPem.toString('utf8'), httpsHome(home, input.httpsPort));
         res.writeHead(200, {
           'content-type': 'application/octet-stream',
           'content-disposition': 'attachment; filename="Set-up-this-computer.cmd"',
@@ -188,7 +237,14 @@ export function createSetupHandler(input: {
         res.end('That page is not here. Open the setup address shown on the office computer.');
         return;
       }
-      const setupUrl = setupOrigin(host, input.setupPort());
+      // The address staff type, and the QR code encodes, is the office LAN address the host
+      // panel shows, not whatever name this request happened to arrive on (e.g. localhost).
+      const address = (input.lanAddress ?? lanAddress)();
+      const setupUrl = setupStaffUrls({
+        hostname: name,
+        setupPort: input.setupPort(),
+        address,
+      }).hostname;
       let qrSvg = '';
       try {
         qrSvg = await (QRCode as unknown as QrModule).toString(setupUrl, {
@@ -202,7 +258,14 @@ export function createSetupHandler(input: {
         'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store',
       });
-      res.end(setupPageHtml({ setupUrl, httpsPort: input.httpsPort, qrSvg }));
+      res.end(
+        setupPageHtml({
+          setupUrl,
+          httpsPort: input.httpsPort,
+          qrSvg,
+          probeHosts: certificateHosts({ hostname: name, address, requestHost: host }),
+        }),
+      );
     })().catch(() => {
       if (res.headersSent) return;
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
@@ -279,7 +342,7 @@ export async function bindSetupServer(
 }
 
 export async function startStaffSetup(input: {
-  hostname: string;
+  hostname: string | (() => Promise<string>);
   httpsPort: number;
   certDir: string;
   ports?: readonly number[];
@@ -293,7 +356,10 @@ export async function startStaffSetup(input: {
   if (!bound) return null;
   port = bound.port;
   noteSetupPort(port);
-  const name = input.hostname.trim().toLowerCase() || 'sns-leave';
+  const name =
+    (typeof input.hostname === 'function' ? await input.hostname() : input.hostname)
+      .trim()
+      .toLowerCase() || 'sns-leave';
   const link = port === 80 ? `http://${name}` : `http://${name}:${port}`;
   if ((ports[0] ?? 80) === 80 && port !== 80) {
     log(`Port 80 was not available. Staff setup page is using ${link}.`);

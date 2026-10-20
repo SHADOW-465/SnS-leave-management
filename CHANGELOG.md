@@ -7,6 +7,12 @@
 
 - **Loss of pay beyond the quota.** A request past the balance is never refused for insufficient balance: the days the balance covers are paid, the rest are loss of pay. One shared function, `splitLeaveDays` in `@sns/contracts`, does the split for both the server and the Apply page, so the numbers shown are the numbers stored. Apply shows remaining balance, paid days and loss-of-pay days before submit. Paid and LOP days also show on the dashboard request list, the approver queue and request detail, the leave transactions register, the monthly payroll, annual and executive reports, and the xlsx, pdf and csv exports. The "Shortfall is loss of pay" switch is gone; it is always on.
 
+### Fixed
+- **No shared temporary password.** New and reset sign-ins get their own cryptographically random password, shown once to the administrator in the existing dialog, and must change it at first sign-in. The administrator can no longer type a first password, and `OFFICE_DEMO_PASSWORD` is gone. Only the seeded sample people (demo data, `ChangeMe_demo_1`) keep a documented demo password.
+- **Number inputs clear properly.** Typing 12 over a 0 gives 12, not 012, on every number field (for example Days a year on Leave configuration).
+- **Setup page trust check.** The page tested the secure connection on whatever name the browser typed, so a computer name or changed address failed the certificate check on a computer that does trust Leave OS. It now tests the names the certificate covers and reports "not trusted" only when none connect.
+- **Setup page QR code.** It encodes the office LAN address the host panel shows (`http://sns-leave`), not the request host such as localhost.
+
 ### Removed
 - **Email notifications.** The mail settings and preview on Leave configuration, the sending job, the `nodemailer` dependency, the `LEAVEOS_PUBLIC_URL` setting (it only built mail links) and the office public-URL derivation are gone. In-app notifications are the only channel: a submitted request notifies the approver (the reporting manager, or the fallback approver), and an approval or rejection notifies the employee.
 

@@ -37,7 +37,7 @@ if (!process.env.VERCEL) {
     if (config.tlsEnabled && config.env !== 'test' && !config.hostedPreview) {
       try {
         const setup = await startStaffSetup({
-          hostname: await readLanHostname(runtime.db),
+          hostname: () => readLanHostname(runtime.db),
           httpsPort: config.port,
           certDir: pathsFor(config).certs,
           log: (message) => app.log.info(message),

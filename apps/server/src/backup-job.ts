@@ -17,7 +17,7 @@ export async function readBackupPolicy(
   const defaults: BackupSettings = {
     enabled: enabledByDefault,
     directory: fallbackDir,
-    retentionDays: 14,
+    retentionCount: 14,
   };
   const row = (await sqlite
     .prepare(`SELECT value_json FROM app_setting WHERE key = ?`)
@@ -34,6 +34,25 @@ export async function readBackupPolicy(
   } catch {
     return defaults;
   }
+}
+
+/** Stores the backup settings. The host panel calls this directly: it is loopback-only and has no signed-in user. */
+export async function writeBackupPolicy(sqlite: Db, input: BackupSettings, actor: string) {
+  const settings = backupSettingsSchema.parse(input);
+  const now = new Date().toISOString();
+  await sqlite
+    .prepare(
+      `INSERT INTO app_setting (key, value_json, updated_by, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    )
+    .run(KEY, JSON.stringify(settings), actor, now);
+  await sqlite
+    .prepare(
+      `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, after_json, result)
+       VALUES (?, ?, NULL, ?, 'ops.backup.updated', 'app_setting', ?, ?, 'ok')`,
+    )
+    .run(newId(), now, actor, KEY, JSON.stringify(settings));
+  return settings;
 }
 
 export async function saveBackupPolicy(ctx: RequestContext, input: BackupSettings) {
@@ -64,20 +83,21 @@ export async function saveBackupPolicy(ctx: RequestContext, input: BackupSetting
   return settings;
 }
 
-export function pruneBackupFiles(
-  directory: string,
-  retentionDays: number,
-  now = Date.now(),
-): string[] {
+/** Keeps the newest `keep` backup files in the folder and removes the rest. Other files are never touched. */
+export function pruneBackupFiles(directory: string, keep: number): string[] {
   if (!fs.existsSync(directory)) return [];
-  const cutoff = now - retentionDays * 24 * 60 * 60 * 1000;
+  const files = fs
+    .readdirSync(directory)
+    .filter((name) => /^backup-[A-Za-z0-9._-]+\.db$/.test(name))
+    .map((name) => {
+      const full = path.join(directory, name);
+      return { full, mtime: fs.statSync(full).mtimeMs };
+    })
+    .sort((a, b) => b.mtime - a.mtime || (a.full < b.full ? 1 : -1));
   const removed: string[] = [];
-  for (const name of fs.readdirSync(directory)) {
-    if (!/^backup-[A-Za-z0-9._-]+\.db$/.test(name)) continue;
-    const full = path.join(directory, name);
-    if (fs.statSync(full).mtimeMs >= cutoff) continue;
-    fs.rmSync(full);
-    removed.push(full);
+  for (const file of files.slice(Math.max(1, keep))) {
+    fs.rmSync(file.full);
+    removed.push(file.full);
   }
   return removed;
 }
@@ -86,7 +106,7 @@ export async function runScheduledBackup(
   sqlite: Db,
   fallbackDir: string,
   opts: { enabledByDefault?: boolean; now?: Date } = {},
-): Promise<'postgres' | 'disabled' | 'skipped' | 'written'> {
+): Promise<'postgres' | 'disabled' | 'skipped' | 'written' | 'failed'> {
   if (sqlite.dialect !== 'sqlite') return 'postgres';
   const now = opts.now ?? new Date();
   const settings = await readBackupPolicy(sqlite, fallbackDir, opts.enabledByDefault ?? false);
@@ -98,7 +118,25 @@ export async function runScheduledBackup(
     .get()) as { started_at: string } | undefined;
   if (last && now.getTime() - Date.parse(last.started_at) < GAP_MS) return 'skipped';
   const directory = settings.directory.trim() || fallbackDir;
-  await createBackupFile({ sqlite, backupsRoot: directory, now: now.toISOString() }, 'scheduled');
-  pruneBackupFiles(directory, settings.retentionDays, now.getTime());
+  try {
+    await createBackupFile({ sqlite, backupsRoot: directory, now: now.toISOString() }, 'scheduled');
+  } catch (err) {
+    // A USB drive that is unplugged or a share that is offline must show on the host panel
+    // rather than vanish into a swallowed job error.
+    await sqlite
+      .prepare(
+        `INSERT INTO backup_record (id, path, started_at, finished_at, integrity_check_result, trigger, status)
+         VALUES (?, ?, ?, ?, ?, 'scheduled', 'failed')`,
+      )
+      .run(
+        newId(),
+        directory,
+        now.toISOString(),
+        now.toISOString(),
+        err instanceof Error ? err.message : 'backup failed',
+      );
+    return 'failed';
+  }
+  pruneBackupFiles(directory, settings.retentionCount);
   return 'written';
 }

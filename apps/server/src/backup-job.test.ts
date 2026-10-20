@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, type Db } from '@sns/database';
 import { loadConfig, pathsFor } from '@sns/config';
 import { buildApp } from './app.js';
-import { pruneBackupFiles, runScheduledBackup } from './backup-job.js';
+import { collectHealth } from './health.js';
+import { pruneBackupFiles, runScheduledBackup, writeBackupPolicy } from './backup-job.js';
 
 const opened: { sqlite: Db; dir: string }[] = [];
 
@@ -49,13 +50,13 @@ describe('scheduled sqlite backup', () => {
     expect(fs.existsSync(backups)).toBe(false);
   });
 
-  it('writes to the configured folder, keeps a recent file, and drops an old one', async () => {
+  it('writes to the configured folder, keeps a recent file, and drops the oldest beyond the retention count', async () => {
     const { app, sqlite, dir, backups } = await boot();
     const folder = path.join(dir, 'second-copy');
     const denied = await app.inject({
       method: 'PUT',
       url: '/api/v1/settings/backup',
-      payload: { enabled: true, directory: folder, retentionDays: 14 },
+      payload: { enabled: true, directory: folder, retentionCount: 14 },
     });
     expect(denied.statusCode).toBe(401);
 
@@ -77,7 +78,7 @@ describe('scheduled sqlite backup', () => {
       method: 'PUT',
       url: '/api/v1/settings/backup',
       headers: { cookie, 'x-csrf-token': csrf },
-      payload: { enabled: true, directory: folder, retentionDays: 14 },
+      payload: { enabled: true, directory: folder, retentionCount: 2 },
     });
     expect(saved.statusCode).toBe(200);
 
@@ -103,7 +104,43 @@ describe('scheduled sqlite backup', () => {
     const kept = path.join(folder, 'backup-fresh.db');
     fs.writeFileSync(kept, 'fresh');
     fs.utimesSync(kept, now, now);
-    expect(pruneBackupFiles(folder, 14, now.getTime())).not.toContain(kept);
+    expect(pruneBackupFiles(folder, 14)).not.toContain(kept);
     expect(fs.existsSync(kept)).toBe(true);
+  });
+
+  it('keeps only the newest N backups and leaves other files alone', async () => {
+    const { dir } = await boot();
+    const folder = path.join(dir, 'usb');
+    fs.mkdirSync(folder);
+    for (let i = 1; i <= 5; i++) {
+      const file = path.join(folder, `backup-${i}.db`);
+      fs.writeFileSync(file, String(i));
+      const at = new Date(2026, 9, i);
+      fs.utimesSync(file, at, at);
+    }
+    fs.writeFileSync(path.join(folder, 'readme.txt'), 'x');
+    const removed = pruneBackupFiles(folder, 3).map((f) => path.basename(f));
+    expect(removed.sort()).toEqual(['backup-1.db', 'backup-2.db']);
+    expect(fs.readdirSync(folder).sort()).toEqual([
+      'backup-3.db',
+      'backup-4.db',
+      'backup-5.db',
+      'readme.txt',
+    ]);
+  });
+
+  it('records a failed scheduled backup when the folder is unavailable', async () => {
+    const { sqlite, dir, backups } = await boot();
+    const blocker = path.join(dir, 'not-a-folder');
+    fs.writeFileSync(blocker, 'a file where the USB drive should be');
+    await writeBackupPolicy(
+      sqlite,
+      { enabled: true, directory: path.join(blocker, 'drive'), retentionCount: 5 },
+      'test',
+    );
+    expect(await runScheduledBackup(sqlite, backups)).toBe('failed');
+    const health = await collectHealth(sqlite, { backupsRoot: dir });
+    expect(health.lastBackupAt).toBeNull();
+    expect(health.backupProblem).toBeTruthy();
   });
 });

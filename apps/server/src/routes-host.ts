@@ -5,12 +5,12 @@ import path from 'node:path';
 import QRCode from 'qrcode';
 import type { FastifyInstance } from 'fastify';
 import { pathsFor } from '@sns/config';
-import { lanHostnameSettingsSchema } from '@sns/contracts';
+import { backupSettingsSchema, lanHostnameSettingsSchema } from '@sns/contracts';
 
 import type { RequestContext } from './ctx.js';
 import { approveDevice } from './usecases/devices.js';
 import { createBackupFile, stageRestoreFile } from './backup-file.js';
-import { readBackupPolicy } from './backup-job.js';
+import { readBackupPolicy, writeBackupPolicy } from './backup-job.js';
 import {
   isLoopback,
   lanAddress,
@@ -132,6 +132,27 @@ export function registerHostRoutes(app: FastifyInstance): void {
       return back(reply, {
         notice: `Backup saved (${saved.integrity}). Restart the service before a restore takes effect.`,
       });
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+
+  app.post('/api/v1/host/backup-settings', async (req, reply) => {
+    try {
+      if (!tokenOk(req)) return back(reply, { error: 'Refresh the page and try that again.' });
+      const body = (req.body ?? {}) as Record<string, string | undefined>;
+      const parsed = backupSettingsSchema.safeParse({
+        enabled: body.enabled === '1',
+        directory: String(body.directory ?? '').trim(),
+        retentionCount: Number(body.retentionCount),
+      });
+      if (!parsed.success || !parsed.data.directory) {
+        return back(reply, {
+          error: 'Give a backup folder and a number of backups to keep between 1 and 365.',
+        });
+      }
+      await writeBackupPolicy(req.ctx.sqlite, parsed.data, 'host-panel');
+      return back(reply, { notice: 'Backup settings saved.' });
     } catch (err) {
       return sendError(req, reply, err);
     }
@@ -315,7 +336,8 @@ async function renderHost(
         <dl>
           <dt>Server</dt><dd>Answering on port ${esc(String(req.ctx.config.port))}${req.ctx.config.bindAll ? ', including the office network' : ', this computer only'}</dd>
           <dt>Database</dt><dd>${esc(integrity)} (${esc(req.ctx.sqlite.dialect)})</dd>
-          <dt>Last backup</dt><dd>${health.backupAgeHours === null ? 'No backup yet' : `${health.backupAgeHours.toFixed(1)} hours ago`}</dd>
+          <dt>Last backup</dt><dd id="last-backup">${health.lastBackupAt === null || health.backupAgeHours === null ? 'No backup yet' : `<time>${esc(health.lastBackupAt)}</time> (${health.backupAgeHours.toFixed(1)} hours ago)`}</dd>
+          ${health.backupProblem ? `<dt>Backup problem</dt><dd class="error" id="backup-problem" role="alert">The last scheduled backup failed: ${esc(health.backupProblem)}</dd>` : ''}
           <dt>Certificate</dt><dd>${health.certExpiresAt ? `Expires ${esc(health.certExpiresAt)}` : 'No certificate file yet'}</dd>
           <dt>Disk</dt><dd>${health.diskFreeBytes === null ? 'Unknown' : `${(health.diskFreeBytes / 1024 ** 3).toFixed(1)} GB free`}</dd>
           <dt>Windows service</dt><dd id="service-state">${esc(serviceHeadline(service.state))}</dd>
@@ -353,6 +375,15 @@ async function renderHost(
           <button type="submit">Search</button>
         </form>
         <form method="post" action="/api/v1/host/backup">${hidden(token)}<button type="submit">Back up now</button></form>
+        <form method="post" action="/api/v1/host/backup-settings" id="backup-settings">
+          ${hidden(token)}
+          <p><label><input type="checkbox" name="enabled" value="1"${backupPolicy.enabled ? ' checked' : ''}> Back up automatically every day</label></p>
+          <label for="backup-dir">Backup folder (a USB drive or network share, for example E:\LeaveOS-backups)</label>
+          <input id="backup-dir" name="directory" value="${esc(backupPolicy.directory)}" autocomplete="off" required>
+          <label for="backup-keep">Backups to keep</label>
+          <input id="backup-keep" name="retentionCount" type="number" min="1" max="365" value="${backupPolicy.retentionCount}" required>
+          <button type="submit">Save backup settings</button>
+        </form>
         ${backupHtml}
       </section>
       <section>

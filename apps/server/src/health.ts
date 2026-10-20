@@ -7,6 +7,9 @@ export type HostHealth = {
   at: string;
   integrity: string;
   backupAgeHours: number | null;
+  lastBackupAt: string | null;
+  /** Set when the most recent scheduled backup failed and nothing has succeeded since. */
+  backupProblem: string | null;
   certExpiresAt: string | null;
   diskFreeBytes: number | null;
 };
@@ -23,6 +26,8 @@ export async function collectHealth(
     integrity = 'unavailable';
   }
   let backupAgeHours: number | null = null;
+  let lastBackupAt: string | null = null;
+  let backupProblem: string | null = null;
   if (sqlite.dialect === 'sqlite') {
     const row = (await sqlite
       .prepare(
@@ -30,7 +35,16 @@ export async function collectHealth(
       )
       .get()) as { finished_at: string | null } | undefined;
     if (row?.finished_at) {
+      lastBackupAt = row.finished_at;
       backupAgeHours = Math.max(0, (now.getTime() - Date.parse(row.finished_at)) / 3600000);
+    }
+    const failed = (await sqlite
+      .prepare(
+        `SELECT finished_at, integrity_check_result FROM backup_record WHERE status = 'failed' ORDER BY finished_at DESC LIMIT 1`,
+      )
+      .get()) as { finished_at: string | null; integrity_check_result: string | null } | undefined;
+    if (failed?.finished_at && (!lastBackupAt || failed.finished_at > lastBackupAt)) {
+      backupProblem = failed.integrity_check_result ?? 'The last backup failed.';
     }
   }
   let certExpiresAt: string | null = null;
@@ -55,6 +69,8 @@ export async function collectHealth(
     at: now.toISOString(),
     integrity,
     backupAgeHours,
+    lastBackupAt,
+    backupProblem,
     certExpiresAt,
     diskFreeBytes,
   };

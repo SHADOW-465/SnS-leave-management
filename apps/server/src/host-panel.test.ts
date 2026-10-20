@@ -204,6 +204,60 @@ describe('host control panel', () => {
     expect(fs.existsSync(`${dbPath}.restore`)).toBe(false);
   });
 
+  it('sets the backup folder from the panel, shows when the last backup ran, and restores from that folder', async () => {
+    const { app, sqlite, dbPath, dir } = await boot();
+    const drive = path.join(dir, 'usb-drive');
+    const panel = await openPanel(app);
+    const form = { 'content-type': 'application/x-www-form-urlencoded', cookie: panel.cookie };
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/backup-settings',
+      headers: form,
+      payload: `token=${panel.token}&enabled=1&directory=${encodeURIComponent(drive)}&retentionCount=3`,
+    });
+    expect(String(saved.headers.location)).toContain('notice=');
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/backup-settings',
+      headers: form,
+      payload: `token=${panel.token}&directory=&retentionCount=0`,
+    });
+    expect(String(bad.headers.location)).toContain('error=');
+
+    const { runScheduledBackup } = await import('./backup-job.js');
+    expect(
+      await runScheduledBackup(
+        sqlite,
+        pathsFor(loadConfig({ LEAVEOS_DATA_DIR: dir, LEAVEOS_ENV: 'test' })).backups,
+      ),
+    ).toBe('written');
+    const files = fs.readdirSync(drive).filter((n) => n.endsWith('.db'));
+    expect(files).toHaveLength(1);
+    const page = await app.inject({ method: 'GET', url: '/host' });
+    expect(page.body).toContain('id="last-backup"');
+    expect(page.body).toMatch(/<time>\d{4}-\d{2}-\d{2}T/);
+    expect(page.body).toContain(drive);
+
+    await sqlite
+      .prepare(`UPDATE company SET name = 'Changed After Backup' WHERE id = 'company'`)
+      .run();
+    const restore = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/restore',
+      headers: form,
+      payload: `token=${panel.token}&file=${encodeURIComponent(files[0]!)}`,
+    });
+    expect(String(restore.headers.location)).toContain('notice=');
+    await app.close();
+    await sqlite.close();
+    const reopened = await openDatabase(dbPath);
+    opened[0]!.sqlite = reopened;
+    const company = (await reopened
+      .prepare(`SELECT name FROM company WHERE id = 'company'`)
+      .get()) as { name: string };
+    expect(company.name).toBe('Test Co');
+  });
+
   it('saves an office name and rejects a name with a space', async () => {
     const { app, sqlite } = await boot();
     const panel = await openPanel(app);

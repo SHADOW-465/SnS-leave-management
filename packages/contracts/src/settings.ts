@@ -16,7 +16,10 @@ export const backupSettingsSchema = z
   .object({
     enabled: z.boolean(),
     directory: z.string().max(500),
-    retentionDays: z.number().int().min(1).max(3650),
+    /** How many backup files to keep in the folder. The oldest beyond this are removed. */
+    retentionCount: z.number().int().min(1).max(365),
+    /** Superseded by retentionCount; accepted so an older saved setting still parses. */
+    retentionDays: z.number().int().min(1).max(3650).optional(),
   })
   .strict();
 

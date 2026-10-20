@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
@@ -7,6 +8,9 @@ const {
   wrapperAlreadyPresent,
   serviceAlreadyStarted,
   serviceLogDir,
+  recoveryArgs,
+  isAutoStart,
+  restartsOnFailure,
 } = createRequire(import.meta.url)('../../../installer/install-service.cjs') as {
   serviceStateFromStatus: (text: string) => string;
   nextRunningWait: (
@@ -16,6 +20,9 @@ const {
   wrapperAlreadyPresent: (text: string) => boolean;
   serviceAlreadyStarted: (text: string) => boolean;
   serviceLogDir: () => string;
+  recoveryArgs: () => { failure: string[]; failureFlag: string[]; start: string[] };
+  isAutoStart: (text: string) => boolean;
+  restartsOnFailure: (text: string) => boolean;
 };
 
 describe('WinSW service registration', () => {
@@ -40,5 +47,27 @@ describe('WinSW service registration', () => {
     expect(serviceAlreadyStarted('error 1056')).toBe(true);
     expect(serviceAlreadyStarted('The service did not respond')).toBe(false);
     expect(serviceLogDir().replaceAll('/', '\\')).toContain('\\SimonAndSons\\LeaveOS\\logs');
+  });
+
+  it('sets automatic start and restart on failure, and checks it took', () => {
+    const args = recoveryArgs();
+    expect(args.start).toEqual(['config', 'LeaveOS', 'start=', 'auto']);
+    expect(args.failure.join(' ')).toContain('actions= restart/5000/restart/15000/restart/60000');
+    expect(args.failureFlag).toEqual(['failureflag', 'LeaveOS', '1']);
+    expect(isAutoStart('        START_TYPE         : 2   AUTO_START')).toBe(true);
+    expect(isAutoStart('        START_TYPE         : 2   AUTO_START  (DELAYED)')).toBe(false);
+    expect(isAutoStart('        START_TYPE         : 3   DEMAND_START')).toBe(false);
+    const good = 'RESTART RESTART RESTART';
+    expect(restartsOnFailure(good)).toBe(true);
+    expect(restartsOnFailure('FAILURE_ACTIONS : NONE')).toBe(false);
+  });
+
+  it('declares automatic start and restart actions in the service definition', () => {
+    const xml = readFileSync(
+      new URL('../../../installer/LeaveOS-service.xml', import.meta.url),
+      'utf8',
+    );
+    expect(xml).toContain('<startmode>Automatic</startmode>');
+    expect((xml.match(/<onfailure action="restart"/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 });

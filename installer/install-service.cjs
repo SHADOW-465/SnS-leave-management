@@ -66,6 +66,54 @@ function sc(args) {
   return spawnSync('sc.exe', args, { encoding: 'utf8', windowsHide: true });
 }
 
+/** Restart after 5 s, 15 s, then 60 s; the failure count resets after a day. */
+function recoveryArgs() {
+  return {
+    failure: [
+      'failure',
+      SERVICE,
+      'reset=',
+      '86400',
+      'actions=',
+      'restart/5000/restart/15000/restart/60000',
+    ],
+    // Also treat a non-zero exit of the wrapped process as a failure, not only a crash.
+    failureFlag: ['failureflag', SERVICE, '1'],
+    start: ['config', SERVICE, 'start=', 'auto'],
+  };
+}
+
+function isAutoStart(qcText) {
+  return /START_TYPE\s*:\s*2\s+AUTO_START(?!\s*\(DELAYED)/i.test(String(qcText ?? ''));
+}
+
+function restartsOnFailure(qfailureText) {
+  const text = String(qfailureText ?? '');
+  return (text.match(/RESTART/g) ?? []).length >= 3;
+}
+
+/** Windows itself restarts the service, even if the wrapper dies. Checked, not assumed. */
+function configureRecovery() {
+  const args = recoveryArgs();
+  for (const step of [args.start, args.failure, args.failureFlag]) {
+    const done = sc(step);
+    if ((done.status ?? 1) !== 0) {
+      console.error(`sc.exe ${step.join(' ')} failed.`);
+      console.error(output(done));
+      process.exit(done.status || 1);
+    }
+  }
+  const qc = output(sc(['qc', SERVICE]));
+  const qfailure = output(sc(['qfailure', SERVICE]));
+  if (!isAutoStart(qc) || !restartsOnFailure(qfailure)) {
+    console.error('The Leave OS service is not set to start automatically and restart on failure.');
+    console.error(qc);
+    console.error(qfailure);
+    process.exit(1);
+  }
+  console.log('Leave OS starts automatically and restarts if it stops unexpectedly.');
+}
+
 function allowInbound(name, protocol, port) {
   const firewall = spawnSync(
     'netsh',
@@ -139,6 +187,8 @@ async function installAndStart() {
       process.exit(installed.status || 1);
     }
   }
+
+  configureRecovery();
 
   const started = winsw(['start']);
   if ((started.status ?? 1) !== 0 && !serviceAlreadyStarted(output(started))) {
@@ -228,6 +278,9 @@ module.exports = {
   wrapperAlreadyPresent,
   serviceAlreadyStarted,
   serviceLogDir,
+  recoveryArgs,
+  isAutoStart,
+  restartsOnFailure,
 };
 
 if (require.main === module) {

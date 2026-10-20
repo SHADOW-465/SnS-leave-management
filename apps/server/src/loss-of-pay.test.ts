@@ -62,9 +62,9 @@ async function apply(as: Session, start: string, end: string) {
 
 const vijayId = async () =>
   (
-    (await sqlite
-      .prepare(`SELECT id FROM employee WHERE work_email = 'vijay@sns.test'`)
-      .get()) as { id: string }
+    (await sqlite.prepare(`SELECT id FROM employee WHERE work_email = 'vijay@sns.test'`).get()) as {
+      id: string;
+    }
   ).id;
 
 beforeEach(async () => {

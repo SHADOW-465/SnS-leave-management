@@ -25,7 +25,6 @@ import { ensureLanCertificate } from './tls.js';
 import { collectHealth, type HostHealth } from './health.js';
 import { sendError } from './http.js';
 
-
 type QrModule = {
   toString: (text: string, opts: { type: 'svg'; margin: number }) => Promise<string>;
 };

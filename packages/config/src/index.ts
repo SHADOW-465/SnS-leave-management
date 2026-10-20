@@ -8,13 +8,16 @@ const bool = z.preprocess((v) => {
   return false;
 }, z.boolean());
 
+/** Development default. The office host derives its real address from the LAN name. */
+export const DEV_PUBLIC_URL = 'http://localhost:5173';
+
 export const appConfigSchema = z.object({
   env: z.enum(['development', 'test', 'production']).default('development'),
   host: z.string().default('127.0.0.1'),
   port: z.coerce.number().int().positive().default(3000),
   bindAll: bool.default(false),
   dataDir: z.string().default('./data'),
-  publicUrl: z.string().default('http://localhost:5173'),
+  publicUrl: z.string().default(DEV_PUBLIC_URL),
   tlsEnabled: bool.default(false),
   tlsCertPath: z.string().optional(),
   tlsKeyPath: z.string().optional(),

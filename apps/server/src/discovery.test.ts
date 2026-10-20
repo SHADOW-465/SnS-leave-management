@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { loadConfig } from '@sns/config';
 import { lanHostnameSettingsSchema } from '@sns/contracts';
 import {
   answersForQuery,
@@ -6,6 +7,7 @@ import {
   llmnrAnswer,
   setupStaffUrls,
   staffUrls,
+  withOfficePublicUrl,
 } from './discovery.js';
 
 describe('office name', () => {
@@ -74,5 +76,24 @@ describe('office name', () => {
     expect(
       lanHostnameSettingsSchema.safeParse({ hostname: 'sns-leave', extra: true }).success,
     ).toBe(false);
+  });
+});
+
+describe('office public URL', () => {
+  const office = loadConfig({
+    LEAVEOS_ENV: 'production',
+    LEAVEOS_DATA_DIR: 'x',
+    LEAVEOS_PORT: '8443',
+  });
+  it('derives from the office name and HTTPS port when none is set', () => {
+    expect(withOfficePublicUrl(office, 'hr-leave').publicUrl).toBe('https://hr-leave:8443');
+  });
+  it('keeps an explicit URL, the development default, and hosted preview', () => {
+    const set = { ...office, publicUrl: 'https://leave.example.invalid' };
+    expect(withOfficePublicUrl(set, 'hr-leave').publicUrl).toBe(set.publicUrl);
+    const dev = loadConfig({ LEAVEOS_ENV: 'development', LEAVEOS_DATA_DIR: 'x' });
+    expect(withOfficePublicUrl(dev, 'hr-leave').publicUrl).toBe('http://localhost:5173');
+    const hosted = { ...office, hostedPreview: true };
+    expect(withOfficePublicUrl(hosted, 'hr-leave').publicUrl).toBe('http://localhost:5173');
   });
 });

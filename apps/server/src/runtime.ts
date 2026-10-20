@@ -5,6 +5,7 @@ import { loadConfig, loadDotEnv, pathsFor, type AppConfig } from '@sns/config';
 import { openDatabaseFromEnv, type Db } from '@sns/database';
 import { buildApp } from './app.js';
 import { readLanHostname } from './hostname.js';
+import { withOfficePublicUrl } from './discovery.js';
 import { resolveTlsMaterial } from './tls.js';
 import { startJobs } from './jobs.js';
 import { nowIso, todayInTimeZone } from './time.js';
@@ -46,13 +47,13 @@ function seedCtx(config: AppConfig, db: Db): RequestContext {
 
 export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promise<AppRuntime> {
   loadDotEnv();
-  const config = loadConfig(env);
-  if (config.hostedPreview && !config.databaseUrl) {
+  const loaded = loadConfig(env);
+  if (loaded.hostedPreview && !loaded.databaseUrl) {
     throw new Error(
       'Hosted preview requires DATABASE_URL or SUPABASE_DB_URL. SQLite cannot persist on Vercel.',
     );
   }
-  const dirs = pathsFor(config);
+  const dirs = pathsFor(loaded);
   for (const d of [
     dirs.root,
     dirs.attachments,
@@ -65,12 +66,12 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
   }
   const db = await openDatabaseFromEnv({
     sqlitePath: dirs.db,
-    databaseUrl: config.databaseUrl,
+    databaseUrl: loaded.databaseUrl,
   });
   // The hosted preview is frozen: a deploy must not wipe or reseed Navalur.
   // Load that dataset only with `pnpm db:reset:navalur`.
-  if (shouldAutoSeed(config)) {
-    const ctx = seedCtx(config, db);
+  if (shouldAutoSeed(loaded)) {
+    const ctx = seedCtx(loaded, db);
     if ((await setupStatus(ctx)).needsSetup) {
       await completeSetup(ctx, {
         companyName: 'Simon & Sons',
@@ -88,6 +89,7 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
     }
   }
   const lanHostname = await readLanHostname(db);
+  const config = withOfficePublicUrl(loaded, lanHostname);
   const https = await resolveTlsMaterial(config, lanHostname);
   const app = await buildApp(config, db, https ? { https } : undefined);
   const jobs = startJobs(db, {

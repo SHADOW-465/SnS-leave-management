@@ -281,6 +281,7 @@ function listenOn(
 ): Promise<{ ok: true; port: number } | { ok: false; code?: string }> {
   return new Promise((resolve) => {
     let settled = false;
+    // eslint-disable-next-line prefer-const -- assigned after finish() is defined, which reads it
     let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (value: { ok: true; port: number } | { ok: false; code?: string }) => {
       if (settled) return;

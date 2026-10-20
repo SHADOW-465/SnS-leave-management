@@ -281,12 +281,10 @@ function listenOn(
 ): Promise<{ ok: true; port: number } | { ok: false; code?: string }> {
   return new Promise((resolve) => {
     let settled = false;
-    // eslint-disable-next-line prefer-const -- assigned after finish() is defined, which reads it
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (value: { ok: true; port: number } | { ok: false; code?: string }) => {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
       resolve(value);
     };
     const fail = (err: NodeJS.ErrnoException) => {
@@ -297,14 +295,15 @@ function listenOn(
         finish({ ok: false, code });
       }
     };
-    timer = setTimeout(() => {
+    // Read by finish() above, which only ever runs after this line.
+    const timer = setTimeout(() => {
       try {
         server.close(() => finish({ ok: false, code: 'timeout' }));
       } catch {
         finish({ ok: false, code: 'timeout' });
       }
     }, 2000);
-    timer.unref?.();
+    timer.unref();
     server.once('error', fail);
     try {
       server.listen(port, host, () => {

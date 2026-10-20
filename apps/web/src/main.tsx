@@ -8,6 +8,9 @@ import '@fontsource/jetbrains-mono/500.css';
 import '@sns/ui/tokens.css';
 import '@sns/ui/product.css';
 import { App } from './App.js';
+import { installNumberInputFix } from './number-input.js';
+
+installNumberInputFix();
 
 const client = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },

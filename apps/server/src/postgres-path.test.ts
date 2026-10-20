@@ -418,40 +418,6 @@ describe('hosted Postgres: administrator controls', () => {
     expect((history.json() as { data: unknown[] }).data.length).toBeGreaterThan(0);
   });
 
-  it('manages leave types: add a custom type, rename, archive, restore', async () => {
-    const get = (url: string) =>
-      app.inject({ method: 'GET', url, headers: { cookie: admin.cookie } });
-    const created = await post(admin, '/api/v1/admin/leave-types', {
-      name: 'Special Leave (hosted)',
-      code: 'SPL',
-      isPaid: true,
-      template: null,
-    });
-    expect(created.statusCode).toBe(200);
-    const id = (created.json() as { data: { id: string } }).data.id;
-    const list = await get('/api/v1/admin/leave-types');
-    expect(list.statusCode).toBe(200);
-    expect(
-      (list.json() as { data: { types: { id: string; requests: unknown }[] } }).data.types.find(
-        (t) => t.id === id,
-      )?.requests,
-    ).toBe(0);
-    const renamed = await app.inject({
-      method: 'PATCH',
-      url: `/api/v1/admin/leave-types/${id}`,
-      headers: auth(admin),
-      payload: { name: 'Medical Leave' },
-    });
-    expect(renamed.statusCode).toBe(200);
-    expect(
-      (await put(admin, `/api/v1/admin/leave-types/${id}/archived`, { disabled: true })).statusCode,
-    ).toBe(200);
-    expect(
-      (await put(admin, `/api/v1/admin/leave-types/${id}/archived`, { disabled: false }))
-        .statusCode,
-    ).toBe(200);
-  });
-
   it('works through the transactions register, annual report and working week', async () => {
     const vijay = await emp('vijay@sns.test');
     const get = (url: string) =>

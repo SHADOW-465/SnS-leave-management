@@ -73,8 +73,6 @@ export {
   setRolesBodySchema,
   setAllowanceBodySchema,
   bulkHolidayBodySchema,
-  createLeaveTypeBodySchema,
-  updateLeaveTypeBodySchema,
   createLoginBodySchema,
   updateAccountBodySchema,
   holidayFileBodySchema,

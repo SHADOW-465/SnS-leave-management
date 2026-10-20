@@ -25,7 +25,6 @@ import {
   Monitor,
   History,
   UserRound,
-  Tags,
 } from 'lucide-react';
 import { Button } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
@@ -105,8 +104,12 @@ function navFor(me: Me): NavItem[] {
     items.push({ to: '/reports', label: 'Reports', icon: FileBarChart, section: 'Reports' });
   }
   if (can(me, 'approval.routing.manage') || can(me, 'leave.policy.manage')) {
-    items.push({ to: '/leave-types', label: 'Leave types', icon: Tags, section: 'Administration' });
-    items.push({ to: '/settings', label: 'Leave configuration', icon: Settings });
+    items.push({
+      to: '/settings',
+      label: 'Leave configuration',
+      icon: Settings,
+      section: 'Administration',
+    });
   }
   if (can(me, 'approval.routing.manage') || can(me, 'employee.update:company')) {
     items.push({ to: '/admin/routing', label: 'Reporting managers', icon: GitBranch });
@@ -307,7 +310,6 @@ export function Shell({ me, children }: { me: Me; children: ReactNode }) {
     '/attendance': ['Attendance', 'Signals, not verdicts. A missing login is not an absence.'],
     '/admin/routing': ['Reporting managers', 'Who approves whose leave'],
     '/admin/users': ['Users & access', 'Sign-ins, roles and access'],
-    '/leave-types': ['Leave types', 'The kinds of leave people can apply for'],
     '/profile': ['My profile', 'Your employee record'],
     '/password': ['Change password', 'Choose a new password'],
   };

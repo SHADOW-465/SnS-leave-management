@@ -19,7 +19,6 @@ import { AuditPage } from './pages/Audit.js';
 import { SettingsPage } from './pages/Settings.js';
 import { AttendancePage } from './pages/Attendance.js';
 import { PasswordPage } from './pages/Password.js';
-import { LeaveTypesPage } from './pages/LeaveTypes.js';
 import { ProfilePage } from './pages/Profile.js';
 import { TransactionsPage } from './pages/Transactions.js';
 import { DevicesPage } from './pages/Devices.js';
@@ -99,7 +98,6 @@ export function App() {
             )
           }
         />
-        <Route path="/leave-types" element={<LeaveTypesPage me={me.data} />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/password" element={<PasswordPage me={me.data} voluntary />} />
         <Route path="/transactions" element={<TransactionsPage me={me.data} />} />

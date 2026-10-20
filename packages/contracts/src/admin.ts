@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDate, policyRulesSchema, ulid } from './common.js';
+import { isoDate, ulid } from './common.js';
 
 const note = z.string().trim().max(300).nullable().optional();
 
@@ -111,27 +111,6 @@ export const createLoginBodySchema = z
         ]),
       )
       .max(6),
-  })
-  .strict();
-
-export const createLeaveTypeBodySchema = z
-  .object({
-    name: z.string().trim().min(2).max(60),
-    code: z.string().trim().min(2).max(8),
-    isPaid: z.boolean(),
-    /** Start from a template's rules (AL), or null for a custom type. */
-    template: z.string().trim().max(8).nullable(),
-    /** For a custom type: its rules straight away, instead of publishing them afterwards. */
-    rules: policyRulesSchema.optional(),
-    colour: z.string().max(40).optional(),
-  })
-  .strict();
-
-export const updateLeaveTypeBodySchema = z
-  .object({
-    name: z.string().trim().min(2).max(60).optional(),
-    isPaid: z.boolean().optional(),
-    colour: z.string().max(40).optional(),
   })
   .strict();
 

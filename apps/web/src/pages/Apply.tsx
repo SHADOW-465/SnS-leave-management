@@ -11,19 +11,14 @@ export function ApplyPage({ me }: { me: Me }) {
     queryKey: ['types'],
     queryFn: () => api<{ id: string; name: string; code: string }[]>('/api/v1/leave-types'),
   });
-  const selectableTypes = useMemo(() => {
-    return (types.data ?? []).filter(
-      (t) => t.code !== 'LOP' && !/loss of pay|unpaid/i.test(t.name),
-    );
-  }, [types.data]);
-  const [leaveTypeId, setType] = useState('');
   const [startDate, setFrom] = useState('');
   const [endDate, setTo] = useState('');
   const [duration, setDur] = useState<'full' | 'am' | 'pm'>('full');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [fileId, setFileId] = useState<string | null>(null);
-  const typeId = leaveTypeId || selectableTypes[0]?.id || '';
+  // One leave type exists: Annual Leave.
+  const typeId = types.data?.[0]?.id ?? '';
 
   const canApplyForOthers = Boolean(
     me.permissions.some(
@@ -177,22 +172,6 @@ export function ApplyPage({ me }: { me: Me }) {
                 </p>
               </div>
             ) : null}
-          </div>
-        ) : null}
-        {selectableTypes.length > 1 ? (
-          <div className="field">
-            <label htmlFor="f-type">Leave type</label>
-            <Select
-              id="f-type"
-              name="leaveTypeId"
-              value={typeId}
-              onChange={(val) => setType(val)}
-              fullWidth
-              options={selectableTypes.map((t) => ({
-                value: t.id,
-                label: t.name,
-              }))}
-            />
           </div>
         ) : null}
         <div className="two">

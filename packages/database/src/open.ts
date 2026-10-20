@@ -71,6 +71,7 @@ export async function migrate(db: Db): Promise<void> {
     { id: '0011_account_username' },
     { id: '0012_password_rls', postgresOnly: true },
     { id: '0013_browser_device' },
+    { id: '0014_single_leave_type' },
   ];
   for (const m of files) {
     if (applied.has(m.id)) continue;

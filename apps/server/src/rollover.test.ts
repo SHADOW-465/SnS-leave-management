@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, type Db } from '@sns/database';
 import { loadConfig } from '@sns/config';
 import { buildApp } from './app.js';
+import { addYearlyGrantType } from './test-support.js';
 import { openCurrentPeriod, runMonthlyAccrual, expireCarriedDays } from './jobs/balance.js';
 import type { FastifyInstance } from 'fastify';
 
@@ -36,46 +37,8 @@ async function boot(): Promise<{ app: FastifyInstance; sqlite: Db }> {
       loadSampleData: true,
     },
   });
-  // These tests are about yearly-grant leave, so add one the way an administrator would on
-  // Leave types.
-  const login = await app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/login',
-    payload: { email: ADMIN.email, password: ADMIN.password },
-  });
-  const raw = login.headers['set-cookie'];
-  const cookie = Array.isArray(raw)
-    ? raw.map((c) => c.split(';')[0]).join('; ')
-    : String(raw ?? '');
-  const csrf = /leaveos\.csrf=([^;]*)/.exec(cookie)?.[1] ?? '';
-  const added = await app.inject({
-    method: 'POST',
-    url: '/api/v1/admin/leave-types',
-    headers: { cookie, 'x-csrf-token': csrf },
-    // A custom type given once a year (the framework's Annual Leave accrues monthly).
-    payload: {
-      name: 'Casual Leave',
-      code: 'CL',
-      isPaid: true,
-      template: null,
-      rules: {
-        entitlementHalfDays: 24,
-        accrualMethod: 'annual_grant',
-        accrualCadenceMonths: 12,
-        midYearProrate: true,
-        carryForwardCapHalfDays: 10,
-        carryForwardExpiryMonths: 3,
-        probationRestriction: 'none',
-        probationMaxHalfDays: 0,
-        halfDaysAllowed: true,
-        minNoticeDays: 0,
-        maxConsecutiveDays: 15,
-        negativeBalanceAllowed: false,
-        attachmentRequiredAfterHalfDays: null,
-      },
-    },
-  });
-  if (added.statusCode !== 200) throw new Error(`could not add Casual Leave: ${added.body}`);
+  // These tests are about yearly-grant leave, so add one straight into the database.
+  await addYearlyGrantType(sqlite);
   return { app, sqlite };
 }
 

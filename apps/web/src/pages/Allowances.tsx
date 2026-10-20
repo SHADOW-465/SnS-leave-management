@@ -20,17 +20,6 @@ type Result = { message: string; blocked: { name: string; reason: string }[] };
 
 const d = (half: number) => String(half / 2);
 
-function visibleAllowanceTypes(types: Data['types']) {
-  const annual = types.filter((t) => t.code === 'AL');
-  if (annual.length > 0) return annual;
-  const earned = types.filter((t) => t.code === 'EL');
-  if (earned.length > 0) return earned;
-  const rest = types.filter(
-    (t) => !['CL', 'SL', 'LOP'].includes(t.code) && !/casual|sick|loss of pay|unpaid/i.test(t.name),
-  );
-  return rest.length > 0 ? rest : types;
-}
-
 export function AllowancesPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['allowances'], queryFn: () => api<Data>('/api/v1/allowances') });
@@ -63,7 +52,7 @@ export function AllowancesPage() {
         onRetry={() => void q.refetch()}
       />
     );
-  const types = visibleAllowanceTypes(q.data.types);
+  const types = q.data.types;
   const activeType = typeId || types[0]?.id || '';
   const allShown = shown.length > 0 && shown.every((p) => picked.has(p.id));
   const half = Math.round(Number(days) * 2);

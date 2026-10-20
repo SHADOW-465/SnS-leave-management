@@ -15,6 +15,7 @@ import { buildApp } from './app.js';
 import type { FastifyInstance } from 'fastify';
 import { nowIso, todayInTimeZone } from './time.js';
 import { creditMonth, openCurrentPeriod } from './jobs/balance.js';
+import { addYearlyGrantType } from './test-support.js';
 import { seedDemoActivity } from './usecases/demo.js';
 import type { RequestContext } from './ctx.js';
 import { parseRules } from '@sns/domain';
@@ -342,32 +343,8 @@ describe('sample organisation', () => {
 });
 
 describe('yearly entitlement is credited once', () => {
-  // A custom type given once a year (12 days), added on Leave types.
-  const addCasual = async () => {
-    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
-    const res = await call(admin, 'POST', '/api/v1/admin/leave-types', {
-      name: 'Casual Leave',
-      code: 'CL',
-      isPaid: true,
-      template: null,
-      rules: {
-        entitlementHalfDays: 24,
-        accrualMethod: 'annual_grant',
-        accrualCadenceMonths: 12,
-        midYearProrate: true,
-        carryForwardCapHalfDays: 10,
-        carryForwardExpiryMonths: 3,
-        probationRestriction: 'none',
-        probationMaxHalfDays: 0,
-        halfDaysAllowed: true,
-        minNoticeDays: 0,
-        maxConsecutiveDays: 15,
-        negativeBalanceAllowed: false,
-        attachmentRequiredAfterHalfDays: null,
-      },
-    });
-    expect(res.statusCode).toBe(200);
-  };
+  // A type given once a year (12 days), written straight into the database.
+  const addCasual = () => addYearlyGrantType(sqlite);
   const grants = async (email: string, code: string) =>
     Number(
       (
@@ -392,28 +369,25 @@ describe('yearly entitlement is credited once', () => {
 
   it('a database that was credited twice is corrected, once', async () => {
     await boot();
-    await addCasual();
-    const row = (await sqlite
-      .prepare(
-        `SELECT l.* FROM balance_ledger l JOIN employee e ON e.id = l.employee_id
-           JOIN leave_type t ON t.id = l.leave_type_id
-          WHERE e.work_email = 'vijay@sns.test' AND t.code = 'CL' AND l.entry_type = 'ENTITLEMENT_GRANT'`,
-      )
-      .get()) as Record<string, string | number>;
-    // What the old job did: a second grant for the same year.
-    await sqlite
-      .prepare(
-        `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, reason, created_by, created_at)
-         VALUES ('dup1', ?, ?, ?, 'ENTITLEMENT_GRANT', ?, ?, 'job_run', 'Entitlement for 2026', 'system', ?)`,
-      )
-      .run(
-        row.employee_id,
-        row.leave_type_id,
-        row.period_id,
-        row.quantity_half_days,
-        row.effective_on,
-        row.created_at,
-      );
+    const cl = await addYearlyGrantType(sqlite, { openBalances: false });
+    const vijay = (await sqlite
+      .prepare(`SELECT id FROM employee WHERE work_email = 'vijay@sns.test'`)
+      .get()) as { id: string };
+    const period = (await sqlite
+      .prepare(`SELECT id, starts_on FROM leave_period ORDER BY starts_on DESC LIMIT 1`)
+      .get()) as { id: string; starts_on: string };
+    // What the old code did: setup credited the year, then the leave-year job credited it again.
+    for (const [id, reason] of [
+      ['dup0', 'Opening entitlement for the current leave year'],
+      ['dup1', 'Entitlement for 2026'],
+    ] as const) {
+      await sqlite
+        .prepare(
+          `INSERT INTO balance_ledger (id, employee_id, leave_type_id, period_id, entry_type, quantity_half_days, effective_on, source_type, reason, created_by, created_at)
+           VALUES (?, ?, ?, ?, 'ENTITLEMENT_GRANT', 24, ?, 'job_run', ?, 'system', ?)`,
+        )
+        .run(id, vijay.id, cl, period.id, period.starts_on, reason, nowIso());
+    }
     expect(await grants('vijay@sns.test', 'CL')).toBe(48);
     const fix = fs.readFileSync(
       new URL(
@@ -424,135 +398,6 @@ describe('yearly entitlement is credited once', () => {
     );
     await sqlite.exec(fix);
     expect(await grants('vijay@sns.test', 'CL')).toBe(24);
-  });
-});
-
-describe('leave types (Leave types screen)', () => {
-  it('a fresh install follows the framework: Annual Leave, 2 days a month', async () => {
-    await boot();
-    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
-    const d = data<{ types: { code: string; name: string; summary: string }[] }>(
-      await call(admin, 'GET', '/api/v1/admin/leave-types'),
-    );
-    expect(d.types.map((t) => t.code)).toEqual(['AL']);
-    expect(d.types[0]!.summary).toBe('2 days credited every month (24 a year)');
-  });
-
-  it('adds a custom type and everyone can use it at once; only Annual Leave is a template', async () => {
-    await boot();
-    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
-    const templates = data<{ templates: { code: string }[] }>(
-      await call(admin, 'GET', '/api/v1/admin/leave-types'),
-    ).templates;
-    expect(templates.map((t) => t.code)).toEqual(['AL']);
-    expect(
-      (
-        await call(admin, 'POST', '/api/v1/admin/leave-types', {
-          name: 'Sick Leave',
-          code: 'SL',
-          isPaid: true,
-          template: 'SL',
-        })
-      ).statusCode,
-    ).toBe(400);
-    const res = await call(admin, 'POST', '/api/v1/admin/leave-types', {
-      name: 'Bereavement Leave',
-      code: 'BL',
-      isPaid: true,
-      template: null,
-      rules: {
-        entitlementHalfDays: 10,
-        accrualMethod: 'annual_grant',
-        accrualCadenceMonths: 12,
-        midYearProrate: true,
-        carryForwardCapHalfDays: 10,
-        carryForwardExpiryMonths: 3,
-        probationRestriction: 'none',
-        probationMaxHalfDays: 0,
-        halfDaysAllowed: true,
-        minNoticeDays: 0,
-        maxConsecutiveDays: 15,
-        negativeBalanceAllowed: false,
-        attachmentRequiredAfterHalfDays: null,
-      },
-    });
-    expect(res.statusCode).toBe(200);
-    const vijay = await signIn('vijay@sns.test');
-    const home = data<{ balances: { code: string; left: string }[] }>(
-      await call(vijay, 'GET', '/api/v1/home'),
-    );
-    expect(home.balances.find((b) => b.code === 'BL')?.left).toBe('5');
-    const dup = await call(admin, 'POST', '/api/v1/admin/leave-types', {
-      name: 'Bereavement Leave',
-      code: 'BL',
-      isPaid: true,
-      template: null,
-    });
-    expect(dup.statusCode).toBe(409);
-  });
-
-  it('renames, archives and restores; archived types cannot be applied for', async () => {
-    await boot();
-    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
-    const created = data<{ id: string }>(
-      await call(admin, 'POST', '/api/v1/admin/leave-types', {
-        name: 'Loss of Pay',
-        code: 'LOP',
-        isPaid: false,
-        template: null,
-      }),
-    );
-    const renamed = await app.inject({
-      method: 'PATCH',
-      url: `/api/v1/admin/leave-types/${created.id}`,
-      headers: { cookie: admin.cookie, 'x-csrf-token': admin.csrf },
-      payload: { name: 'Unpaid Leave' },
-    });
-    expect(renamed.statusCode).toBe(200);
-    expect(
-      (
-        await call(admin, 'PUT', `/api/v1/admin/leave-types/${created.id}/archived`, {
-          disabled: true,
-        })
-      ).statusCode,
-    ).toBe(200);
-    const vijay = await signIn('vijay@sns.test');
-    const refused = await call(vijay, 'POST', '/api/v1/leave-requests', {
-      leaveTypeId: created.id,
-      startDate: '2026-10-05',
-      endDate: '2026-10-05',
-      reason: 'Trying an archived type',
-    });
-    expect(refused.statusCode).toBe(400);
-    expect(
-      (
-        await call(admin, 'PUT', `/api/v1/admin/leave-types/${created.id}/archived`, {
-          disabled: false,
-        })
-      ).statusCode,
-    ).toBe(200);
-  });
-
-  it('will not archive the last type, nor one with requests waiting', async () => {
-    await boot();
-    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
-    const al = await typeId('AL');
-    expect(
-      (await call(admin, 'PUT', `/api/v1/admin/leave-types/${al}/archived`, { disabled: true }))
-        .statusCode,
-    ).toBe(409);
-  });
-
-  it('is refused to an ordinary employee', async () => {
-    await boot();
-    const vijay = await signIn('vijay@sns.test');
-    const res = await call(vijay, 'POST', '/api/v1/admin/leave-types', {
-      name: 'Holiday Bonus',
-      code: 'HB',
-      isPaid: true,
-      template: null,
-    });
-    expect(res.statusCode).toBe(403);
   });
 });
 

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- **One leave type.** Annual Leave (2 days a month, 24 a year, category rates as configured) is the only type. The Leave types page, its nav entry and the add, rename and archive API are removed. Migration `0014_single_leave_type` archives any other type on an upgraded database; their requests, balances and ledger rows are untouched, so reports still count them. The type picker on Apply and the filters that hid casual and sick types on Leave allowances are gone.
+
 ### Removed
 - **Email notifications.** The mail settings and preview on Leave configuration, the sending job, the `nodemailer` dependency, the `LEAVEOS_PUBLIC_URL` setting (it only built mail links) and the office public-URL derivation are gone. In-app notifications are the only channel: a submitted request notifies the approver (the reporting manager, or the fallback approver), and an approval or rejection notifies the employee.
 

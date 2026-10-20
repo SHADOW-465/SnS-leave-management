@@ -268,19 +268,3 @@ function addDaysSafe(iso: string, n: number): string {
   const dt = new Date(Date.UTC(y, m - 1, d + n));
   return dt.toISOString().slice(0, 10);
 }
-
-/** Starting points offered when an administrator adds a leave type. */
-export const LEAVE_TYPE_TEMPLATES: {
-  code: string;
-  name: string;
-  isPaid: boolean;
-  summary: string;
-}[] = [
-  {
-    code: 'AL',
-    name: 'Annual Leave',
-    isPaid: true,
-    summary:
-      'As the Leave Tracker framework describes it: 2 days credited every month (24 a year). Unused days carry forward. Weekends and holidays are not counted.',
-  },
-];

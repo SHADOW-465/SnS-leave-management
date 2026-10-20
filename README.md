@@ -65,12 +65,11 @@ and managers see their people's leave on their dashboards rather than as notific
 
 Everything is set in the app — no code changes:
 
-- **Leave types** — out of the box there is one, **Annual Leave**, exactly as the functional
-  framework describes it: 2 days credited every month (24 a year), unused days carried forward,
-  weekends and government holidays not counted, the joining month pro-rated. There are no
-  casual, sick or earned leave types, because the framework does not describe any. A company
-  that needs another kind of leave can add its own, rename, mark unpaid, or archive a type —
-  archived types keep all their history.
+- **Leave type** — there is exactly one, **Annual Leave**, as the functional framework
+  describes it: 2 days credited every month (24 a year), unused days carried forward, weekends
+  and government holidays not counted, the joining month pro-rated. Leave beyond the balance is
+  loss of pay. Types cannot be added, renamed or archived; an older database that still carries
+  other types has them archived on upgrade, and their history stays in every report.
 
 - **Leave configuration** — per leave type: monthly credit or yearly grant, rate per staff
   category and during probation, joining-month rule, carry-forward, maximum balance, whether

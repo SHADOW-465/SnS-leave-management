@@ -108,7 +108,6 @@ import {
   requestDetail,
   employeeLeaveOverview,
 } from './queries.js';
-import { previewLeaveEmail } from './email.js';
 import { storeAttachment, safeStoredPath } from './files.js';
 import { integrityCheck, withTx } from '@sns/database';
 import fs from 'node:fs';
@@ -1852,22 +1851,6 @@ export async function registerRoutes(app: FastifyInstance) {
       return sendError(req, reply, err);
     }
   });
-  app.get('/api/v1/email/preview', async (req, reply) => {
-    try {
-      requirePrincipal(req.ctx);
-      const sample = previewLeaveEmail({
-        to: 'anitha@sns.test',
-        requesterName: 'Vijay Anand',
-        leaveType: 'Casual leave',
-        dates: '12 Mar 2026 – 13 Mar 2026',
-        workingDays: '2',
-        link: `${req.ctx.config.publicUrl}/approvals/preview`,
-      });
-      return reply.send(ok(sample, req.ctx.requestId));
-    } catch (err) {
-      return sendError(req, reply, err);
-    }
-  });
   app.post('/api/v1/attachments', async (req, reply) => {
     try {
       const file = await req.file();
@@ -1923,18 +1906,12 @@ export async function registerRoutes(app: FastifyInstance) {
             status: string;
           }
         | undefined;
-      const outbox = (await req.ctx.sqlite
-        .prepare(`SELECT COUNT(*) AS n FROM outbox_message WHERE status = 'pending'`)
-        .get()) as {
-        n: number;
-      };
       return reply.send(
         ok(
           {
             status: 'ok',
             integrity: await integrityCheck(req.ctx.sqlite),
             lastBackup,
-            outboxDepth: outbox.n,
           },
           req.ctx.requestId,
         ),

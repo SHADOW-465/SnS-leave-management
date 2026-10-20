@@ -33,7 +33,6 @@ import {
   type RoleCode,
 } from '@sns/domain';
 import { authorizeAction, requirePrincipal, type RequestContext } from '../ctx.js';
-import { previewLeaveEmail } from '../email.js';
 import { currentPeriodId } from './setup.js';
 type LeaveRow = {
   id: string;
@@ -568,7 +567,6 @@ export async function submitLeave(
       'leave_request',
       id,
     );
-    await queueEmail(ctx, routing.approverUserId, emp, input, counted, id);
     await audit(
       ctx,
       onBehalf ? 'leave.request.submitted_on_behalf' : 'leave.request.submitted',
@@ -941,13 +939,6 @@ export async function decideLeave(
         'leave_request',
         req.id,
       );
-      await queueMail(
-        ctx,
-        owner.id,
-        input.decision === 'approve' ? 'leave.approved' : 'leave.rejected',
-        input.decision === 'approve' ? `Leave approved: ${when}` : `Leave rejected: ${when}`,
-        `${body}\n\nSee your requests: ${ctx.config.publicUrl}/requests/${req.id}`,
-      );
     }
 
     // Only the employee is told of the decision. HR, administrators and managers see
@@ -1183,79 +1174,6 @@ export function spokenRange(start: string, end: string): string {
   return `${sd} ${MONTH_NAMES[sm - 1]} – ${ed} ${MONTH_NAMES[em - 1]}`;
 }
 
-/** Queues a plain email to one account. Delivery happens only if email is configured. */
-async function queueMail(
-  ctx: RequestContext,
-  userId: string,
-  kind: string,
-  subject: string,
-  text: string,
-) {
-  const user = (await ctx.sqlite
-    .prepare(`SELECT email FROM user_account WHERE id = ? AND is_disabled = 0`)
-    .get(userId)) as { email: string } | undefined;
-  if (!user?.email) return;
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO outbox_message (id, kind, payload_json, status, next_attempt_at, created_at)
-       VALUES (?, ?, ?, 'pending', ?, ?)`,
-    )
-    .run(newId(), kind, JSON.stringify({ to: user.email, subject, text }), ctx.now, ctx.now);
-}
-
-async function queueEmail(
-  ctx: RequestContext,
-  approverUserId: string,
-  emp: {
-    first_name: string;
-    last_name: string;
-  },
-  input: {
-    startDate: string;
-    endDate: string;
-    leaveTypeId: string;
-  },
-  counted: number,
-  requestId: string,
-) {
-  const user = (await ctx.sqlite
-    .prepare(`SELECT email FROM user_account WHERE id = ?`)
-    .get(approverUserId)) as
-    | {
-        email: string;
-      }
-    | undefined;
-  const type = (await ctx.sqlite
-    .prepare(`SELECT name FROM leave_type WHERE id = ?`)
-    .get(input.leaveTypeId)) as
-    | {
-        name: string;
-      }
-    | undefined;
-  const preview = previewLeaveEmail({
-    to: user?.email ?? '',
-    requesterName: `${emp.first_name} ${emp.last_name}`,
-    leaveType: type?.name ?? '',
-    dates: `${formatDisplayDate(input.startDate)} – ${formatDisplayDate(input.endDate)}`,
-    workingDays: formatHalfDays(counted),
-    link: `${ctx.config.publicUrl}/approvals/${requestId}`,
-  });
-  await ctx.sqlite
-    .prepare(
-      `INSERT INTO outbox_message (id, kind, payload_json, status, next_attempt_at, created_at)
-       VALUES (?, 'leave.submitted', ?, 'pending', ?, ?)`,
-    )
-    .run(
-      newId(),
-      JSON.stringify({
-        to: preview.to,
-        subject: preview.subject,
-        text: `${preview.body}\n\nOpen: ${ctx.config.publicUrl}/approvals/${requestId}\n(The link does not approve anything. You must sign in.)`,
-      }),
-      ctx.now,
-      ctx.now,
-    );
-}
 export async function recalculateLeaveRequestsForDate(
   ctx: RequestContext,
   date: string,

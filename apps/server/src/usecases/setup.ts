@@ -167,7 +167,7 @@ export async function completeSetup(
   });
   const periodId = newId();
   await withTx(ctx.sqlite, async () => {
-    await seedSystem(ctx.sqlite, adminUserId);
+    await seedSystem(ctx.sqlite);
     await ctx.sqlite
       .prepare(
         `INSERT INTO company (id, name, timezone, leave_year_start_month, leave_year_start_day, created_at, created_by, updated_at, updated_by)

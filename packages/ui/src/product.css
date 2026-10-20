@@ -941,20 +941,6 @@ table.data tbody tr:last-child td {
   gap: var(--space-3);
   align-items: flex-start;
 }
-.email-preview {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-  background: var(--surface-canvas);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-.email-subject {
-  margin: 0;
-  font-weight: 600;
-}
-
 /* ---- Calendar ---- */
 .cal-layout {
   display: grid;

@@ -1,5 +1,4 @@
 import { createSocket, type Socket } from 'node:dgram';
-import { DEV_PUBLIC_URL, type AppConfig } from '@sns/config';
 import { DEFAULT_LAN_HOSTNAME } from '@sns/contracts';
 import multicastDns from 'multicast-dns';
 
@@ -46,20 +45,6 @@ export function staffUrls(input: {
     mdns: `${scheme}://${name}.local:${input.port}`,
     ip: input.address ? `${scheme}://${input.address}:${input.port}` : null,
   };
-}
-
-/** Office host with no explicit publicUrl: link to the same address staff and the certificate use. */
-export function withOfficePublicUrl(config: AppConfig, hostname: string): AppConfig {
-  if (
-    !config.tlsEnabled ||
-    config.hostedPreview ||
-    config.env === 'development' ||
-    config.publicUrl !== DEV_PUBLIC_URL
-  ) {
-    return config;
-  }
-  const { hostname: url } = staffUrls({ hostname, port: config.port, tls: true });
-  return { ...config, publicUrl: url };
 }
 
 export type DnsAnswer = {

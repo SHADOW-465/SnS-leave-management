@@ -8,8 +8,7 @@ import {
 } from '@sns/domain';
 import type { Db } from './open.js';
 
-export async function seedSystem(sqlite: Db, actor = 'system'): Promise<void> {
-  const now = new Date().toISOString();
+export async function seedSystem(sqlite: Db): Promise<void> {
   const insertRole = sqlite.prepare(
     `INSERT OR IGNORE INTO role (id, code, name, is_system) VALUES (@id, @code, @name, 1)`,
   );
@@ -56,13 +55,6 @@ export async function seedSystem(sqlite: Db, actor = 'system'): Promise<void> {
       if (pid) await insertRp.run(rid, pid);
     }
   }
-
-  await sqlite
-    .prepare(
-      `INSERT OR IGNORE INTO app_setting (key, value_json, updated_by, updated_at)
-       VALUES ('email.enabled', 'false', ?, ?)`,
-    )
-    .run(actor, now);
 }
 
 export async function isBootstrapped(sqlite: Db): Promise<boolean> {

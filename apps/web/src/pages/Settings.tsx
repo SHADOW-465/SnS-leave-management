@@ -122,10 +122,7 @@ export function SettingsPage({ me }: { me: Me }) {
         <WorkWeekCard readOnly={readOnly} />
         <StaffCategoriesCard readOnly={!can(me, 'org.structure.manage')} />
       </div>
-      <div className="two-col">
-        <LeaveYearCard readOnly={readOnly} />
-        <EmailCard />
-      </div>
+      <LeaveYearCard readOnly={readOnly} />
     </div>
   );
 }
@@ -959,47 +956,6 @@ function LeaveYearCard({ readOnly }: { readOnly: boolean }) {
           ) : null}
         </form>
       )}
-    </section>
-  );
-}
-
-function EmailCard() {
-  const email = useQuery({
-    queryKey: ['email-preview'],
-    queryFn: () =>
-      api<{
-        to: string;
-        subject: string;
-        heading: string;
-        body: string;
-        rows: { k: string; v: string }[];
-      }>('/api/v1/email/preview'),
-  });
-  return (
-    <section className="card">
-      <h2>Notification email</h2>
-      <p className="note">
-        Sent to approvers when a request needs a decision, and to employees when it is approved or
-        rejected. The link opens the request after signing in — it cannot approve anything on its
-        own. In-app notifications work whether or not email is delivered.
-      </p>
-      {email.isPending ? <Skeleton /> : null}
-      {email.data ? (
-        <div className="email-preview">
-          <p className="email-subject">{email.data.subject}</p>
-          <p className="note" style={{ margin: 0 }}>
-            {email.data.body}
-          </p>
-          <dl className="summary-dl">
-            {email.data.rows.map((r) => (
-              <div key={r.k} style={{ display: 'contents' }}>
-                <dt>{r.k}</dt>
-                <dd>{r.v}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      ) : null}
     </section>
   );
 }

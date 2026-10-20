@@ -25,7 +25,6 @@ describe('config', () => {
     expect(c.showDemoAccounts).toBe(true);
     expect(c.seedOnEmpty).toBe(true);
     expect(c.dataDir).toBe('/tmp/leaveos-data');
-    expect(c.publicUrl).toBe('https://sns-leave-os.vercel.app');
     expect(c.databaseUrl).toBe('postgres://user:pass@db.example.invalid:5432/postgres');
   });
 

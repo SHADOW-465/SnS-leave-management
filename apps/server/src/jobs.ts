@@ -1,5 +1,4 @@
 import type { Db } from '@sns/database';
-import { drainOutbox } from './email.js';
 import { runScheduledBackup } from './backup-job.js';
 import { writeHealth } from './health.js';
 import { expireCarriedDays, openCurrentPeriod, runMonthlyAccrual } from './jobs/balance.js';
@@ -9,7 +8,6 @@ export async function runJobsTick(
   sqlite: Db,
   opts: { backupsRoot?: string; backupByDefault?: boolean; certPath?: string } = {},
 ): Promise<void> {
-  await drainOutbox(sqlite);
   await sweepSessions(sqlite);
   await healthProbe(sqlite, opts);
   if (opts.backupsRoot) {
@@ -38,7 +36,6 @@ export function startJobs(
     return { stop() {} };
   }
   const timers: NodeJS.Timeout[] = [];
-  timers.push(setInterval(() => runSafe(() => drainOutbox(sqlite)), 60000));
   timers.push(setInterval(() => runSafe(() => sweepSessions(sqlite)), 60 * 60000));
   timers.push(setInterval(() => runSafe(() => healthProbe(sqlite, opts)), 5 * 60000));
   runSafe(() => healthProbe(sqlite, opts));

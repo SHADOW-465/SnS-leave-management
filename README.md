@@ -90,7 +90,7 @@ against a Supabase Postgres database. This is **not** the office product (DW-29,
 1. Create a Supabase project. Copy the **Session pooler** or direct URI (`sslmode=require`).
    Never put a Supabase anon key in the browser — the browser talks only to this API.
 2. In the Vercel project, set `DATABASE_URL` to that URI (Production + Preview).
-   Optional: `CRON_SECRET` for the daily job tick, `LEAVEOS_PUBLIC_URL` to the deployment URL.
+   Optional: `CRON_SECRET` for the daily job tick.
 3. Deploy. The first request migrates the schema. It does **not** load or reset the
    Navalur demo. That preview is frozen.
 

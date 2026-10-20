@@ -90,10 +90,6 @@ const env = {
   // Listen on every interface so other machines can connect. Without this the server
   // answers only on 127.0.0.1 and nobody else on the network can reach it.
   LEAVEOS_BIND_ALL: process.env.LEAVEOS_BIND_ALL ?? dotEnv.LEAVEOS_BIND_ALL ?? 'true',
-  LEAVEOS_PUBLIC_URL:
-    process.env.LEAVEOS_PUBLIC_URL ??
-    dotEnv.LEAVEOS_PUBLIC_URL ??
-    `http://${ip ?? 'localhost'}:${port}`,
 };
 
 const line = '─'.repeat(58);

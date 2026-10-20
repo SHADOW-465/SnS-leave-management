@@ -313,3 +313,9 @@ quarterly restore drill; both are runbook items with a checkbox and a date.
 - No automatic deletion of employee data (D-21).
 - No claim that installation, LAN access, TLS trust, backup restore, or accessibility is
   verified unless that exact test was run and recorded.
+
+### D-13 — update 2026-10-20: email removed
+
+The client decided to drop email entirely. No email is sent, configured or previewed; in-app
+notifications are the only channel. This supersedes the "email is now in scope" change above
+and ADR 0010. The `outbox_message` table remains in the schema, unused.

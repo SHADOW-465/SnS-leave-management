@@ -8,16 +8,12 @@ const bool = z.preprocess((v) => {
   return false;
 }, z.boolean());
 
-/** Development default. The office host derives its real address from the LAN name. */
-export const DEV_PUBLIC_URL = 'http://localhost:5173';
-
 export const appConfigSchema = z.object({
   env: z.enum(['development', 'test', 'production']).default('development'),
   host: z.string().default('127.0.0.1'),
   port: z.coerce.number().int().positive().default(3000),
   bindAll: bool.default(false),
   dataDir: z.string().default('./data'),
-  publicUrl: z.string().default(DEV_PUBLIC_URL),
   tlsEnabled: bool.default(false),
   tlsCertPath: z.string().optional(),
   tlsKeyPath: z.string().optional(),
@@ -106,13 +102,6 @@ export function defaultDataDir(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve('./data');
 }
 
-function hostedPublicUrl(env: NodeJS.ProcessEnv): string | undefined {
-  if (env.LEAVEOS_PUBLIC_URL) return env.LEAVEOS_PUBLIC_URL;
-  if (env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`;
-  if (env.VERCEL_URL) return `https://${env.VERCEL_URL}`;
-  return undefined;
-}
-
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const hostedPreview =
     Boolean(env.VERCEL) ||
@@ -131,10 +120,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: env.LEAVEOS_PORT ?? env.PORT ?? file.port,
     bindAll: env.LEAVEOS_BIND_ALL ?? file.bindAll,
     dataDir,
-    publicUrl:
-      env.LEAVEOS_PUBLIC_URL ??
-      file.publicUrl ??
-      (hostedPreview ? hostedPublicUrl(env) : undefined),
     tlsEnabled: officeTlsEnabled(env, file, envName, hostedPreview),
     tlsCertPath: env.LEAVEOS_TLS_CERT ?? file.tlsCertPath,
     tlsKeyPath: env.LEAVEOS_TLS_KEY ?? file.tlsKeyPath,

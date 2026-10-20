@@ -347,6 +347,7 @@ export async function submitLeave(
     employeeId?: string;
     attachmentId?: string | null;
     idempotencyKey?: string;
+    confirmLossOfPay?: boolean;
   },
 ) {
   const p = requirePrincipal(ctx);
@@ -401,6 +402,17 @@ export async function submitLeave(
   const periodId = await currentPeriodId(ctx);
   const available = await availableHalfDays(ctx, employeeId, input.leaveTypeId, periodId);
   const split = splitLeaveDays({ availableHalfDays: available, requestedHalfDays: counted });
+  // The server enforces what the Apply page asks: nobody lands on unpaid days by accident.
+  if (split.lopHalfDays > 0 && !input.confirmLossOfPay) {
+    throw new DomainError(
+      'LOP_CONFIRMATION_REQUIRED',
+      `${formatHalfDays(split.lopHalfDays)} day(s) of this request are loss of pay. Confirm that you understand before submitting.`,
+      {
+        httpStatus: 400,
+        details: [{ path: 'confirmLossOfPay', message: 'Tick the loss of pay confirmation.' }],
+      },
+    );
+  }
   validatePolicyAgainstRequest({
     rules: policy.rules,
     countedHalfDays: counted,

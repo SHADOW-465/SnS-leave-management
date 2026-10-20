@@ -18,6 +18,7 @@ export function ApplyPage({ me }: { me: Me }) {
   const [duration, setDur] = useState<'full' | 'am' | 'pm'>('full');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [confirmLop, setConfirmLop] = useState(false);
   const [fileId, setFileId] = useState<string | null>(null);
   // One leave type exists: Annual Leave.
   const typeId = types.data?.[0]?.id ?? '';
@@ -93,6 +94,8 @@ export function ApplyPage({ me }: { me: Me }) {
       })
     : null;
 
+  const hasLop = Boolean(split && split.lopHalfDays > 0);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -102,6 +105,7 @@ export function ApplyPage({ me }: { me: Me }) {
         headers: { 'Idempotency-Key': crypto.randomUUID() },
         body: JSON.stringify({
           leaveTypeId: typeId,
+          confirmLossOfPay: confirmLop || undefined,
           startDate,
           endDate,
           halfDayStart: duration === 'full' ? null : duration,
@@ -252,8 +256,26 @@ export function ApplyPage({ me }: { me: Me }) {
             onChange={(e) => void onFile(e.target.files?.[0] ?? null)}
           />
         </div>
+        {hasLop && split ? (
+          <label className="field" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <input
+              type="checkbox"
+              checked={confirmLop}
+              onChange={(e) => setConfirmLop(e.target.checked)}
+              required
+            />
+            <span>
+              I understand that {dayCount(split.lopHalfDays)} of this request will be loss of pay
+              (unpaid) and {dayCount(split.paidHalfDays)} will be paid leave.
+            </span>
+          </label>
+        ) : null}
         <div style={{ display: 'flex', gap: 10 }}>
-          <Button variant="primary" type="submit" disabled={Boolean(preview.data?.ownOverlap)}>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={Boolean(preview.data?.ownOverlap) || (hasLop && !confirmLop)}
+          >
             Submit request
           </Button>
           <Button type="button" onClick={() => void nav('/')}>

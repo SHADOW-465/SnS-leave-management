@@ -37,6 +37,8 @@ export const submitLeaveBodySchema = z
     reason: z.string().min(3).max(2000),
     employeeId: ulid.optional(),
     attachmentId: ulid.nullable().optional(),
+    /** Must be true when part of the request is loss of pay. The person has seen the split. */
+    confirmLossOfPay: z.boolean().optional(),
   })
   .strict();
 

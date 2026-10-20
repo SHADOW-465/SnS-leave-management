@@ -931,6 +931,7 @@ export async function seedDemoActivity(ctx: RequestContext): Promise<void> {
       const as = await actingAs(ctx, item.who, appliedOn);
       if (!as) continue;
       const { id } = (await submitLeave(as, {
+        confirmLossOfPay: true,
         leaveTypeId: typeId,
         startDate: item.start,
         endDate: addDays(item.start, item.days - 1),

@@ -410,6 +410,7 @@ describe('earned leave, loss of pay and permission', () => {
       startDate: '2026-10-01',
       endDate: '2026-11-11',
       reason: 'A long absence past the earned balance',
+      confirmLossOfPay: true,
     });
     expect(submitted.statusCode).toBe(201);
     const row = (await sqlite

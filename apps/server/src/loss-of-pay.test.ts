@@ -11,6 +11,7 @@ import { openDatabase, type Db } from '@sns/database';
 import { loadConfig } from '@sns/config';
 import { splitLeaveDays } from '@sns/contracts';
 import { buildApp } from './app.js';
+import { openCurrentPeriod } from './jobs/balance.js';
 import type { FastifyInstance } from 'fastify';
 
 type Session = { cookie: string; csrf: string };
@@ -51,12 +52,19 @@ async function preview(as: Session, start: string, end: string) {
   }>(res);
 }
 
-async function apply(as: Session, start: string, end: string) {
+async function apply(as: Session, start: string, end: string, extra: object = {}) {
   return app.inject({
     method: 'POST',
     url: '/api/v1/leave-requests',
     headers: auth(as),
-    payload: { leaveTypeId: typeId, startDate: start, endDate: end, reason: 'LOP check.' },
+    payload: {
+      leaveTypeId: typeId,
+      startDate: start,
+      endDate: end,
+      reason: 'LOP check.',
+      confirmLossOfPay: true,
+      ...extra,
+    },
   });
 }
 
@@ -270,5 +278,168 @@ describe('loss of pay beyond the quota', () => {
       headers: auth(admin),
     });
     expect(annual.body).toContain('Loss of pay');
+  });
+});
+
+/** Puts Vijay at exactly `halfDays` of balance, using the ledger the way an administrator would. */
+async function setBalance(halfDays: number) {
+  const admin = await signIn(...ADMIN);
+  const vijay = await signIn('vijay@sns.test');
+  const now = await preview(vijay, '2026-10-05', '2026-10-05');
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/v1/balances/adjust',
+    headers: auth(admin),
+    payload: {
+      employeeId: await vijayId(),
+      leaveTypeId: typeId,
+      quantityHalfDays: halfDays - now.availableHalfDays,
+      reason: 'Set the balance for the test',
+    },
+  });
+  expect(res.statusCode).toBe(200);
+  return vijay;
+}
+
+const balance = async (as: Session) =>
+  (await preview(as, '2026-12-07', '2026-12-07')).availableHalfDays;
+
+describe('confirming loss of pay', () => {
+  it('refuses a request with LOP days unless the person confirmed, and accepts it once they do', async () => {
+    const vijay = await setBalance(2);
+    const refused = await apply(vijay, '2026-10-05', '2026-10-07', { confirmLossOfPay: undefined });
+    expect(refused.statusCode).toBe(400);
+    expect((refused.json() as { error: { code: string } }).error.code).toBe(
+      'LOP_CONFIRMATION_REQUIRED',
+    );
+    expect(
+      (await sqlite.prepare(`SELECT COUNT(*) AS n FROM leave_request`).get()) as { n: number },
+    ).toMatchObject({ n: 0 });
+    const falseTick = await apply(vijay, '2026-10-05', '2026-10-07', { confirmLossOfPay: false });
+    expect(falseTick.statusCode).toBe(400);
+    const accepted = await apply(vijay, '2026-10-05', '2026-10-07');
+    expect(accepted.statusCode).toBe(201);
+  });
+
+  it('needs no confirmation when the balance covers the request', async () => {
+    const vijay = await setBalance(6);
+    const res = await apply(vijay, '2026-10-05', '2026-10-05', { confirmLossOfPay: undefined });
+    expect(res.statusCode).toBe(201);
+  });
+});
+
+describe('half days around the quota', () => {
+  it('a full day with one half day left is half paid and half loss of pay', async () => {
+    const vijay = await setBalance(1);
+    const p = await preview(vijay, '2026-10-05', '2026-10-05');
+    expect(p.countedHalfDays).toBe(2);
+    expect(p.paidDays).toBe('0.5');
+    expect(p.lossOfPay).toBe('0.5');
+    const id = json<{ id: string }>(await apply(vijay, '2026-10-05', '2026-10-05')).id;
+    const row = (await sqlite
+      .prepare(`SELECT lop_half_days AS lop FROM leave_request WHERE id = ?`)
+      .get(id)) as { lop: number };
+    expect(Number(row.lop)).toBe(1);
+  });
+
+  it('a half day with one half day left is fully paid', async () => {
+    const vijay = await setBalance(1);
+    const res = await apply(vijay, '2026-10-05', '2026-10-05', {
+      halfDayStart: 'am',
+      confirmLossOfPay: undefined,
+    });
+    expect(res.statusCode).toBe(201);
+    const row = (await sqlite
+      .prepare(`SELECT lop_half_days AS lop, total_half_days AS total FROM leave_request`)
+      .get()) as { lop: number; total: number };
+    expect(Number(row.total)).toBe(1);
+    expect(Number(row.lop)).toBe(0);
+  });
+});
+
+describe('loss of pay requests and the balance', () => {
+  it('rejecting or withdrawing one gives the balance back', async () => {
+    const vijay = await setBalance(4);
+    const lead = await signIn('john@sns.test');
+    const before = await balance(vijay);
+    const rejected = json<{ id: string }>(await apply(vijay, '2026-10-05', '2026-10-09')).id;
+    expect(await balance(vijay)).toBe(0); // the 4 paid half-days are held
+    const reject = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${rejected}/reject`,
+      headers: auth(lead),
+      payload: { expectedVersion: 1, reason: 'Cover is needed that week.' },
+    });
+    expect(reject.statusCode).toBe(200);
+    expect(await balance(vijay)).toBe(before);
+
+    const withdrawn = json<{ id: string }>(await apply(vijay, '2026-10-12', '2026-10-16')).id;
+    expect(await balance(vijay)).toBe(0);
+    const withdraw = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${withdrawn}/withdraw`,
+      headers: auth(vijay),
+      payload: { expectedVersion: 1 },
+    });
+    expect(withdraw.statusCode).toBe(200);
+    expect(await balance(vijay)).toBe(before);
+  });
+
+  it('cancelling an approved one returns the paid days only, not the loss of pay', async () => {
+    const vijay = await setBalance(4);
+    const lead = await signIn('john@sns.test');
+    const hr = await signIn('anitha@sns.test');
+    const before = await balance(vijay);
+    const id = json<{ id: string }>(await apply(vijay, '2026-10-05', '2026-10-09')).id;
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/approve`,
+      headers: auth(lead),
+      payload: { expectedVersion: 1 },
+    });
+    expect(await balance(vijay)).toBe(0);
+    const cancel = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/cancel`,
+      headers: auth(hr),
+      payload: { expectedVersion: 2, reason: 'Plans changed.' },
+    });
+    expect(cancel.statusCode).toBe(200);
+    expect(await balance(vijay)).toBe(before);
+  });
+
+  it('a year rollover carries nothing negative and LOP days do not reduce next year', async () => {
+    const vijay = await setBalance(4);
+    const lead = await signIn('john@sns.test');
+    const id = json<{ id: string }>(await apply(vijay, '2026-10-05', '2026-10-09')).id;
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/approve`,
+      headers: auth(lead),
+      payload: { expectedVersion: 1 },
+    });
+    expect(await balance(vijay)).toBe(0);
+
+    await sqlite.exec(
+      `UPDATE leave_period SET starts_on = '2020-01-01', ends_on = '2020-12-31', label = '2020'`,
+    );
+    await openCurrentPeriod(sqlite);
+    const period = (await sqlite
+      .prepare(`SELECT id FROM leave_period WHERE starts_on > '2020-12-31' ORDER BY starts_on`)
+      .get()) as { id: string };
+    const rows = (await sqlite
+      .prepare(
+        `SELECT entry_type AS t, COALESCE(SUM(quantity_half_days), 0) AS n FROM balance_ledger
+          WHERE employee_id = ? AND leave_type_id = ? AND period_id = ? GROUP BY entry_type`,
+      )
+      .all(await vijayId(), typeId, period.id)) as { t: string; n: number }[];
+    const sum = (t: string) => Number(rows.find((r) => r.t === t)?.n ?? 0);
+    expect(sum('CARRY_FORWARD')).toBe(0);
+    expect(rows.every((r) => Number(r.n) >= 0)).toBe(true);
+    // The approved request stays on record with its loss of pay.
+    const kept = (await sqlite
+      .prepare(`SELECT lop_half_days AS lop FROM leave_request WHERE id = ?`)
+      .get(id)) as { lop: number };
+    expect(Number(kept.lop)).toBeGreaterThan(0);
   });
 });

@@ -4,6 +4,7 @@ import {
   capAccrual,
   completedServiceYears,
   monthCreditHalfDays,
+  monthsInclusive,
   monthlyRateHalfDays,
   newId,
   parseRules,
@@ -380,18 +381,30 @@ export async function runMonthlyAccrual(sqlite: Db): Promise<{ credited: number 
       // Someone who has not joined yet accrues nothing.
       if (employee.joined_on > today) continue;
 
-      const credit = await creditMonth(sqlite, {
-        employeeId: employee.id,
-        leaveTypeId: type.id,
-        periodId: period.id,
-        month,
-        rules,
-        actor: 'system',
-        now,
-        effectiveOn: today,
-      });
-      if (credit === null) continue;
-      credited += 1;
+      // Months the job never saw (the host was off, or an older backup was restored) are
+      // credited too, from the month after the last one recorded in this leave year. With
+      // none recorded (a type just switched to monthly) only this month is credited, never
+      // the year so far.
+      const last = (await sqlite
+        .prepare(
+          `SELECT MAX(accrual_month) AS m FROM accrual_run
+            WHERE employee_id = ? AND leave_type_id = ? AND accrual_month >= ?`,
+        )
+        .get(employee.id, type.id, period.startsOn.slice(0, 7))) as { m: string | null };
+      const from = last?.m ? `${last.m}-01` : today;
+      for (const m of monthsInclusive(from, today)) {
+        const credit = await creditMonth(sqlite, {
+          employeeId: employee.id,
+          leaveTypeId: type.id,
+          periodId: period.id,
+          month: m,
+          rules,
+          actor: 'system',
+          now,
+          effectiveOn: m === month ? today : `${m}-01`,
+        });
+        if (credit !== null) credited += 1;
+      }
     }
   }
   return { credited };

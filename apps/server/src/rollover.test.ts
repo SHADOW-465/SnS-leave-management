@@ -331,3 +331,50 @@ describe('carry-forward expiry', () => {
     await app.close();
   });
 });
+
+describe('monthly accrual after the host was off', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const month = today.slice(0, 7);
+  const prev = (() => {
+    const [y, m] = month.split('-').map(Number) as [number, number];
+    return m === 1 ? null : `${y}-${String(m - 1).padStart(2, '0')}`;
+  })();
+
+  it.skipIf(prev === null)('credits a month that was missed, once', async () => {
+    const { app, sqlite } = await boot();
+    const al = (
+      (await sqlite.prepare(`SELECT id FROM leave_type WHERE code = 'AL'`).get()) as { id: string }
+    ).id;
+    const emp = await amina(sqlite);
+    // As if the job never ran last month or this month: no run recorded for either.
+    await sqlite
+      .prepare(
+        `DELETE FROM accrual_run WHERE employee_id = ? AND leave_type_id = ? AND accrual_month >= ?`,
+      )
+      .run(emp, al, prev);
+    const before = (await sqlite
+      .prepare(
+        `SELECT COUNT(*) AS n FROM balance_ledger WHERE employee_id = ? AND leave_type_id = ? AND entry_type = 'ACCRUAL'`,
+      )
+      .get(emp, al)) as { n: number };
+
+    await runMonthlyAccrual(sqlite);
+    await runMonthlyAccrual(sqlite);
+
+    const runs = (
+      (await sqlite
+        .prepare(
+          `SELECT accrual_month AS m FROM accrual_run WHERE employee_id = ? AND leave_type_id = ? AND accrual_month >= ? ORDER BY m`,
+        )
+        .all(emp, al, prev)) as { m: string }[]
+    ).map((r) => r.m);
+    expect(runs).toEqual([prev, month]);
+    const after = (await sqlite
+      .prepare(
+        `SELECT COUNT(*) AS n FROM balance_ledger WHERE employee_id = ? AND leave_type_id = ? AND entry_type = 'ACCRUAL'`,
+      )
+      .get(emp, al)) as { n: number };
+    expect(Number(after.n) - Number(before.n)).toBeLessThanOrEqual(2);
+    await app.close();
+  });
+});

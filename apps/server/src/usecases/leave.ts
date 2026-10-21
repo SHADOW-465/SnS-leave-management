@@ -1307,6 +1307,22 @@ async function recalculateRequest(
           }
         }
       } else {
+        const paidBefore = Math.max(0, prevCounted - Number(req.lop_half_days ?? 0));
+        if (req.status === 'approved') {
+          // Fewer days: the loss of pay shrinks first. More days: paid from what is left of
+          // the balance, and only the rest is loss of pay. The ledger moves by the paid change.
+          const curAvail = await availableHalfDays(
+            ctx,
+            req.employee_id,
+            req.leave_type_id,
+            periodId,
+          );
+          paidNow =
+            counted <= prevCounted
+              ? Math.min(counted, paidBefore)
+              : paidBefore + Math.min(counted - prevCounted, Math.max(0, curAvail));
+          lopHalfDays = counted - paidNow;
+        }
         await ctx.sqlite
           .prepare(
             `UPDATE leave_request
@@ -1316,7 +1332,7 @@ async function recalculateRequest(
           .run(counted, lopHalfDays, ctx.now, ctx.principal?.userId ?? 'system', req.id);
 
         if (req.status === 'approved') {
-          const diff = -(counted - prevCounted);
+          const diff = paidBefore - paidNow;
           if (diff !== 0) {
             await ctx.sqlite
               .prepare(

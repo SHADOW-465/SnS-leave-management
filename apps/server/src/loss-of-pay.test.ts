@@ -443,3 +443,61 @@ describe('loss of pay requests and the balance', () => {
     expect(Number(kept.lop)).toBeGreaterThan(0);
   });
 });
+
+describe('a holiday changing under an approved request with loss of pay', () => {
+  const holiday = (as: Session, method: 'POST' | 'DELETE', date: string) =>
+    app.inject({
+      method,
+      url: method === 'POST' ? '/api/v1/holidays' : `/api/v1/holidays?date=${date}`,
+      headers: auth(as),
+      ...(method === 'POST' ? { payload: { date, name: 'Declared holiday', kind: 'public' } } : {}),
+    });
+  const stored = async (id: string) =>
+    (await sqlite
+      .prepare(
+        `SELECT total_half_days AS total, lop_half_days AS lop FROM leave_request WHERE id = ?`,
+      )
+      .get(id)) as { total: number; lop: number };
+  const approve = (as: Session, id: string) =>
+    app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/approve`,
+      headers: auth(as),
+      payload: { expectedVersion: 1 },
+    });
+
+  it('a new holiday shrinks the loss of pay, and does not also credit the balance', async () => {
+    const vijay = await setBalance(4);
+    const lead = await signIn('john@sns.test');
+    const admin = await signIn(...ADMIN);
+    const id = json<{ id: string }>(await apply(vijay, '2026-10-05', '2026-10-09')).id;
+    expect((await approve(lead, id)).statusCode).toBe(200);
+    expect(await balance(vijay)).toBe(0);
+    expect(await stored(id)).toMatchObject({ total: 10, lop: 6 });
+
+    expect((await holiday(admin, 'POST', '2026-10-07')).statusCode).toBe(200);
+    // One day fewer is leave. The 2 paid days stay paid; the unpaid part drops by one day.
+    expect(await stored(id)).toMatchObject({ total: 8, lop: 4 });
+    expect(await balance(vijay)).toBe(0);
+
+    expect((await holiday(admin, 'DELETE', '2026-10-07')).statusCode).toBe(200);
+    expect(await stored(id)).toMatchObject({ total: 10, lop: 6 });
+    expect(await balance(vijay)).toBe(0);
+  });
+
+  it('a removed holiday is paid from the balance when there is one, not charged twice', async () => {
+    const vijay = await setBalance(10);
+    const lead = await signIn('john@sns.test');
+    const admin = await signIn(...ADMIN);
+    expect((await holiday(admin, 'POST', '2026-10-07')).statusCode).toBe(200);
+    const id = json<{ id: string }>(await apply(vijay, '2026-10-05', '2026-10-09')).id;
+    expect((await approve(lead, id)).statusCode).toBe(200);
+    expect(await stored(id)).toMatchObject({ total: 8, lop: 0 });
+    expect(await balance(vijay)).toBe(2);
+
+    expect((await holiday(admin, 'DELETE', '2026-10-07')).statusCode).toBe(200);
+    // The extra day is covered by the 1 day left, so nothing is loss of pay.
+    expect(await stored(id)).toMatchObject({ total: 10, lop: 0 });
+    expect(await balance(vijay)).toBe(0);
+  });
+});

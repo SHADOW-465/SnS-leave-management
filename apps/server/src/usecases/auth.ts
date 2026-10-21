@@ -76,6 +76,18 @@ async function assertNotRateLimited(ctx: RequestContext, identifier: string): Pr
   }
 }
 
+// ponytail: in-process queue, fine for the single server process this product runs.
+const signInQueue = new Map<string, Promise<unknown>>();
+function oneAtATime<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const run = (signInQueue.get(key) ?? Promise.resolve()).then(fn, fn);
+  const tail = run.catch(() => undefined);
+  signInQueue.set(key, tail);
+  void tail.then(() => {
+    if (signInQueue.get(key) === tail) signInQueue.delete(key);
+  });
+  return run;
+}
+
 export async function login(
   ctx: RequestContext,
   input: {
@@ -134,23 +146,29 @@ export async function login(
   if (acc.is_disabled) {
     throw await failure('disabled');
   }
-  if (acc.locked_until && acc.locked_until > ctx.now) {
-    throw new DomainError(
-      'ACCOUNT_LOCKED',
-      'This account is locked after too many failed sign-in attempts. Try again later.',
-      { httpStatus: 401 },
-    );
-  }
-  await sleep(lockoutDelayMs(acc.failed_attempts || 1));
-  const ok = await verifyPassword(acc.password_hash, input.password);
-  if (!ok) {
-    const attempts = acc.failed_attempts + 1;
-    const until = lockUntil(attempts);
-    await ctx.sqlite
-      .prepare(`UPDATE user_account SET failed_attempts = ?, locked_until = ? WHERE id = ?`)
-      .run(attempts, until, acc.id);
-    throw await failure('bad_password');
-  }
+  // One attempt per account at a time, each reading the counter the previous one wrote.
+  // Read once up front, a burst of parallel guesses all saw the same count across the
+  // delay and the hash check, and the account never locked.
+  await oneAtATime(acc.id, async () => {
+    const fresh = (await ctx.sqlite
+      .prepare(`SELECT failed_attempts, locked_until FROM user_account WHERE id = ?`)
+      .get(acc.id)) as { failed_attempts: number; locked_until: string | null };
+    if (fresh.locked_until && fresh.locked_until > new Date().toISOString()) {
+      throw new DomainError(
+        'ACCOUNT_LOCKED',
+        'This account is locked after too many failed sign-in attempts. Try again later.',
+        { httpStatus: 401 },
+      );
+    }
+    await sleep(lockoutDelayMs(fresh.failed_attempts || 1));
+    if (!(await verifyPassword(acc.password_hash, input.password))) {
+      const attempts = Number(fresh.failed_attempts) + 1;
+      await ctx.sqlite
+        .prepare(`UPDATE user_account SET failed_attempts = ?, locked_until = ? WHERE id = ?`)
+        .run(attempts, lockUntil(attempts), acc.id);
+      throw await failure('bad_password');
+    }
+  });
 
   const device = await claimDeviceForLogin(ctx, acc, input.deviceCookie);
   const { token, tokenHash } = newSessionToken();

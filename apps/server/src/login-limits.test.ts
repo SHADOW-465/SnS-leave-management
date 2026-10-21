@@ -173,3 +173,23 @@ describe('session expiry', () => {
     expect(page.statusCode).not.toBe(500);
   });
 });
+
+describe('parallel wrong passwords', () => {
+  beforeEach(() => boot());
+
+  it('each one counts towards the lockout, so a burst cannot dodge it', async () => {
+    const burst = await Promise.all(
+      Array.from({ length: 6 }, () => login(ADMIN.email, 'not-the-password')),
+    );
+    expect(burst.every((r) => r.statusCode === 401)).toBe(true);
+    const row = (await sqlite
+      .prepare(
+        `SELECT failed_attempts AS n, locked_until AS until FROM user_account WHERE email = ?`,
+      )
+      .get(ADMIN.email)) as { n: number; until: string | null };
+    expect(Number(row.n)).toBeGreaterThanOrEqual(5);
+    expect(row.until).not.toBeNull();
+    const right = await login(ADMIN.email, ADMIN.password);
+    expect(right.statusCode).toBe(401);
+  }, 30_000);
+});

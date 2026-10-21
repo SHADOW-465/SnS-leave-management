@@ -451,3 +451,30 @@ describe('earned leave, loss of pay and permission', () => {
     expect(third.statusCode).toBe(409);
   });
 });
+
+describe('deciding permission', () => {
+  it('HR cannot approve their own permission hours', async () => {
+    await boot();
+    const anitha = await signIn('anitha@sns.test');
+    const asked = await call(anitha, 'POST', '/api/v1/permissions', {
+      onDate: '2026-10-06',
+      hours: 2,
+      reason: 'Clinic appointment',
+    });
+    expect(asked.statusCode).toBe(201);
+    const id = data<{ id: string }>(asked).id;
+    const self = await call(anitha, 'POST', `/api/v1/permissions/${id}/decide`, {
+      decision: 'approve',
+    });
+    expect(self.statusCode).toBe(403);
+    const status = (await sqlite
+      .prepare(`SELECT status FROM permission_request WHERE id = ?`)
+      .get(id)) as { status: string };
+    expect(status.status).toBe('pending_approval');
+    const admin = await signIn('admin@sns.test', 'ChangeMe_admin_1');
+    const decided = await call(admin, 'POST', `/api/v1/permissions/${id}/decide`, {
+      decision: 'approve',
+    });
+    expect(decided.statusCode).toBe(200);
+  });
+});

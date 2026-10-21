@@ -1,4 +1,4 @@
-import { DomainError, newId } from '@sns/domain';
+import { DomainError, mayOverride, newId, type RequesterKind } from '@sns/domain';
 import { authorizeAction, requirePrincipal, type RequestContext } from '../ctx.js';
 import { requesterKindOf, resolveApprover } from './leave.js';
 
@@ -135,6 +135,14 @@ export async function decidePermission(
       httpStatus: 409,
     });
   }
+  // Same rules as a leave decision: nobody decides their own (a lone administrator is the
+  // documented exception), and an override only comes from higher up the hierarchy.
+  const isSelf = row.employeeId === p.employeeId;
+  if (isSelf && !p.roles.includes('admin')) {
+    throw new DomainError('LEAVE_SELF_FORBIDDEN', 'You cannot decide your own permission.', {
+      httpStatus: 403,
+    });
+  }
   const assigned = row.approverEmployeeId != null && row.approverEmployeeId === p.employeeId;
   if (!assigned) {
     await authorizeAction(
@@ -142,6 +150,16 @@ export async function decidePermission(
       decision === 'approve' ? 'leave.request.approve' : 'leave.request.reject',
       row.employeeId,
     );
+    const actorKind: RequesterKind = p.roles.includes('admin')
+      ? 'admin'
+      : p.roles.includes('director')
+        ? 'director'
+        : 'hr_officer';
+    if (!isSelf && !mayOverride(actorKind, await requesterKindOf(ctx, row.employeeId))) {
+      throw new DomainError('LEAVE_NOT_YOUR_LEVEL', 'This is decided higher up the hierarchy.', {
+        httpStatus: 403,
+      });
+    }
   }
   await ctx.sqlite
     .prepare(

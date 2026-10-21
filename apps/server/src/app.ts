@@ -76,6 +76,9 @@ export async function buildApp(
   await app.register(rateLimit, {
     max: 300,
     timeWindow: '1 minute',
+    // The limit guards the API. Counting the page and its scripts, styles and fonts too made a
+    // busy browser's next page load fail outright, replacing the app with an error body.
+    allowList: (req) => !req.url.startsWith('/api/'),
   });
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
   app.addHook('onRequest', async (req) => {

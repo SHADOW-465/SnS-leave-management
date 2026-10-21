@@ -32,6 +32,25 @@ export function sendError(req: FastifyRequest, reply: FastifyReply, err: unknown
       .status(403)
       .send(fail(requestId, 'FORBIDDEN', 'You do not have permission to view this.'));
   }
+  // Fastify and its plugins report client errors (too many requests, unreadable body, file
+  // too large) with a 4xx statusCode. Those are the caller's to fix, not a server fault.
+  const clientStatus = (err as { statusCode?: number }).statusCode;
+  if (clientStatus === 429) {
+    return reply
+      .status(429)
+      .send(
+        fail(
+          requestId,
+          'RATE_LIMITED',
+          'Too many requests from this computer. Wait a minute and try again.',
+        ),
+      );
+  }
+  if (typeof clientStatus === 'number' && clientStatus >= 400 && clientStatus < 500) {
+    return reply
+      .status(clientStatus)
+      .send(fail(requestId, 'BAD_REQUEST', 'This request could not be read.'));
+  }
   req.log.error(err);
   return reply
     .status(500)

@@ -157,4 +157,19 @@ describe('session expiry', () => {
     const hours = (Date.parse(row.expires_at) - Date.parse(row.issued_at)) / 3600_000;
     expect(hours).toBeCloseTo(1, 1);
   });
+
+  it('answers 429, not a server fault, when one computer floods the API, and never blocks the page', async () => {
+    await boot();
+    let last = 0;
+    for (let i = 0; i < 301; i++) {
+      last = (await app.inject({ method: 'GET', url: '/api/v1/setup/status' })).statusCode;
+    }
+    expect(last).toBe(429);
+    const limited = await app.inject({ method: 'GET', url: '/api/v1/setup/status' });
+    expect(limited.json().error.code).toBe('RATE_LIMITED');
+    // Same computer, same minute: the page and its assets still load.
+    const page = await app.inject({ method: 'GET', url: '/assets/missing.js' });
+    expect(page.statusCode).not.toBe(429);
+    expect(page.statusCode).not.toBe(500);
+  });
 });

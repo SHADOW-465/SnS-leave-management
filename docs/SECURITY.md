@@ -150,8 +150,14 @@ bundle carries logs with secrets redacted and no employee data.
   Administrators group, read/write for the dedicated service account, **no access for
   Users**. ACLs applied at first run and re-verified by the health check, which reports
   `degraded` if they drift.
+  **Not implemented yet (DW-123):** the installer sets no ACLs, the service runs as
+  LocalSystem, and the folder inherits ProgramData's permissions, so a local Windows user
+  can read the database, the backups and the certificate keys. Until DW-123 is done, the
+  host PC must not have accounts for people who should not see that data.
 - Windows Firewall: one inbound rule for the chosen port, scoped to the local subnet.
   Created by the installer with the operator's explicit consent, and shown before it is applied.
+  **Not as built (DW-124):** the installer adds rules for TCP 8443, 80 and 8080 and UDP 5353
+  and 5355 on every network profile with no address scope, without asking.
 - BitLocker recommended for the host, with the trade-offs explained.
 - The certificate passphrase and any SMTP password are stored via DPAPI, scoped to the
   machine and the service account. Never in `config.json`, never in the repository.

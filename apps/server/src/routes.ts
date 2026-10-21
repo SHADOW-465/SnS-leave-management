@@ -32,6 +32,7 @@ import {
   updateTeamBodySchema,
 } from '@sns/contracts';
 import { DomainError, newId, csvSafe } from '@sns/domain';
+import { isLoopback } from './host-local.js';
 import { hashToken } from '@sns/auth';
 import * as XLSX from 'xlsx';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
@@ -156,6 +157,24 @@ export async function registerRoutes(app: FastifyInstance) {
   app.post('/api/v1/setup', async (req, reply) => {
     try {
       const body = parse(setupBodySchema, req.body);
+      if (req.ctx.config.env === 'production') {
+        // The service listens on the office network from the moment it is installed. Until
+        // an administrator exists, whoever posts this first owns the installation.
+        if (!isLoopback(req.ctx.ip)) {
+          throw new DomainError(
+            'SETUP_HOST_ONLY',
+            'Create the first administrator on the office computer that runs Leave OS.',
+            { httpStatus: 403 },
+          );
+        }
+        if (body.loadSampleData) {
+          throw new DomainError(
+            'SAMPLE_DATA_NOT_IN_OFFICE',
+            'Sample people are for trying Leave OS out. Their shared password is published, so an office installation starts without them.',
+            { httpStatus: 400 },
+          );
+        }
+      }
       const data = await completeSetup(req.ctx, body);
       return reply.send(ok(data, req.ctx.requestId));
     } catch (err) {

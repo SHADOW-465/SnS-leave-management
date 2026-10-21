@@ -342,3 +342,54 @@ describe('a temporary password must be changed first', () => {
     await app.close();
   });
 });
+
+describe('first-run setup in an office installation', () => {
+  async function prod() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leaveos-prodsetup-'));
+    const sqlite = await openDatabase(path.join(dir, 'app.db'));
+    opened.push({ sqlite, dir });
+    const app = await buildApp(
+      loadConfig({ LEAVEOS_DATA_DIR: dir, LEAVEOS_ENV: 'production' }),
+      sqlite,
+    );
+    await app.ready();
+    return app;
+  }
+  const body = (extra: object = {}) => ({
+    companyName: 'Test Co',
+    timezone: 'Asia/Kolkata',
+    leaveYearStartMonth: 1,
+    leaveYearStartDay: 1,
+    adminName: 'Ada Example',
+    adminEmail: ADMIN.email,
+    adminPassword: ADMIN.password,
+    ...extra,
+  });
+
+  it('only the host computer can create the first administrator', async () => {
+    const app = await prod();
+    const fromLan = await app.inject({
+      method: 'POST',
+      url: '/api/v1/setup',
+      payload: body(),
+      remoteAddress: '192.168.1.40',
+    });
+    expect(fromLan.statusCode).toBe(403);
+    const status = await app.inject({ method: 'GET', url: '/api/v1/setup/status' });
+    expect((status.json() as { data: { needsSetup: boolean } }).data.needsSetup).toBe(true);
+    const fromHost = await app.inject({ method: 'POST', url: '/api/v1/setup', payload: body() });
+    expect(fromHost.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('does not create the sample accounts, which share a published password', async () => {
+    const app = await prod();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/setup',
+      payload: body({ loadSampleData: true }),
+    });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+});

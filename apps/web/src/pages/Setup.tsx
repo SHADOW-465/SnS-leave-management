@@ -16,7 +16,7 @@ export function SetupPage() {
     adminName: '',
     adminEmail: '',
     adminPassword: '',
-    loadSampleData: true,
+    loadSampleData: false,
   });
 
   async function onSubmit(e: FormEvent) {

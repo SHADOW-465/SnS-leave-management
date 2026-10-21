@@ -427,7 +427,7 @@ async function renderHost(
       <section id="recovery">
         <h2>Administrator recovery</h2>
         <p>If nobody can sign in as an administrator, reset one here. This works only on this computer.</p>
-        ${admins.map((a) => `<form method="post" action="/api/v1/host/recover-admin">${hidden(token)}<input type="hidden" name="userId" value="${esc(a.id)}"><span class="mono">${esc(a.email)}</span> <button type="submit">Reset password</button></form>`).join('') || '<p class="state">No administrator accounts exist.</p>'}
+        ${admins.map((a) => `<form method="post" action="/api/v1/host/recover-admin">${hidden(token)}<input type="hidden" name="userId" value="${esc(a.id)}"><span class="mono">${esc(a.email)}</span> <button type="submit">Reset password</button></form>`).join('') || '<p class="state">No administrator accounts exist yet. <a href="/">Create the first administrator</a> here, on this computer.</p>'}
       </section>
       <section>
         <h2>Browsers waiting for approval</h2>

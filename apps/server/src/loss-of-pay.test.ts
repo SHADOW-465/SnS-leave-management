@@ -533,3 +533,20 @@ describe('asking to cancel approved leave', () => {
     expect(await balance(vijay)).toBe(before);
   });
 });
+
+describe('dates the wrong way round', () => {
+  it('preview and submit answer 400 with a field message, not a server error', async () => {
+    const vijay = await signIn('vijay@sns.test');
+    const previewRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/leave/preview?leaveTypeId=${typeId}&startDate=2026-12-10&endDate=2026-12-08`,
+      headers: auth(vijay),
+    });
+    expect(previewRes.statusCode).toBe(400);
+    const submitRes = await apply(vijay, '2026-12-10', '2026-12-08');
+    expect(submitRes.statusCode).toBe(400);
+    expect((submitRes.json() as { error: { code: string } }).error.code).toBe(
+      'LEAVE_DATES_REVERSED',
+    );
+  });
+});

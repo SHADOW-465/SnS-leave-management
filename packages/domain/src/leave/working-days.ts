@@ -1,4 +1,5 @@
 import { enumerateInclusiveDates, dayOfWeek } from '../dates.js';
+import { DomainError } from '../errors.js';
 
 export type HolidayKind = 'public' | 'optional' | 'declared_working';
 
@@ -62,6 +63,11 @@ export function classifyRequestDays(input: {
   halfDayEnd?: DayPortion | null;
   options?: WorkingDayOptions;
 }): RequestDay[] {
+  if (input.endDate < input.startDate) {
+    throw new DomainError('LEAVE_DATES_REVERSED', 'The end date is before the start date.', {
+      details: [{ path: 'endDate', message: 'Choose an end date on or after the start date.' }],
+    });
+  }
   const weekendDays = input.options?.weekendDays ?? [0, 6];
   const excludeWeekends = input.options?.excludeWeekends ?? true;
   const excludeHolidays = input.options?.excludeHolidays ?? true;

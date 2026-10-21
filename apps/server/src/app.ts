@@ -33,6 +33,11 @@ const PUBLIC = new Set([
   'POST /api/v1/setup',
   'POST /api/v1/auth/login',
 ]);
+const PASSWORD_CHANGE_ALLOWED = new Set([
+  'GET /api/v1/me',
+  'POST /api/v1/auth/password',
+  'POST /api/v1/auth/logout',
+]);
 export async function buildApp(
   config: AppConfig,
   sqlite: Db,
@@ -152,6 +157,22 @@ export async function buildApp(
               },
             });
           }
+        }
+        // A temporary password (new account or reset) is replaced before the account can
+        // do anything. Whoever holds the credential sheet must not use the account quietly.
+        if (
+          session.must_change_password &&
+          pathOnly.startsWith('/api/v1') &&
+          !PUBLIC.has(key) &&
+          !PASSWORD_CHANGE_ALLOWED.has(key)
+        ) {
+          return reply.status(403).send({
+            error: {
+              code: 'PASSWORD_CHANGE_REQUIRED',
+              message: 'Choose a new password before continuing.',
+              requestId,
+            },
+          });
         }
       }
     }

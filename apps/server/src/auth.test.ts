@@ -297,3 +297,48 @@ describe('first-run setup time zone', () => {
     await app.close();
   });
 });
+
+describe('a temporary password must be changed first', () => {
+  it('the server refuses everything but /me, the password change and sign-out until then', async () => {
+    const { app, sqlite } = await boot();
+    const admin = cookiesOf(
+      await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: ADMIN }),
+    );
+    const vijayUser = (
+      (await sqlite
+        .prepare(`SELECT id FROM user_account WHERE email = 'vijay@sns.test'`)
+        .get()) as { id: string }
+    ).id;
+    const reset = await app.inject({
+      method: 'POST',
+      url: `/api/v1/accounts/${vijayUser}/reset-password`,
+      headers: { cookie: admin.header, 'x-csrf-token': admin.csrf },
+    });
+    expect(reset.statusCode).toBe(200);
+    const temp = (reset.json() as { data: { temporaryPassword: string } }).data.temporaryPassword;
+    const vijay = cookiesOf(
+      await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        payload: { email: 'vijay@sns.test', password: temp },
+      }),
+    );
+    const headers = { cookie: vijay.header, 'x-csrf-token': vijay.csrf };
+    expect((await app.inject({ method: 'GET', url: '/api/v1/me', headers })).statusCode).toBe(200);
+    const blocked = await app.inject({ method: 'GET', url: '/api/v1/leave-requests', headers });
+    expect(blocked.statusCode).toBe(403);
+    expect((blocked.json() as { error: { code: string } }).error.code).toBe(
+      'PASSWORD_CHANGE_REQUIRED',
+    );
+    const changed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password',
+      headers,
+      payload: { currentPassword: temp, newPassword: 'A-new-long-password-1' },
+    });
+    expect(changed.statusCode).toBe(200);
+    const after = await app.inject({ method: 'GET', url: '/api/v1/leave-requests', headers });
+    expect(after.statusCode).toBe(200);
+    await app.close();
+  });
+});

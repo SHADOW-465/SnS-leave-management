@@ -296,9 +296,9 @@ export function LoginPage() {
               </p>
             </div>
             <div className="card">
-              <p className="muted">Email is a safety net</p>
+              <p className="muted">Notifications stay in the app</p>
               <p style={{ margin: 0, fontWeight: 600 }}>
-                In-app notifications still work if mail is down.
+                Requests and decisions appear under the bell. No email is sent.
               </p>
             </div>
             <div className="card">

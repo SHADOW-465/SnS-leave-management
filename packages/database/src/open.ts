@@ -101,6 +101,20 @@ export async function migrate(db: Db): Promise<void> {
   }
 }
 
+function passesIntegrityCheck(file: string): boolean {
+  try {
+    const db = new DatabaseSync(file);
+    try {
+      const row = db.prepare('PRAGMA integrity_check').get() as { integrity_check?: string };
+      return row?.integrity_check === 'ok';
+    } finally {
+      db.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
 /** Swap in a staged restore before the connection opens. Returns whether a swap happened. */
 export function applyPendingRestore(dbPath: string): boolean {
   const staged = `${dbPath}.restore`;
@@ -112,12 +126,21 @@ export function applyPendingRestore(dbPath: string): boolean {
   } finally {
     fs.closeSync(fd);
   }
-  if (header.toString('utf8') !== 'SQLite format 3\0') {
+  // A damaged copy (a truncated USB file, a backup whose own check failed) must never
+  // replace a working database: the server would then refuse to start.
+  if (header.toString('utf8') !== 'SQLite format 3\0' || !passesIntegrityCheck(staged)) {
     fs.renameSync(staged, `${staged}.rejected`);
     return false;
   }
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  if (fs.existsSync(dbPath)) fs.copyFileSync(dbPath, `${dbPath}.before-restore`);
+  if (fs.existsSync(dbPath)) {
+    // Every restore keeps its own safety copy, with the -wal that holds the latest writes.
+    let n = Date.now();
+    while (fs.existsSync(`${dbPath}.before-restore-${n}`)) n += 1;
+    const safety = `${dbPath}.before-restore-${n}`;
+    fs.copyFileSync(dbPath, safety);
+    if (fs.existsSync(`${dbPath}-wal`)) fs.copyFileSync(`${dbPath}-wal`, `${safety}-wal`);
+  }
   for (const suffix of ['-wal', '-shm']) {
     const side = `${dbPath}${suffix}`;
     if (fs.existsSync(side)) fs.rmSync(side);

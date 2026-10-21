@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { integrityCheck, openDatabase, withTx } from './open.js';
+import { applyPendingRestore, integrityCheck, openDatabase, withTx } from './open.js';
 import type { Db } from './types.js';
 import { seedSystem } from './seed-system.js';
 
@@ -127,5 +127,76 @@ describe('database', () => {
     };
     expect(n.n).toBe(0);
     await sqlite.close();
+  });
+});
+
+describe('restore on next start', () => {
+  async function makeDb(file: string, rows: number) {
+    const db = await openDatabase(file);
+    await db.exec('CREATE TABLE IF NOT EXISTS probe (n INTEGER)');
+    for (let i = 0; i < rows; i++) await db.prepare('INSERT INTO probe (n) VALUES (?)').run(i);
+    return db;
+  }
+  async function probeCount(file: string): Promise<number> {
+    const db = await openDatabase(file);
+    dbs.push(db);
+    return Number(((await db.prepare('SELECT COUNT(*) AS n FROM probe').get()) as { n: number }).n);
+  }
+
+  it('refuses a damaged backup and keeps the live database', async () => {
+    const live = tmpDb();
+    await (await makeDb(live, 3)).close();
+    const bad = path.join(path.dirname(live), 'bad.db');
+    const source = await makeDb(bad, 50);
+    await source.close();
+    // Keep the "SQLite format 3" header, wreck everything after the first page.
+    const bytes = fs.readFileSync(bad);
+    bytes.fill(0xab, 4096);
+    fs.writeFileSync(`${live}.restore`, bytes);
+
+    expect(applyPendingRestore(live)).toBe(false);
+    expect(fs.existsSync(`${live}.restore`)).toBe(false);
+    expect(fs.existsSync(`${live}.restore.rejected`)).toBe(true);
+    expect(await probeCount(live)).toBe(3);
+  });
+
+  it('the safety copy of the live database keeps writes not yet checkpointed', async () => {
+    const live = tmpDb();
+    const backup = path.join(path.dirname(live), 'backup.db');
+    await (await makeDb(backup, 1)).close();
+    // The live database as a stopped service leaves it: recent writes still in the -wal.
+    const running = await makeDb(path.join(path.dirname(live), 'running.db'), 7);
+    for (const suffix of ['', '-wal']) {
+      fs.copyFileSync(path.join(path.dirname(live), `running.db${suffix}`), `${live}${suffix}`);
+    }
+    await running.close();
+    fs.copyFileSync(backup, `${live}.restore`);
+
+    expect(applyPendingRestore(live)).toBe(true);
+    expect(await probeCount(live)).toBe(1);
+    const safety = fs
+      .readdirSync(path.dirname(live))
+      .filter((f) => f.startsWith('app.db.before-restore') && !/-(wal|shm)$/.test(f));
+    expect(safety).toHaveLength(1);
+    expect(await probeCount(path.join(path.dirname(live), safety[0]!))).toBe(7);
+  });
+
+  it('a second restore does not overwrite the first safety copy', async () => {
+    const live = tmpDb();
+    const backup = path.join(path.dirname(live), 'backup.db');
+    await (await makeDb(backup, 1)).close();
+    await (await makeDb(live, 5)).close();
+    fs.copyFileSync(backup, `${live}.restore`);
+    expect(applyPendingRestore(live)).toBe(true);
+    fs.copyFileSync(backup, `${live}.restore`);
+    expect(applyPendingRestore(live)).toBe(true);
+    const safety = fs
+      .readdirSync(path.dirname(live))
+      .filter((f) => f.startsWith('app.db.before-restore') && !/-(wal|shm)$/.test(f));
+    expect(safety).toHaveLength(2);
+    const counts = await Promise.all(
+      safety.map((f) => probeCount(path.join(path.dirname(live), f))),
+    );
+    expect(counts.sort()).toEqual([1, 5]);
   });
 });

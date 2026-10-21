@@ -119,7 +119,16 @@ export async function runScheduledBackup(
   if (last && now.getTime() - Date.parse(last.started_at) < GAP_MS) return 'skipped';
   const directory = settings.directory.trim() || fallbackDir;
   try {
-    await createBackupFile({ sqlite, backupsRoot: directory, now: now.toISOString() }, 'scheduled');
+    const made = await createBackupFile(
+      { sqlite, backupsRoot: directory, now: now.toISOString() },
+      'scheduled',
+    );
+    // A copy that fails its own check is recorded as failed (above) and is no backup: it
+    // must not push a good older copy out of the retention window.
+    if (made.integrity !== 'ok') {
+      fs.rmSync(made.path, { force: true });
+      return 'failed';
+    }
   } catch (err) {
     // A USB drive that is unplugged or a share that is offline must show on the host panel
     // rather than vanish into a swallowed job error.

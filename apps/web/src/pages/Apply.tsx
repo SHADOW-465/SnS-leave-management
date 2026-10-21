@@ -18,7 +18,9 @@ export function ApplyPage({ me }: { me: Me }) {
   const [duration, setDur] = useState<'full' | 'am' | 'pm'>('full');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [confirmLop, setConfirmLop] = useState(false);
+  // The loss-of-pay amount the tick box was given for. Consent to 2.5 unpaid days is not
+  // consent to 7.5, so changing the dates or duration clears the tick.
+  const [confirmedLopHalfDays, setConfirmedLop] = useState<number | null>(null);
   const [fileId, setFileId] = useState<string | null>(null);
   // One leave type exists: Annual Leave.
   const typeId = types.data?.[0]?.id ?? '';
@@ -95,6 +97,7 @@ export function ApplyPage({ me }: { me: Me }) {
     : null;
 
   const hasLop = Boolean(split && split.lopHalfDays > 0);
+  const confirmLop = hasLop && confirmedLopHalfDays === split?.lopHalfDays;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -261,7 +264,7 @@ export function ApplyPage({ me }: { me: Me }) {
             <input
               type="checkbox"
               checked={confirmLop}
-              onChange={(e) => setConfirmLop(e.target.checked)}
+              onChange={(e) => setConfirmedLop(e.target.checked ? split.lopHalfDays : null)}
               required
             />
             <span>

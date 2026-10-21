@@ -238,6 +238,16 @@ describe('host control panel', () => {
     expect(page.body).toMatch(/<time>\d{4}-\d{2}-\d{2}T/);
     expect(page.body).toContain(drive);
 
+    // "Back up now" writes to the same folder as the daily copy, not only the data folder.
+    const manual = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/backup',
+      headers: form,
+      payload: `token=${panel.token}`,
+    });
+    expect(String(manual.headers.location)).toContain('notice=');
+    expect(fs.readdirSync(drive).filter((n) => n.endsWith('.db'))).toHaveLength(2);
+
     await sqlite
       .prepare(`UPDATE company SET name = 'Changed After Backup' WHERE id = 'company'`)
       .run();
@@ -256,6 +266,31 @@ describe('host control panel', () => {
       .prepare(`SELECT name FROM company WHERE id = 'company'`)
       .get()) as { name: string };
     expect(company.name).toBe('Test Co');
+  });
+
+  it('shows a failed Back up now on the panel when the backup folder cannot be written', async () => {
+    const { app, dir } = await boot();
+    // A file where the folder should be: the drive letter points somewhere unusable.
+    const blocked = path.join(dir, 'not-a-folder');
+    fs.writeFileSync(blocked, '');
+    const panel = await openPanel(app);
+    const form = { 'content-type': 'application/x-www-form-urlencoded', cookie: panel.cookie };
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/backup-settings',
+      headers: form,
+      payload: `token=${panel.token}&directory=${encodeURIComponent(blocked)}&retentionCount=3`,
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/backup',
+      headers: form,
+      payload: `token=${panel.token}`,
+    });
+    expect(res.statusCode).toBe(303);
+    const error = new URLSearchParams(String(res.headers.location).split('?')[1]).get('error');
+    expect(error).toContain(`The backup was not saved to ${blocked}`);
+    await app.close();
   });
 
   it('recovers an administrator from the host computer only, with a one-time random password', async () => {

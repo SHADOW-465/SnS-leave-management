@@ -209,6 +209,17 @@ framework. Most of it was already in v1; these were the remaining user-visible g
 
 ---
 
+## 4h. Browser end-to-end pass — 2026-10-21
+
+Found by driving the built app in a real browser (Playwright, `apps/e2e`) against a server on a
+throwaway data folder.
+
+| ID     | Item                                                                                                                                                                                                                                                          | Status          | Evidence                                                                                                                                           |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DW-101 | **Back up now ignored the backup folder.** The host panel and `POST /api/v1/ops/backup` always wrote into the data folder, so a USB drive set on the panel only ever received the daily copy. A folder that could not be written showed a raw JSON error page | DONE 2026-10-21 | `host-panel.test.ts`: manual backup lands in the configured folder; an unwritable folder returns to the panel with "The backup was not saved to …" |
+
+---
+
 ## 5. Review procedure
 
 At the close of every milestone:

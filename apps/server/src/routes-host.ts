@@ -127,14 +127,19 @@ export function registerHostRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/v1/host/backup', async (req, reply) => {
+    if (!tokenOk(req)) return back(reply, { error: 'Refresh the page and try that again.' });
+    // Same folder as the daily copy: a USB drive set here is where "Back up now" writes too.
+    const policy = await readBackupPolicy(req.ctx.sqlite, req.ctx.backupsRoot, false);
     try {
-      if (!tokenOk(req)) return back(reply, { error: 'Refresh the page and try that again.' });
-      const saved = await createBackupFile(req.ctx, 'manual');
+      const saved = await createBackupFile(req.ctx, 'manual', policy.directory);
       return back(reply, {
-        notice: `Backup saved (${saved.integrity}). Restart the service before a restore takes effect.`,
+        notice: `Backup saved (${saved.integrity}) to ${policy.directory}. Restart the service before a restore takes effect.`,
       });
     } catch (err) {
-      return sendError(req, reply, err);
+      const detail = err instanceof Error ? err.message : 'unknown error';
+      return back(reply, {
+        error: `The backup was not saved to ${policy.directory}. Check the drive is connected and the folder can be written. (${detail})`,
+      });
     }
   });
 

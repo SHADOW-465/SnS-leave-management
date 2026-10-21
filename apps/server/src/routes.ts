@@ -1951,7 +1951,8 @@ export async function registerRoutes(app: FastifyInstance) {
   app.post('/api/v1/ops/backup', async (req, reply) => {
     try {
       await authorizeAction(req.ctx, 'system.backup.create', null);
-      const saved = await createBackupFile(req.ctx, 'manual');
+      const policy = await readBackupPolicy(req.ctx.sqlite, req.ctx.backupsRoot, false);
+      const saved = await createBackupFile(req.ctx, 'manual', policy.directory);
       return reply.send(ok(saved, req.ctx.requestId));
     } catch (err) {
       return sendError(req, reply, err);

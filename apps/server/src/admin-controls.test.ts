@@ -952,3 +952,36 @@ describe('moving someone to another team', () => {
     expect(await managerOf('suresh@sns.test')).toBe('david@sns.test');
   });
 });
+
+describe('HR and administrator accounts', () => {
+  it('HR cannot disable, sign out or rename an administrator, even when another exists', async () => {
+    // A second administrator, so the last-administrator guard is not what stops HR.
+    await call(admin, 'PUT', `/api/v1/admin/users/${await userId('ramesh@sns.test')}/roles`, {
+      roles: ['admin'],
+    });
+    const hr = await signIn('anitha@sns.test');
+    const target = await userId('admin@example.invalid');
+    const disable = await call(hr, 'PUT', `/api/v1/admin/users/${target}/disabled`, {
+      disabled: true,
+    });
+    expect(disable.statusCode).toBe(403);
+    const signOut = await call(hr, 'POST', `/api/v1/admin/users/${target}/sign-out-everywhere`);
+    expect(signOut.statusCode).toBe(403);
+    const rename = await call(hr, 'PATCH', `/api/v1/admin/users/${target}`, {
+      email: 'someone-else@example.invalid',
+    });
+    expect(rename.statusCode).toBe(403);
+    const row = (await sqlite
+      .prepare(`SELECT is_disabled AS d, email FROM user_account WHERE id = ?`)
+      .get(target)) as { d: number; email: string };
+    expect(row).toMatchObject({ d: 0, email: 'admin@example.invalid' });
+    // HR still manages ordinary accounts.
+    const staff = await call(
+      hr,
+      'PUT',
+      `/api/v1/admin/users/${await userId('vijay@sns.test')}/disabled`,
+      { disabled: true },
+    );
+    expect(staff.statusCode).toBe(200);
+  });
+});

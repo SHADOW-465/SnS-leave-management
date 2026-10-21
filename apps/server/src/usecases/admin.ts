@@ -843,6 +843,20 @@ export function assertMayGrantAdmin(
   }
 }
 
+/** An administrator's account is changed only by an administrator, whatever HR may do to others. */
+async function assertMayChangeAccount(ctx: RequestContext, userId: string): Promise<void> {
+  const p = requirePrincipal(ctx);
+  if (p.roles.includes('admin')) return;
+  const roles = (
+    (await ctx.sqlite
+      .prepare(
+        `SELECT r.code FROM user_role ur JOIN role r ON r.id = ur.role_id WHERE ur.user_account_id = ?`,
+      )
+      .all(userId)) as { code: string }[]
+  ).map((r) => r.code);
+  assertMayGrantAdmin(false, [], roles);
+}
+
 function nextEmployeeCode(codes: string[]): string {
   let prefix = 'SNS-';
   let max = 1000;
@@ -1077,6 +1091,7 @@ export async function setUserRoles(ctx: RequestContext, userId: string, roles: R
 export async function setAccountDisabled(ctx: RequestContext, userId: string, disabled: boolean) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'user.account.disable', null);
+  await assertMayChangeAccount(ctx, userId);
   if (disabled && userId === p.userId) {
     throw new DomainError('SELF_LOCKOUT', 'You cannot disable your own account.', {
       httpStatus: 409,
@@ -1140,6 +1155,7 @@ export async function revokeUserSessions(
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'user.session.revoke', null);
+  await assertMayChangeAccount(ctx, userId);
   const result = await ctx.sqlite
     .prepare(
       `UPDATE session SET revoked_at = ?, revoked_reason = 'admin_revoked'
@@ -1231,6 +1247,7 @@ export async function updateAccount(
     .prepare(`SELECT id, email, employee_id AS "employeeId" FROM user_account WHERE id = ?`)
     .get(userId)) as { id: string; email: string; employeeId: string | null } | undefined;
   if (!user) throw new DomainError('NOT_FOUND', 'Account not found.', { httpStatus: 404 });
+  await assertMayChangeAccount(ctx, userId);
 
   if (!user.employeeId) {
     await authorizeAction(ctx, 'user.account.create', null);

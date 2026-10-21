@@ -1,6 +1,6 @@
 # Testing strategy
 
-Planning document. No tests exist yet.
+Strategy document. The unit, integration and API suites run with `pnpm test`; the browser suite with `pnpm e2e` (§6).
 
 **The rule this document exists to enforce:** a passing build is not evidence that anything
 works. Installation, LAN access, TLS trust, backup restore, and accessibility are claimed
@@ -142,6 +142,16 @@ The tests that decide whether this system can be trusted with real data.
 ## 6. End-to-end journeys
 
 Per role, on a seeded synthetic database, at 390px and 1280px.
+
+**Running it.** `pnpm e2e` builds the web app, then `apps/e2e` (Playwright, Chromium) starts
+the real server on `127.0.0.1` over HTTP with `LEAVEOS_ENV=test`, the sample organisation,
+and a throwaway data folder under the system temp directory. Specs that need their own limits
+(sign-in rate limit, session expiry measured in seconds) start their own server. Every server
+is stopped by the PID the suite started, and its folder deleted. Nothing touches `./data`,
+the Windows service, or the firewall. Install the browser once with
+`pnpm --filter @sns/e2e exec playwright install chromium`.
+
+What the suite covers today, and what it does not, is in `DEFERRED-WORK.md` (DW-99, DW-108).
 
 **Employee** — sign in → forced password change → view balances → apply for leave (see the
 working-day breakdown, the skipped days, the overlap warning, and the balance-after figure)

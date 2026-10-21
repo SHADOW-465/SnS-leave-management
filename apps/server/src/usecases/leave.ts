@@ -1043,7 +1043,11 @@ export async function hrCancel(
     .get(requestId)) as LeaveRow | undefined;
   if (!req) throw new ForbiddenErrorSilent();
   await authorizeAction(ctx, 'leave.request.cancel', req.employee_id);
-  const next = applyTransition(req.status as 'approved', 'hr_cancel', 'hr');
+  // A request the employee asked to cancel is completed here too; nothing else decides it.
+  const next =
+    req.status === 'cancellation_requested'
+      ? applyTransition(req.status, 'approve_cancellation', 'approver')
+      : applyTransition(req.status as 'approved', 'hr_cancel', 'hr');
   await withTx(ctx.sqlite, async () => {
     const bump = await ctx.sqlite
       .prepare(

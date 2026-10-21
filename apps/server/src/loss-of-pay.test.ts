@@ -501,3 +501,35 @@ describe('a holiday changing under an approved request with loss of pay', () => 
     expect(await balance(vijay)).toBe(0);
   });
 });
+
+describe('asking to cancel approved leave', () => {
+  it('HR can complete the cancellation, and the paid days come back', async () => {
+    const vijay = await setBalance(4);
+    const lead = await signIn('john@sns.test');
+    const hr = await signIn('anitha@sns.test');
+    const before = await balance(vijay);
+    const id = json<{ id: string }>(await apply(vijay, '2026-12-14', '2026-12-15')).id;
+    const approved = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/approve`,
+      headers: auth(lead),
+      payload: { expectedVersion: 1 },
+    });
+    expect(approved.statusCode).toBe(200);
+    const asked = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/cancel-request`,
+      headers: auth(vijay),
+      payload: { expectedVersion: 2 },
+    });
+    expect(asked.statusCode).toBe(200);
+    const cancel = await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/cancel`,
+      headers: auth(hr),
+      payload: { expectedVersion: 3, reason: 'Employee asked to cancel.' },
+    });
+    expect(cancel.statusCode).toBe(200);
+    expect(await balance(vijay)).toBe(before);
+  });
+});

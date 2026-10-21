@@ -266,3 +266,34 @@ describe('hosted preview cron', () => {
     delete process.env.CRON_SECRET;
   });
 });
+
+describe('first-run setup time zone', () => {
+  it('refuses a time zone the server cannot use, so the app is not broken for good', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leaveos-tz-'));
+    const sqlite = await openDatabase(path.join(dir, 'app.db'));
+    opened.push({ sqlite, dir });
+    const app = await buildApp(loadConfig({ LEAVEOS_DATA_DIR: dir, LEAVEOS_ENV: 'test' }), sqlite);
+    await app.ready();
+    const setup = (timezone: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/setup',
+        payload: {
+          companyName: 'Test Co',
+          timezone,
+          leaveYearStartMonth: 1,
+          leaveYearStartDay: 1,
+          adminName: 'Ada Example',
+          adminEmail: ADMIN.email,
+          adminPassword: ADMIN.password,
+        },
+      });
+    const bad = await setup('India Standard Time');
+    expect(bad.statusCode).toBe(400);
+    const good = await setup('Asia/Kolkata');
+    expect(good.statusCode).toBeLessThan(300);
+    const status = await app.inject({ method: 'GET', url: '/api/v1/setup/status' });
+    expect(status.statusCode).toBe(200);
+    await app.close();
+  });
+});

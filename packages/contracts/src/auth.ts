@@ -17,10 +17,25 @@ export const changePasswordBodySchema = z
   })
   .strict();
 
+function isTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const setupBodySchema = z
   .object({
     companyName: z.string().min(2).max(120),
-    timezone: z.string().min(3).max(80),
+    // An IANA name such as Asia/Kolkata. Every request computes "today" in it, so a name the
+    // runtime rejects ("IST", "India Standard Time") would break the whole app after setup.
+    timezone: z
+      .string()
+      .min(3)
+      .max(80)
+      .refine(isTimeZone, 'Use a time zone name such as Asia/Kolkata.'),
     leaveYearStartMonth: z.number().int().min(1).max(12),
     leaveYearStartDay: z.number().int().min(1).max(31),
     adminName: z.string().min(2).max(120),

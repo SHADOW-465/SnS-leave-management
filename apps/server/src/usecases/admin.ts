@@ -1264,6 +1264,10 @@ export async function updateAccount(
   }
 
   await authorizeAction(ctx, 'employee.update', user.employeeId);
+  // Names, sign-in names and employee codes are HR's to change, never self-service.
+  if (!p.permissions.includes('employee.update:company')) {
+    throw new DomainError('FORBIDDEN', 'Only HR can change sign-in details.', { httpStatus: 403 });
+  }
   if (input.expectedVersion == null) {
     throw new DomainError('VERSION_REQUIRED', 'Reload the page and try the edit again.', {
       httpStatus: 400,

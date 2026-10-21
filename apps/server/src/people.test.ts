@@ -450,3 +450,45 @@ describe('Department and Team management', () => {
     expect(after.teamId).toBeNull();
   });
 });
+
+describe('editing your own record', () => {
+  it('an employee may change their phone number, not their team, probation or sign-in', async () => {
+    const { app, sqlite } = await boot();
+    const vijay = await loginAs(app, { email: 'vijay@sns.test', password: 'ChangeMe_demo_1' });
+    const me = (await sqlite
+      .prepare(
+        `SELECT e.id, e.version, e.team_id AS "teamId", u.id AS "userId" FROM employee e
+           JOIN user_account u ON u.employee_id = e.id WHERE e.work_email = 'vijay@sns.test'`,
+      )
+      .get()) as { id: string; version: number; teamId: string | null; userId: string };
+    const headers = { cookie: vijay.header, 'x-csrf-token': vijay.csrf };
+    const patch = (payload: object) =>
+      app.inject({ method: 'PATCH', url: `/api/v1/employees/${me.id}`, headers, payload });
+
+    for (const change of [
+      { teamId: null },
+      { probationEndOn: '2020-01-01' },
+      { joinedOn: '2000-01-01' },
+      { status: 'active' },
+    ]) {
+      const res = await patch({ ...change, expectedVersion: me.version });
+      expect(res.statusCode, JSON.stringify(change)).toBe(403);
+    }
+    const after = (await sqlite
+      .prepare(`SELECT team_id AS "teamId", version FROM employee WHERE id = ?`)
+      .get(me.id)) as { teamId: string | null; version: number };
+    expect(after).toMatchObject({ teamId: me.teamId, version: me.version });
+
+    const phone = await patch({ phone: '+91 90000 00000', expectedVersion: me.version });
+    expect(phone.statusCode).toBe(200);
+
+    const rename = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/users/${me.userId}`,
+      headers,
+      payload: { username: 'boss', expectedVersion: me.version + 1 },
+    });
+    expect(rename.statusCode).toBe(403);
+    await app.close();
+  });
+});

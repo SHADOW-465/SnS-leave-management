@@ -113,6 +113,19 @@ export async function updateEmployee(
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'employee.update', employeeId);
+  // `employee.update:self` covers the person's own contact number. Team, department,
+  // dates and status decide approvals and entitlements, so only HR changes those.
+  if (!p.permissions.includes('employee.update:company')) {
+    const fields = Object.keys(input).filter(
+      (k) =>
+        k !== 'phone' && k !== 'expectedVersion' && input[k as keyof typeof input] !== undefined,
+    );
+    if (fields.length > 0) {
+      throw new DomainError('FORBIDDEN', 'Only HR can change these details.', {
+        httpStatus: 403,
+      });
+    }
+  }
 
   const existing = (await ctx.sqlite
     .prepare(`SELECT * FROM employee WHERE id = ?`)

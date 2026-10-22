@@ -15,6 +15,7 @@ import {
   leaveYearBodySchema,
   loginBodySchema,
   ok,
+  previewLeaveQuerySchema,
   publishPolicyBodySchema,
   reactivateEmployeeBodySchema,
   recordAttendanceCorrectionBodySchema,
@@ -265,15 +266,7 @@ export async function registerRoutes(app: FastifyInstance) {
   });
   app.get('/api/v1/leave/preview', async (req, reply) => {
     try {
-      const q = req.query as Record<string, string>;
-      const data = await previewLeave(req.ctx, {
-        leaveTypeId: q.leaveTypeId ?? '',
-        startDate: q.startDate ?? '',
-        endDate: q.endDate ?? '',
-        halfDayStart: q.halfDayStart as 'am' | 'pm' | undefined,
-        halfDayEnd: q.halfDayEnd as 'am' | 'pm' | undefined,
-        employeeId: q.employeeId,
-      });
+      const data = await previewLeave(req.ctx, parse(previewLeaveQuerySchema, req.query));
       return reply.send(ok(data, req.ctx.requestId));
     } catch (err) {
       return sendError(req, reply, err);

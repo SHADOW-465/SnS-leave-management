@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
-export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+export const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+  // 2026-02-30 matches the pattern but is not a day; without this it reached the date
+  // arithmetic and answered 500.
+  .refine((s) => {
+    const d = new Date(`${s}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
+  }, 'Not a calendar date');
 export const email = z.string().email().max(320);
 export const ulid = z.string().min(16).max(40);
 export const cursorQuery = z

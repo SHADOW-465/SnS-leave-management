@@ -549,4 +549,15 @@ describe('dates the wrong way round', () => {
       'LEAVE_DATES_REVERSED',
     );
   });
+
+  it('a date that is not on the calendar is a 400, not a server error', async () => {
+    const vijay = await signIn('vijay@sns.test');
+    const previewRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/leave/preview?leaveTypeId=${typeId}&startDate=2026-02-27&endDate=2026-02-30`,
+      headers: auth(vijay),
+    });
+    expect(previewRes.statusCode).toBe(400);
+    expect((await apply(vijay, '2026-02-30', '2026-03-02')).statusCode).toBe(400);
+  });
 });

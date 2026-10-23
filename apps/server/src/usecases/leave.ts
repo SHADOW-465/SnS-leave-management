@@ -1402,6 +1402,7 @@ export {
   audit,
   notify,
   ForbiddenErrorSilent,
+  hasOwnOverlappingLeave,
   holidaysForEmployee,
   currentPolicy,
   availableHalfDays,

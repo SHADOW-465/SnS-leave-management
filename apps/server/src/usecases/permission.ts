@@ -1,6 +1,18 @@
-import { DomainError, mayOverride, newId, type RequesterKind } from '@sns/domain';
+import {
+  classifyRequestDays,
+  DomainError,
+  mayOverride,
+  newId,
+  type RequesterKind,
+} from '@sns/domain';
 import { authorizeAction, requirePrincipal, type RequestContext } from '../ctx.js';
-import { requesterKindOf, resolveApprover } from './leave.js';
+import {
+  hasOwnOverlappingLeave,
+  holidaysForEmployee,
+  requesterKindOf,
+  resolveApprover,
+  weekendDaysFor,
+} from './leave.js';
 
 const MONTHLY_HOURS = 2;
 
@@ -44,6 +56,34 @@ export async function submitPermission(
   if (input.hours !== 1 && input.hours !== 2) {
     throw new DomainError('PERMISSION_HOURS', 'Permission is 1 hour or 2 hours.', {
       httpStatus: 400,
+    });
+  }
+  // The same day rules as leave: a weekend or public holiday needs no permission, and a day
+  // already on leave cannot also be an hour or two away. Past dates are allowed, as for leave.
+  const [day] = classifyRequestDays({
+    startDate: input.onDate,
+    endDate: input.onDate,
+    holidays: await holidaysForEmployee(ctx, p.employeeId),
+    options: { weekendDays: await weekendDaysFor(ctx) },
+  });
+  if (!day?.isCounted) {
+    throw new DomainError(
+      'PERMISSION_NOT_WORKING_DAY',
+      `${input.onDate} is not a working day${day?.skipLabel ? ` (${day.skipLabel})` : ''}.`,
+      { httpStatus: 400, details: [{ path: 'onDate', message: 'Choose a working day.' }] },
+    );
+  }
+  if (
+    await hasOwnOverlappingLeave(ctx, p.employeeId, {
+      startDate: input.onDate,
+      endDate: input.onDate,
+      halfDayStart: null,
+      halfDayEnd: null,
+    })
+  ) {
+    throw new DomainError('PERMISSION_ON_LEAVE', `You have leave on ${input.onDate}.`, {
+      httpStatus: 409,
+      details: [{ path: 'onDate', message: 'Choose a day you are not on leave.' }],
     });
   }
   const { start, end } = monthBounds(input.onDate);

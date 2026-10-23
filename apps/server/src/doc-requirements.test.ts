@@ -432,19 +432,19 @@ describe('earned leave, loss of pay and permission', () => {
     expect(data<{ lossOfPay: { pending: number } }>(home).lossOfPay.pending).toBeGreaterThan(0);
 
     const first = await call(vijay, 'POST', '/api/v1/permissions', {
-      onDate: '2026-10-06',
+      onDate: '2026-12-07',
       hours: 1,
       reason: 'Bank appointment',
     });
     expect(first.statusCode).toBe(201);
     const second = await call(vijay, 'POST', '/api/v1/permissions', {
-      onDate: '2026-10-07',
+      onDate: '2026-12-08',
       hours: 1,
       reason: 'School appointment',
     });
     expect(second.statusCode).toBe(201);
     const third = await call(vijay, 'POST', '/api/v1/permissions', {
-      onDate: '2026-10-08',
+      onDate: '2026-12-09',
       hours: 1,
       reason: 'One hour too many',
     });
@@ -476,5 +476,58 @@ describe('deciding permission', () => {
       decision: 'approve',
     });
     expect(decided.statusCode).toBe(200);
+  });
+});
+
+describe('permission dates', () => {
+  async function ask(s: Session, onDate: string) {
+    return call(s, 'POST', '/api/v1/permissions', { onDate, hours: 1, reason: 'Appointment' });
+  }
+  const code = (res: { json: () => unknown }) =>
+    (res.json() as { error?: { code: string } }).error?.code;
+
+  it('refuses a weekend, a public holiday, a day on leave, and a day not on the calendar', async () => {
+    await boot();
+    const vijay = await signIn('vijay@sns.test');
+    // 5 December 2026 is a Saturday.
+    const weekend = await ask(vijay, '2026-12-05');
+    expect(weekend.statusCode).toBe(400);
+    expect(code(weekend)).toBe('PERMISSION_NOT_WORKING_DAY');
+
+    for (const cal of (await sqlite.prepare(`SELECT id FROM holiday_calendar`).all()) as {
+      id: string;
+    }[]) {
+      await sqlite
+        .prepare(
+          `INSERT INTO holiday (id, holiday_calendar_id, date, name, kind) VALUES (?, ?, '2026-12-16', 'Test Day', 'public')`,
+        )
+        .run(`HOLIDAYTEST${cal.id}`, cal.id);
+    }
+    const holiday = await ask(vijay, '2026-12-16');
+    expect(holiday.statusCode).toBe(400);
+    expect(code(holiday)).toBe('PERMISSION_NOT_WORKING_DAY');
+
+    const leave = await call(vijay, 'POST', '/api/v1/leave-requests', {
+      leaveTypeId: await typeId('AL'),
+      startDate: '2026-12-14',
+      endDate: '2026-12-15',
+      reason: 'Family visit',
+      confirmLossOfPay: true,
+    });
+    expect(leave.statusCode).toBe(201);
+    const onLeave = await ask(vijay, '2026-12-15');
+    expect(onLeave.statusCode).toBe(409);
+    expect(code(onLeave)).toBe('PERMISSION_ON_LEAVE');
+
+    expect((await ask(vijay, '2026-02-30')).statusCode).toBe(400);
+    const none = (await sqlite
+      .prepare(
+        `SELECT COUNT(*) AS n FROM permission_request p JOIN employee e ON e.id = p.employee_id WHERE e.work_email = 'vijay@sns.test'`,
+      )
+      .get()) as { n: number };
+    expect(Number(none.n)).toBe(0);
+
+    // An ordinary working day, past or future, is still accepted, as leave is.
+    expect((await ask(vijay, '2026-12-17')).statusCode).toBe(201);
   });
 });

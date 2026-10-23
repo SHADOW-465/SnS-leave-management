@@ -114,22 +114,26 @@ function configureRecovery() {
   console.log('Leave OS starts automatically and restarts if it stops unexpectedly.');
 }
 
+/** Private and Domain networks only: never open the service on a Public network. */
+function firewallRuleArgs(name, protocol, port) {
+  return [
+    'advfirewall',
+    'firewall',
+    'add',
+    'rule',
+    `name=${name}`,
+    'dir=in',
+    'action=allow',
+    `protocol=${protocol}`,
+    `localport=${port}`,
+    'profile=private,domain',
+  ];
+}
+
 function allowInbound(name, protocol, port) {
-  const firewall = spawnSync(
-    'netsh',
-    [
-      'advfirewall',
-      'firewall',
-      'add',
-      'rule',
-      `name=${name}`,
-      'dir=in',
-      'action=allow',
-      `protocol=${protocol}`,
-      `localport=${port}`,
-    ],
-    { encoding: 'utf8' },
-  );
+  const firewall = spawnSync('netsh', firewallRuleArgs(name, protocol, port), {
+    encoding: 'utf8',
+  });
   if (firewall.status !== 0) {
     console.error(firewall.stderr || firewall.stdout);
   }
@@ -281,6 +285,7 @@ module.exports = {
   recoveryArgs,
   isAutoStart,
   restartsOnFailure,
+  firewallRuleArgs,
 };
 
 if (require.main === module) {

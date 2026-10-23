@@ -17,6 +17,7 @@
 - **Loss of pay beyond the quota.** A request past the balance is never refused for insufficient balance: the days the balance covers are paid, the rest are loss of pay. One shared function, `splitLeaveDays` in `@sns/contracts`, does the split for both the server and the Apply page, so the numbers shown are the numbers stored. Apply shows remaining balance, paid days and loss-of-pay days before submit. Paid and LOP days also show on the dashboard request list, the approver queue and request detail, the leave transactions register, the monthly payroll, annual and executive reports, and the xlsx, pdf and csv exports. The "Shortfall is loss of pay" switch is gone; it is always on.
 
 ### Fixed
+- **Firewall rules are for Private and Domain networks only.** The installer no longer opens the Leave OS ports on a Public network. If the office network is classed Public, set it to Private in Windows. Not run on a real install.
 - **Approved leave can be cancelled from the screen.** The request detail has "Ask to cancel this leave" (employee) and "Cancel this leave" with a reason (HR and administrators). Paid days return to the balance; loss of pay days are not credited. HR is told in the app when a cancellation is asked for, and the employee when it is done. No email.
 - **Permission hours need a working day.** A weekend, a public holiday, a day already on leave, or a date that is not on the calendar is refused.
 - **A date that is not on the calendar** (for example 30 February) is a 400 with a message, not "Something went wrong".

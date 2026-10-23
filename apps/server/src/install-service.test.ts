@@ -11,6 +11,7 @@ const {
   recoveryArgs,
   isAutoStart,
   restartsOnFailure,
+  firewallRuleArgs,
 } = createRequire(import.meta.url)('../../../installer/install-service.cjs') as {
   serviceStateFromStatus: (text: string) => string;
   nextRunningWait: (
@@ -23,6 +24,7 @@ const {
   recoveryArgs: () => { failure: string[]; failureFlag: string[]; start: string[] };
   isAutoStart: (text: string) => boolean;
   restartsOnFailure: (text: string) => boolean;
+  firewallRuleArgs: (name: string, protocol: string, port: string) => string[];
 };
 
 describe('WinSW service registration', () => {
@@ -69,5 +71,15 @@ describe('WinSW service registration', () => {
     );
     expect(xml).toContain('<startmode>Automatic</startmode>');
     expect((xml.match(/<onfailure action="restart"/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('firewall rules', () => {
+  it('apply to the Private and Domain profiles only, never Public', () => {
+    const args = firewallRuleArgs('Leave OS', 'TCP', '8443');
+    expect(args).toContain('profile=private,domain');
+    expect(args).toContain('name=Leave OS');
+    expect(args).toContain('localport=8443');
+    expect(args.join(' ')).not.toMatch(/public|profile=any/i);
   });
 });

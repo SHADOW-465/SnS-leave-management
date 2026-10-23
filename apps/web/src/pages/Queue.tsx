@@ -108,6 +108,9 @@ export function QueuePage({ me }: { me: Me }) {
   const [search, setSearch] = useState('');
   const [rejecting, setRejecting] = useState<Row | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [cancelling, setCancelling] = useState<DetailData | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const qc = useQueryClient();
   const base = useLocation().pathname.startsWith('/approvals') ? '/approvals' : '/requests';
   const mine = base === '/requests';
@@ -129,10 +132,12 @@ export function QueuePage({ me }: { me: Me }) {
   const canDecideDetail = Boolean(q.data?.find((r) => r.id === id)?.can_decide);
 
   useEffect(() => {
-    if (!id && !rejecting) return;
+    if (!id && !rejecting && !cancelling) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (rejecting) {
+        if (cancelling) {
+          setCancelling(null);
+        } else if (rejecting) {
           setRejecting(null);
         } else if (id) {
           void navigate(base);
@@ -141,7 +146,7 @@ export function QueuePage({ me }: { me: Me }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [id, rejecting, navigate, base]);
+  }, [id, rejecting, cancelling, navigate, base]);
 
   async function approve(row: { id: string; version: number }) {
     await api(`/api/v1/leave-requests/${row.id}/approve`, {
@@ -171,6 +176,32 @@ export function QueuePage({ me }: { me: Me }) {
       body: JSON.stringify({ expectedVersion: row.version }),
     });
     await qc.invalidateQueries();
+  }
+
+  // The employee asks; HR or an administrator completes it. Paid days come back, loss of pay
+  // days do not (there was nothing to give back).
+  async function askToCancel(row: { id: string; version: number }) {
+    await api(`/api/v1/leave-requests/${row.id}/cancel-request`, {
+      method: 'POST',
+      body: JSON.stringify({ expectedVersion: row.version }),
+    });
+    await qc.invalidateQueries();
+  }
+
+  async function cancelLeave() {
+    if (!cancelling || cancelReason.trim().length < 3) return;
+    setCancelError(null);
+    try {
+      await api(`/api/v1/leave-requests/${cancelling.id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ expectedVersion: cancelling.version, reason: cancelReason.trim() }),
+      });
+      setCancelling(null);
+      setCancelReason('');
+      await qc.invalidateQueries();
+    } catch (err) {
+      setCancelError(err instanceof ApiError ? err.message : 'Could not cancel this leave.');
+    }
   }
 
   if (q.isPending) return <Skeleton rows={6} />;
@@ -204,6 +235,8 @@ export function QueuePage({ me }: { me: Me }) {
             ['all', 'All'],
             ['pending_approval', 'Pending'],
             ['approved', 'Approved'],
+            ['cancellation_requested', 'Cancellation asked'],
+            ['cancelled', 'Cancelled'],
             ['rejected', 'Rejected'],
           ] as const
         ).map(([s, label]) => (
@@ -807,10 +840,91 @@ export function QueuePage({ me }: { me: Me }) {
                     </Button>
                   ) : null}
 
+                  {mine && detail.data.status === 'approved' ? (
+                    <Button style={{ flex: 1 }} onClick={() => void askToCancel(detail.data!)}>
+                      Ask to cancel this leave
+                    </Button>
+                  ) : null}
+
+                  {can(me, 'leave.request.cancel') &&
+                  (detail.data.status === 'approved' ||
+                    detail.data.status === 'cancellation_requested') ? (
+                    <Button
+                      variant="danger"
+                      style={{ flex: 1 }}
+                      onClick={() => {
+                        setCancelling(detail.data!);
+                        setCancelReason('');
+                        setCancelError(null);
+                      }}
+                    >
+                      Cancel this leave
+                    </Button>
+                  ) : null}
+
                   <Button onClick={() => void navigate(base)}>Close</Button>
                 </div>
+                {detail.data.status === 'cancellation_requested' ? (
+                  <p className="note" role="status">
+                    {mine
+                      ? 'You asked to cancel this leave. HR will complete it and you will be notified.'
+                      : 'The employee asked to cancel this leave.'}
+                  </p>
+                ) : null}
               </>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {cancelling ? (
+        <div className="floating-window-overlay">
+          <button
+            type="button"
+            className="floating-window-scrim"
+            aria-label="Keep the leave"
+            onClick={() => setCancelling(null)}
+          />
+          <div
+            className="floating-window-card floating-window-card-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-title"
+          >
+            <h2 id="cancel-title" style={{ margin: 0, fontSize: 18 }}>
+              Cancel {cancelling.employee_name}’s approved leave
+            </h2>
+            <p className="note">
+              The paid days go back to their balance. Loss of pay days are simply no longer unpaid.
+              The employee is told in the app, and the reason is kept in the audit log.
+            </p>
+            <div className="field">
+              <label htmlFor="cancel-reason">Reason</label>
+              <textarea
+                id="cancel-reason"
+                className="textarea"
+                rows={3}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                required
+                minLength={3}
+              />
+            </div>
+            {cancelError ? (
+              <p role="alert" className="form-error">
+                {cancelError}
+              </p>
+            ) : null}
+            <div className="toolbar">
+              <Button
+                variant="danger"
+                onClick={() => void cancelLeave()}
+                disabled={cancelReason.trim().length < 3}
+              >
+                Cancel leave
+              </Button>
+              <Button onClick={() => setCancelling(null)}>Keep the leave</Button>
+            </div>
           </div>
         </div>
       ) : null}

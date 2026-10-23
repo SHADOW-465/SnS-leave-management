@@ -532,6 +532,43 @@ describe('asking to cancel approved leave', () => {
     expect(cancel.statusCode).toBe(200);
     expect(await balance(vijay)).toBe(before);
   });
+
+  it('tells HR when it is asked for, and tells the employee when it is done', async () => {
+    const vijay = await setBalance(4);
+    const lead = await signIn('john@sns.test');
+    const hr = await signIn('anitha@sns.test');
+    const id = json<{ id: string }>(await apply(vijay, '2026-12-14', '2026-12-15')).id;
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/approve`,
+      headers: auth(lead),
+      payload: { expectedVersion: 1 },
+    });
+    const noteKinds = async (email: string) =>
+      (
+        (await sqlite
+          .prepare(
+            `SELECT n.kind FROM notification n JOIN user_account u ON u.id = n.recipient_user_id
+              WHERE u.email = ? AND n.entity_id = ? AND n.kind LIKE 'leave.cancel%'`,
+          )
+          .all(email, id)) as { kind: string }[]
+      ).map((r) => r.kind);
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/cancel-request`,
+      headers: auth(vijay),
+      payload: { expectedVersion: 2 },
+    });
+    expect(await noteKinds('anitha@sns.test')).toEqual(['leave.cancellation_requested']);
+    expect(await noteKinds('vijay@sns.test')).toEqual([]);
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${id}/cancel`,
+      headers: auth(hr),
+      payload: { expectedVersion: 3, reason: 'Employee asked to cancel.' },
+    });
+    expect(await noteKinds('vijay@sns.test')).toEqual(['leave.cancelled']);
+  });
 });
 
 describe('dates the wrong way round', () => {

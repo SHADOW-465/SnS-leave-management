@@ -1029,6 +1029,26 @@ export async function requestCancellation(
     { status: req.status },
     { status: next },
   );
+  // In-app only: HR and administrators complete a cancellation, so they are the ones to tell.
+  const when = spokenRange(req.start_date, req.end_date);
+  const hr = (await ctx.sqlite
+    .prepare(
+      `SELECT DISTINCT ua.id FROM user_account ua
+         JOIN user_role ur ON ur.user_account_id = ua.id JOIN role r ON r.id = ur.role_id
+        WHERE r.code IN ('hr_officer', 'admin') AND ua.id != ? AND ua.is_disabled = 0`,
+    )
+    .all(p.userId)) as { id: string }[];
+  for (const u of hr) {
+    await notify(
+      ctx,
+      u.id,
+      'leave.cancellation_requested',
+      'Cancellation requested',
+      `${p.email} asked to cancel approved leave for ${when}. Open the request to cancel it.`,
+      'leave_request',
+      req.id,
+    );
+  }
   return { id: req.id, status: next };
 }
 export async function hrCancel(
@@ -1081,6 +1101,20 @@ export async function hrCancel(
       { status: req.status },
       { status: next, reason },
     );
+    const owner = (await ctx.sqlite
+      .prepare(`SELECT id FROM user_account WHERE employee_id = ?`)
+      .get(req.employee_id)) as { id: string } | undefined;
+    if (owner && owner.id !== p.userId) {
+      await notify(
+        ctx,
+        owner.id,
+        'leave.cancelled',
+        'Leave cancelled',
+        `Your approved leave for ${spokenRange(req.start_date, req.end_date)} was cancelled. Reason: ${reason}`,
+        'leave_request',
+        req.id,
+      );
+    }
   });
   return { id: req.id, status: next };
 }

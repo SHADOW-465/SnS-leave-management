@@ -24,9 +24,9 @@ export const appConfigSchema = z.object({
   sessionIdleHours: z.coerce.number().default(2),
   /** Temporary Vercel/Supabase click-through host. Office go-live remains SQLite (DW-41). */
   hostedPreview: bool.default(false),
-  /** Sample @sns.test accounts on the sign-in screen. */
+  /** Sample @sns.test accounts on the sign-in screen. Local dev and test only; never hosted. */
   showDemoAccounts: bool.default(false),
-  /** First-run seed when the database is empty. Hosted preview only. */
+  /** First-run sample seed when the local database is empty. Never hosted. */
   seedOnEmpty: bool.default(false),
   /** Enforce 1:1 browser binding. A signed cookie replaces the old X-Workstation-Id header. */
   enforceWorkstationBinding: bool.default(false),
@@ -113,7 +113,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (existsSync(filePath)) {
     file = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>;
   }
-  const envName = env.LEAVEOS_ENV ?? file.env;
+  const databaseUrl =
+    env.DATABASE_URL ??
+    env.SUPABASE_DB_URL ??
+    env.POSTGRES_URL_NON_POOLING ??
+    env.POSTGRES_URL ??
+    file.databaseUrl;
+  // Vercel is production whatever LEAVEOS_ENV says, and neither Vercel nor any Postgres URL
+  // ever shows or seeds sample people, whatever LEAVEOS_DEMO_ACCOUNTS or LEAVEOS_SEED_DEMO say.
+  const hosted = hostedPreview || Boolean(String(databaseUrl ?? '').trim());
+  const envName = hostedPreview ? 'production' : (env.LEAVEOS_ENV ?? file.env);
   const merged = {
     env: envName,
     host: env.LEAVEOS_HOST ?? file.host,
@@ -133,21 +142,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     trustProxy: env.LEAVEOS_TRUST_PROXY ?? (hostedPreview ? true : undefined),
     hostedPreview: env.LEAVEOS_HOSTED_PREVIEW ?? hostedPreview,
     showDemoAccounts:
-      envName === 'production' || hostedPreview
+      envName === 'production' || hosted
         ? false
         : env.LEAVEOS_DEMO_ACCOUNTS !== undefined
           ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_DEMO_ACCOUNTS.toLowerCase())
           : Boolean(envName === 'development' || envName === undefined),
     seedOnEmpty:
-      envName === 'production'
+      envName === 'production' || hosted
         ? false
         : env.LEAVEOS_SEED_DEMO !== undefined
           ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_SEED_DEMO.toLowerCase())
-          : Boolean(hostedPreview),
+          : false,
     enforceWorkstationBinding:
       env.LEAVEOS_ENFORCE_WORKSTATION !== undefined
         ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_ENFORCE_WORKSTATION.toLowerCase())
-        : envName === 'production',
+        : envName === 'production' && !hostedPreview,
     deviceRequireApproval:
       env.LEAVEOS_DEVICE_REQUIRE_APPROVAL !== undefined
         ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_DEVICE_REQUIRE_APPROVAL.toLowerCase())
@@ -160,12 +169,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env.LEAVEOS_HTTP_FALLBACK !== undefined
         ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_HTTP_FALLBACK.toLowerCase())
         : Boolean(file.httpFallback),
-    databaseUrl:
-      env.DATABASE_URL ??
-      env.SUPABASE_DB_URL ??
-      env.POSTGRES_URL_NON_POOLING ??
-      env.POSTGRES_URL ??
-      file.databaseUrl,
+    databaseUrl,
   };
   const parsed = appConfigSchema.safeParse(merged);
   if (!parsed.success) {

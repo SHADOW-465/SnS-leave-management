@@ -7,5 +7,8 @@ describe('preview seed freeze', () => {
     expect(shouldAutoSeed({ seedOnEmpty: false, hostedPreview: true })).toBe(false);
     expect(shouldAutoSeed({ seedOnEmpty: true, hostedPreview: false })).toBe(true);
     expect(shouldAutoSeed({ seedOnEmpty: false, hostedPreview: false })).toBe(false);
+    expect(shouldAutoSeed({ seedOnEmpty: true, hostedPreview: false, dialect: 'postgres' })).toBe(
+      false,
+    );
   });
 });

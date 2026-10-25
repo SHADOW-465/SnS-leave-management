@@ -12,9 +12,13 @@ import { DEMO_ADMIN } from './usecases/demo.js';
 import { completeSetup, ensureDemoHierarchy, setupStatus } from './usecases/setup.js';
 import type { RequestContext } from './ctx.js';
 
-/** Hosted preview deploys must not seed. A local empty database still can. */
-export function shouldAutoSeed(config: { seedOnEmpty: boolean; hostedPreview: boolean }): boolean {
-  return config.seedOnEmpty && !config.hostedPreview;
+/** Hosted (Vercel or Postgres) never seeds sample people. A local empty SQLite file still can. */
+export function shouldAutoSeed(config: {
+  seedOnEmpty: boolean;
+  hostedPreview: boolean;
+  dialect?: string;
+}): boolean {
+  return config.seedOnEmpty && !config.hostedPreview && (config.dialect ?? 'sqlite') === 'sqlite';
 }
 
 export type AppRuntime = {
@@ -67,9 +71,9 @@ export async function createRuntime(env: NodeJS.ProcessEnv = process.env): Promi
     sqlitePath: dirs.db,
     databaseUrl: loaded.databaseUrl,
   });
-  // The hosted preview is frozen: a deploy must not wipe or reseed Navalur.
-  // Load that dataset only with `pnpm db:reset:navalur`.
-  if (shouldAutoSeed(loaded)) {
+  // A hosted deploy never seeds or wipes anything. Sample data is a local development
+  // convenience (LEAVEOS_SEED_DEMO on an empty SQLite file).
+  if (shouldAutoSeed({ ...loaded, dialect: db.dialect })) {
     const ctx = seedCtx(loaded, db);
     if ((await setupStatus(ctx)).needsSetup) {
       await completeSetup(ctx, {

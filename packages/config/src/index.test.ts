@@ -34,14 +34,27 @@ describe('config', () => {
     expect(c.trustProxy).toBe(true);
     expect(c.tlsEnabled).toBe(false);
     expect(c.showDemoAccounts).toBe(false);
-    expect(c.seedOnEmpty).toBe(true);
-    expect(
-      loadConfig({
-        VERCEL: '1',
-        LEAVEOS_ENV: 'development',
-        LEAVEOS_DEMO_ACCOUNTS: 'true',
-      }).showDemoAccounts,
-    ).toBe(false);
+    expect(c.seedOnEmpty).toBe(false);
+    expect(c.env).toBe('production');
+    const forced = loadConfig({
+      VERCEL: '1',
+      LEAVEOS_ENV: 'development',
+      LEAVEOS_DEMO_ACCOUNTS: 'true',
+      LEAVEOS_SEED_DEMO: 'true',
+    });
+    expect(forced.env).toBe('production');
+    expect(forced.showDemoAccounts).toBe(false);
+    expect(forced.seedOnEmpty).toBe(false);
+    // A Postgres URL alone is hosted enough to refuse sample people.
+    const pgOnly = loadConfig({
+      LEAVEOS_ENV: 'development',
+      LEAVEOS_DATA_DIR: './data',
+      DATABASE_URL: 'postgres://user:pass@db.example.invalid:5432/postgres',
+      LEAVEOS_DEMO_ACCOUNTS: 'true',
+      LEAVEOS_SEED_DEMO: 'true',
+    });
+    expect(pgOnly.showDemoAccounts).toBe(false);
+    expect(pgOnly.seedOnEmpty).toBe(false);
     expect(c.dataDir).toBe('/tmp/leaveos-data');
     expect(c.databaseUrl).toBe('postgres://user:pass@db.example.invalid:5432/postgres');
   });

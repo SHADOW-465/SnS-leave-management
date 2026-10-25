@@ -26,7 +26,8 @@ import { DevicesPage } from './pages/Devices.js';
 export function App() {
   const setup = useQuery({
     queryKey: ['setup'],
-    queryFn: () => api<{ needsSetup: boolean }>('/api/v1/setup/status'),
+    queryFn: () =>
+      api<{ needsSetup: boolean; setupTokenRequired?: boolean }>('/api/v1/setup/status'),
   });
   const me = useQuery({
     queryKey: ['me'],
@@ -35,7 +36,9 @@ export function App() {
   });
 
   if (setup.isPending) return <Skeleton />;
-  if (setup.data?.needsSetup) return <SetupPage />;
+  if (setup.data?.needsSetup) {
+    return <SetupPage setupTokenRequired={setup.data.setupTokenRequired === true} />;
+  }
   if (me.isPending) return <Skeleton />;
   if (me.isError) {
     const err = me.error;

@@ -88,7 +88,7 @@ import {
   createDesignation,
   createStaffCategory,
 } from './usecases/people.js';
-import { completeSetup, demoAccounts, setupStatus } from './usecases/setup.js';
+import { assertHostedSetup, completeSetup, demoAccounts, setupStatus } from './usecases/setup.js';
 import { runJobsTick } from './jobs.js';
 import { registerAdminRoutes } from './routes-admin.js';
 import { timingSafeEqual } from 'node:crypto';
@@ -158,7 +158,14 @@ export async function registerRoutes(app: FastifyInstance) {
   app.post('/api/v1/setup', async (req, reply) => {
     try {
       const body = parse(setupBodySchema, req.body);
-      if (req.ctx.config.env === 'production') {
+      // Hosted (Vercel or Postgres) is gated by SETUP_TOKEN. Office SQLite production
+      // keeps the loopback check below and does not ask for a token.
+      assertHostedSetup(req.ctx, body.setupToken, body.loadSampleData);
+      const officeProduction =
+        req.ctx.config.env === 'production' &&
+        !req.ctx.config.hostedPreview &&
+        req.ctx.sqlite.dialect !== 'postgres';
+      if (officeProduction) {
         // The service listens on the office network from the moment it is installed. Until
         // an administrator exists, whoever posts this first owns the installation.
         if (!isLoopback(req.ctx.ip)) {
@@ -182,9 +189,8 @@ export async function registerRoutes(app: FastifyInstance) {
       return sendError(req, reply, err);
     }
   });
-  // Development only: lists the synthetic sample accounts so every role can be signed
-  // into without hunting through seed output. Returns an empty list in any other
-  // environment, and only ever names accounts the seeder itself created.
+  // Local development and test on SQLite only. Production, Vercel, and Postgres get
+  // an empty list, and the query never runs, so no password is read.
   app.get('/api/v1/setup/demo-accounts', async (req, reply) => {
     try {
       return reply.send(ok(await demoAccounts(req.ctx), req.ctx.requestId));

@@ -627,4 +627,17 @@ describe('hosted Postgres: administrator controls', () => {
     expect(second.statusCode).toBe(409);
     expect((second.json() as { error: { code: string } }).error.code).toBe('LEAVE_OVERLAP');
   });
+
+  it('does not list demo passwords, and says a setup token is required', async () => {
+    const listed = await app.inject({ method: 'GET', url: '/api/v1/setup/demo-accounts' });
+    expect(listed.statusCode).toBe(200);
+    const body = listed.json() as { data: { password: string; accounts: unknown[] } };
+    expect(body.data.accounts).toEqual([]);
+    expect(body.data.password).toBe('');
+    expect(JSON.stringify(body)).not.toContain('ChangeMe');
+    const status = await app.inject({ method: 'GET', url: '/api/v1/setup/status' });
+    expect(
+      (status.json() as { data: { setupTokenRequired: boolean } }).data.setupTokenRequired,
+    ).toBe(true);
+  });
 });

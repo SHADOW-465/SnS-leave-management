@@ -376,7 +376,11 @@ describe('first-run setup in an office installation', () => {
     });
     expect(fromLan.statusCode).toBe(403);
     const status = await app.inject({ method: 'GET', url: '/api/v1/setup/status' });
-    expect((status.json() as { data: { needsSetup: boolean } }).data.needsSetup).toBe(true);
+    const statusBody = (
+      status.json() as { data: { needsSetup: boolean; setupTokenRequired: boolean } }
+    ).data;
+    expect(statusBody.needsSetup).toBe(true);
+    expect(statusBody.setupTokenRequired).toBe(false);
     const fromHost = await app.inject({ method: 'POST', url: '/api/v1/setup', payload: body() });
     expect(fromHost.statusCode).toBe(200);
     await app.close();

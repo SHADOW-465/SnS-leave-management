@@ -42,6 +42,8 @@ export const setupBodySchema = z
     adminEmail: email,
     adminPassword: z.string().min(12).max(200),
     loadSampleData: z.boolean().default(false),
+    /** Required only when setup status says setupTokenRequired (hosted Vercel or Postgres). */
+    setupToken: z.string().max(200).optional(),
   })
   .strict();
 

@@ -2,8 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@sns/ui';
 import { api, ApiError } from '../api.js';
+import { setupPayload } from '../setup-form.js';
 
-export function SetupPage() {
+export function SetupPage({ setupTokenRequired = false }: { setupTokenRequired?: boolean }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -17,6 +18,7 @@ export function SetupPage() {
     adminEmail: '',
     adminPassword: '',
     loadSampleData: false,
+    setupToken: '',
   });
 
   async function onSubmit(e: FormEvent) {
@@ -24,7 +26,10 @@ export function SetupPage() {
     setPending(true);
     setError(null);
     try {
-      await api('/api/v1/setup', { method: 'POST', body: JSON.stringify(form) });
+      await api('/api/v1/setup', {
+        method: 'POST',
+        body: JSON.stringify(setupPayload(form, setupTokenRequired)),
+      });
       await api('/api/v1/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email: form.adminEmail, password: form.adminPassword }),
@@ -158,14 +163,29 @@ export function SetupPage() {
             onChange={(e) => setForm({ ...form, adminPassword: e.target.value })}
           />
         </div>
-        <label className="inline-opt">
-          <input
-            type="checkbox"
-            checked={form.loadSampleData}
-            onChange={(e) => setForm({ ...form, loadSampleData: e.target.checked })}
-          />
-          Load the Simon &amp; Sons sample organisation (17 people, @sns.test)
-        </label>
+        {setupTokenRequired ? (
+          <div className="field">
+            <label htmlFor="s-token">Setup token</label>
+            <input
+              id="s-token"
+              className="input"
+              type="password"
+              required
+              autoComplete="off"
+              value={form.setupToken}
+              onChange={(e) => setForm({ ...form, setupToken: e.target.value })}
+            />
+          </div>
+        ) : (
+          <label className="inline-opt">
+            <input
+              type="checkbox"
+              checked={form.loadSampleData}
+              onChange={(e) => setForm({ ...form, loadSampleData: e.target.checked })}
+            />
+            Load the Simon &amp; Sons sample organisation (17 people, @sns.test)
+          </label>
+        )}
         <Button variant="primary" type="submit" disabled={pending}>
           {pending ? 'Creating…' : 'Create administrator'}
         </Button>

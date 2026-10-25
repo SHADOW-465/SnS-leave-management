@@ -133,11 +133,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     trustProxy: env.LEAVEOS_TRUST_PROXY ?? (hostedPreview ? true : undefined),
     hostedPreview: env.LEAVEOS_HOSTED_PREVIEW ?? hostedPreview,
     showDemoAccounts:
-      envName === 'production'
+      envName === 'production' || hostedPreview
         ? false
         : env.LEAVEOS_DEMO_ACCOUNTS !== undefined
           ? ['1', 'true', 'yes', 'on'].includes(env.LEAVEOS_DEMO_ACCOUNTS.toLowerCase())
-          : Boolean(hostedPreview || envName === 'development' || envName === undefined),
+          : Boolean(envName === 'development' || envName === undefined),
     seedOnEmpty:
       envName === 'production'
         ? false

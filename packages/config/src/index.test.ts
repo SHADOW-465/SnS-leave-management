@@ -33,8 +33,15 @@ describe('config', () => {
     expect(c.cookieSecure).toBe(true);
     expect(c.trustProxy).toBe(true);
     expect(c.tlsEnabled).toBe(false);
-    expect(c.showDemoAccounts).toBe(true);
+    expect(c.showDemoAccounts).toBe(false);
     expect(c.seedOnEmpty).toBe(true);
+    expect(
+      loadConfig({
+        VERCEL: '1',
+        LEAVEOS_ENV: 'development',
+        LEAVEOS_DEMO_ACCOUNTS: 'true',
+      }).showDemoAccounts,
+    ).toBe(false);
     expect(c.dataDir).toBe('/tmp/leaveos-data');
     expect(c.databaseUrl).toBe('postgres://user:pass@db.example.invalid:5432/postgres');
   });

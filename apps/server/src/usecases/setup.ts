@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { hashPassword } from '@sns/auth';
 import { isBootstrapped, seedSystem, withTx } from '@sns/database';
 import {
@@ -27,8 +28,75 @@ export { DEMO_PASSWORD } from './demo.js';
 /** Sample accounts live only at these reserved, undeliverable domains. */
 const DEMO_DOMAINS = [DEMO_DOMAIN, '@example.invalid'];
 
+/** Vercel (`hostedPreview`) or a Postgres driver. Office SQLite is neither. */
+export function isHostedDeployment(ctx: {
+  config: { hostedPreview: boolean };
+  sqlite: { dialect: string };
+}): boolean {
+  return ctx.config.hostedPreview || ctx.sqlite.dialect === 'postgres';
+}
+
+/**
+ * Sample sign-ins are listed only for a local dev or test process on SQLite.
+ * Production, Vercel, and Postgres stay empty even if the demo flag is on.
+ */
+export function mayListDemoAccounts(input: {
+  env: string;
+  hostedPreview: boolean;
+  dialect: string;
+  showDemoAccounts: boolean;
+}): boolean {
+  if (input.env !== 'development' && input.env !== 'test') return false;
+  if (input.hostedPreview || input.dialect !== 'sqlite') return false;
+  return input.showDemoAccounts;
+}
+
+/** SHA-256 both sides so `timingSafeEqual` always sees equal lengths. */
+export function setupTokensEqual(presented: string, expected: string): boolean {
+  const a = createHash('sha256').update(presented, 'utf8').digest();
+  const b = createHash('sha256').update(expected, 'utf8').digest();
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Hosted first-run requires `SETUP_TOKEN`. Office SQLite is unchanged: this returns
+ * without looking at the token.
+ */
+export function assertHostedSetup(
+  ctx: { config: { hostedPreview: boolean }; sqlite: { dialect: string } },
+  presentedToken: string | undefined,
+  loadSampleData: boolean,
+): void {
+  if (!isHostedDeployment(ctx)) return;
+  const expected = process.env.SETUP_TOKEN ?? '';
+  if (!expected) {
+    throw new DomainError(
+      'SETUP_TOKEN_NOT_CONFIGURED',
+      'This hosted installation has no setup token. Set SETUP_TOKEN before creating the administrator.',
+      { httpStatus: 403 },
+    );
+  }
+  if (!setupTokensEqual(presentedToken ?? '', expected)) {
+    throw new DomainError(
+      'SETUP_TOKEN_REQUIRED',
+      'Enter the setup token for this hosted installation.',
+      { httpStatus: 403 },
+    );
+  }
+  if (loadSampleData) {
+    throw new DomainError(
+      'SAMPLE_DATA_NOT_ON_HOSTED',
+      'Sample people are not loaded on a hosted installation. Their shared password is published.',
+      { httpStatus: 400 },
+    );
+  }
+}
+
 export async function setupStatus(ctx: RequestContext) {
-  return { needsSetup: !(await isBootstrapped(ctx.sqlite)) };
+  return {
+    needsSetup: !(await isBootstrapped(ctx.sqlite)),
+    setupTokenRequired: isHostedDeployment(ctx),
+  };
 }
 
 /**
@@ -48,8 +116,16 @@ export async function demoAccounts(ctx: RequestContext): Promise<{
     password?: string;
   }[];
 }> {
-  if (ctx.config.env === 'production' || !ctx.config.showDemoAccounts)
+  if (
+    !mayListDemoAccounts({
+      env: ctx.config.env,
+      hostedPreview: ctx.config.hostedPreview,
+      dialect: ctx.sqlite.dialect,
+      showDemoAccounts: ctx.config.showDemoAccounts,
+    })
+  ) {
     return { password: '', accounts: [] };
+  }
 
   const rows = (await ctx.sqlite
     .prepare(

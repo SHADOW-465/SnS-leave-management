@@ -7,13 +7,25 @@
  *   node --import tsx ../../scripts/generate-production-sql.ts \
  *     --csv <employee_id,name file> --out-dir <folder outside the repo> \
  *     --admin SnS001 --hr SnS078 --joined-on YYYY-MM-DD
+ *
+ * To regenerate without changing the administrator's password (the one-time password file you
+ * already hold stays valid), read the roster and password hash back from a previous run:
+ *
+ *   node --import tsx ../../scripts/generate-production-sql.ts \
+ *     --from-existing <previous out-dir> --out-dir <same dir> --admin SnS001 --hr SnS078
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateTemporaryPassword, hashPassword } from '../packages/auth/src/index.js';
 import {
+  generateTemporaryPassword,
+  hashPassword,
+  verifyPassword,
+} from '../packages/auth/src/index.js';
+import {
+  buildInspectSql,
   buildPreviewSql,
+  buildSchemaUpgradeSql,
   buildRosterSql,
   buildWipeSql,
   type RosterRow,
@@ -39,14 +51,43 @@ export function readRoster(csv: string): RosterRow[] {
     .filter((r) => r.code && r.name);
 }
 
+/**
+ * Reads the roster and the administrator's password hash from a previous run's 02 script, and
+ * checks the hash against the saved one-time password. Prints neither.
+ */
+export async function readExisting(dir: string, admin: string) {
+  const sql = fs.readFileSync(path.join(dir, '02_partB_employees.sql'), 'utf8');
+  const block = /INSERT INTO _ops_roster VALUES\n([\s\S]*?);\n/.exec(sql)?.[1];
+  if (!block) throw new Error('No roster found in 02_partB_employees.sql.');
+  const roster: RosterRow[] = [];
+  let hash: string | undefined;
+  for (const line of block.split('\n')) {
+    const f = [...line.matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1]!.replaceAll("''", "'"));
+    if (f.length !== 7) throw new Error('Unreadable roster row in 02_partB_employees.sql.');
+    const [code, first, last] = f as [string, string, string];
+    roster.push({ code, name: last === '-' ? first : `${first} ${last}` });
+    if (code.toLowerCase() === admin.toLowerCase()) hash = f[5];
+  }
+  const saved = /One-time password: (\S+)/.exec(
+    fs.readFileSync(path.join(dir, 'vijay_temp_password.txt'), 'utf8'),
+  )?.[1];
+  if (!hash || !saved || !(await verifyPassword(hash, saved))) {
+    throw new Error(
+      'The saved one-time password does not match the hash in 02_partB_employees.sql.',
+    );
+  }
+  return { roster, hash };
+}
+
 async function main() {
   const csv = arg('--csv');
   const outDir = arg('--out-dir');
   const admin = arg('--admin');
   const hr = arg('--hr');
-  if (!csv || !outDir || !admin || !hr) {
+  const existing = arg('--from-existing');
+  if ((!csv && !existing) || !outDir || !admin || !hr) {
     console.error(
-      'Usage: --csv <file> --out-dir <dir> --admin <code> --hr <code> [--joined-on YYYY-MM-DD]',
+      'Usage: (--csv <file> | --from-existing <dir>) --out-dir <dir> --admin <code> --hr <code> [--joined-on YYYY-MM-DD]',
     );
     process.exit(2);
   }
@@ -57,23 +98,39 @@ async function main() {
     process.exit(2);
   }
   fs.mkdirSync(out, { recursive: true });
-  const roster = readRoster(fs.readFileSync(csv, 'utf8'));
+  let roster: RosterRow[];
+  let adminPasswordHash: string;
+  const fresh = !existing;
+  if (existing) {
+    ({ roster, hash: adminPasswordHash } = await readExisting(path.resolve(existing), admin));
+  } else {
+    roster = readRoster(fs.readFileSync(csv!, 'utf8'));
+    adminPasswordHash = '';
+  }
   const temporary = generateTemporaryPassword();
+  if (fresh) adminPasswordHash = await hashPassword(temporary);
   const sql = buildRosterSql({
     roster,
     adminCode: admin,
     hrCode: hr,
-    adminPasswordHash: await hashPassword(temporary),
+    adminPasswordHash,
     joinedOn: arg('--joined-on') ?? new Date().toISOString().slice(0, 10),
   });
   fs.writeFileSync(path.join(out, '00_preview_counts.sql'), buildPreviewSql());
   fs.writeFileSync(path.join(out, '01_partA_wipe_sample.sql'), buildWipeSql());
   fs.writeFileSync(path.join(out, '02_partB_employees.sql'), sql);
-  fs.writeFileSync(
-    path.join(out, 'vijay_temp_password.txt'),
-    `Employee ID: ${admin}\nOne-time password: ${temporary}\nYou must choose a new password at first sign-in. Delete this file afterwards.\n`,
+  fs.writeFileSync(path.join(out, '03_schema_upgrade.sql'), buildSchemaUpgradeSql());
+  fs.writeFileSync(path.join(out, '99_inspect_live_schema.sql'), buildInspectSql());
+  // A reused password keeps its file exactly as it is.
+  if (fresh) {
+    fs.writeFileSync(
+      path.join(out, 'vijay_temp_password.txt'),
+      `Employee ID: ${admin}\nOne-time password: ${temporary}\nYou must choose a new password at first sign-in. Delete this file afterwards.\n`,
+    );
+  }
+  console.warn(
+    `wrote 5 scripts for ${roster.length} people; administrator password ${fresh ? 'new (file written)' : 'kept (file untouched)'}`,
   );
-  console.warn(`wrote 3 scripts for ${roster.length} people and the administrator password file`);
 }
 
 void main();

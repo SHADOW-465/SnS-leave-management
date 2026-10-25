@@ -45,6 +45,30 @@ export async function verifyPragmas(sqlite: Db): Promise<void> {
   }
 }
 
+/** Every migration, in order. `migrate` applies the ones not yet in `schema_migration`. */
+export const MIGRATIONS: readonly { id: string; postgresOnly?: boolean }[] = [
+  { id: '0001_init' },
+  { id: '0002_holiday_one_kind_per_date' },
+  { id: '0003_team_lead_approver' },
+  { id: '0004_workstation_device_binding' },
+  { id: '0005_approval_controls' },
+  { id: '0006_reporting_manager' },
+  { id: '0007_fix_double_opening_grant' },
+  { id: '0008_managing_director_role' },
+  { id: '0009_earned_leave_lop_permission' },
+  { id: '0010_attendance_logout' },
+  { id: '0011_account_username' },
+  { id: '0012_password_rls', postgresOnly: true },
+  { id: '0013_browser_device' },
+  { id: '0014_single_leave_type' },
+];
+
+/** The SQL `migrate` runs for one migration, translated for Postgres when needed. */
+export function migrationSql(id: string, dialect: Db['dialect']): string {
+  const sql = fs.readFileSync(new URL(`./sql/${id}.sql`, import.meta.url), 'utf8');
+  return dialect === 'postgres' ? sqliteSchemaToPg(sql) : sql;
+}
+
 export async function migrate(db: Db): Promise<void> {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migration (
@@ -57,23 +81,7 @@ export async function migrate(db: Db): Promise<void> {
       (r) => r.id,
     ),
   );
-  const files: { id: string; postgresOnly?: boolean }[] = [
-    { id: '0001_init' },
-    { id: '0002_holiday_one_kind_per_date' },
-    { id: '0003_team_lead_approver' },
-    { id: '0004_workstation_device_binding' },
-    { id: '0005_approval_controls' },
-    { id: '0006_reporting_manager' },
-    { id: '0007_fix_double_opening_grant' },
-    { id: '0008_managing_director_role' },
-    { id: '0009_earned_leave_lop_permission' },
-    { id: '0010_attendance_logout' },
-    { id: '0011_account_username' },
-    { id: '0012_password_rls', postgresOnly: true },
-    { id: '0013_browser_device' },
-    { id: '0014_single_leave_type' },
-  ];
-  for (const m of files) {
+  for (const m of MIGRATIONS) {
     if (applied.has(m.id)) continue;
     if (m.postgresOnly && db.dialect !== 'postgres') {
       await db
@@ -81,8 +89,7 @@ export async function migrate(db: Db): Promise<void> {
         .run(m.id, new Date().toISOString());
       continue;
     }
-    let sql = fs.readFileSync(new URL(`./sql/${m.id}.sql`, import.meta.url), 'utf8');
-    if (db.dialect === 'postgres') sql = sqliteSchemaToPg(sql);
+    const sql = migrationSql(m.id, db.dialect);
     await db.exec('BEGIN');
     try {
       await db.exec(sql);

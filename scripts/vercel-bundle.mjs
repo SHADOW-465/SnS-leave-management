@@ -77,10 +77,13 @@ await esbuild.build({
       setup(build) {
         build.onLoad({ filter: /[\\/]open\.ts$/ }, async (args) => {
           let src = await fs.promises.readFile(args.path, 'utf8');
-          src = src.replace(
-            /let sql = fs\.readFileSync\(new URL\(`\.\/sql\/\$\{m\.id\}\.sql`, import\.meta\.url\), 'utf8'\);/,
-            `let sql = (${JSON.stringify(migrationSql)})[m.id];`,
-          );
+          const pattern =
+            /const sql = fs\.readFileSync\(new URL\(`\.\/sql\/\$\{id\}\.sql`, import\.meta\.url\), 'utf8'\);/;
+          // A silent miss would ship a function that reads migration files that do not exist.
+          if (!pattern.test(src))
+            throw new Error('inline-sql: migration read not found in open.ts');
+          const inlined = `const sql = (${JSON.stringify(migrationSql)})[id];`;
+          src = src.replace(pattern, () => inlined); // a function: `$$` in a string would be rewritten
           return { contents: src, loader: 'ts' };
         });
       },

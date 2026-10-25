@@ -6,6 +6,8 @@ export {
   verifyPragmas,
   applyPragmas,
   migrate,
+  MIGRATIONS,
+  migrationSql,
   integrityCheck,
   backupTo,
   type Db,

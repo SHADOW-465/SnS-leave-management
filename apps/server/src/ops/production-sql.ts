@@ -1,8 +1,11 @@
 /**
- * Builds the three Postgres scripts an operator pastes into the Supabase SQL editor to turn a
+ * Builds the Postgres scripts an operator pastes into the Supabase SQL editor to turn a
  * hosted sample database into a production one:
  *
- *   00  read-only counts of what 01 would delete and keep
+ *   99  read-only look at the live schema and the migrations table (run first if unsure)
+ *   03  brings an older schema up to date, recording each migration the way the app's own
+ *       migrator does, so the app does not run it again (idempotent)
+ *   00  read-only counts of what 01 would delete and keep; reports missing tables, never fails
  *   01  deletes sample/demo data (people, requests, ledger, sessions, audit), keeps the schema
  *       and the configuration the app needs
  *   02  upserts a real roster by employee code, one administrator and one HR officer, the rest
@@ -12,7 +15,7 @@
  * from a file outside the repository, and the output is written outside the repository.
  * Nothing here opens a database.
  */
-import { PG_APPEND_ONLY_TRIGGERS } from '@sns/database';
+import { MIGRATIONS, PG_APPEND_ONLY_TRIGGERS, migrationSql } from '@sns/database';
 import {
   PERMISSIONS,
   ROLE_PERMISSIONS,
@@ -91,49 +94,289 @@ const q = (v: string) => `'${v.replaceAll("'", "''")}'`;
 
 const SAMPLE_EMAIL = `(lower(email) LIKE '%@sns.test' OR lower(email) LIKE '%@example.invalid')`;
 
+const arr = (items: readonly string[]) => `ARRAY[${items.map(q).join(', ')}]`;
+
+/** True when the table exists in `public`, so a missing table is reported, never an error. */
+const HAS_TABLE = (t: string) => `to_regclass('public.' || quote_ident(${t})) IS NOT NULL`;
+const HAS_COLUMN = (t: string, c: string) =>
+  `EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${t}' AND column_name = '${c}')`;
+
+/** The schema the deployed hosted app was last known to be at (main 94e69a1). */
+export const HOSTED_BASELINE = '0012_password_rls';
+
+/** Migrations a database at HOSTED_BASELINE has not yet applied. */
+export function pendingMigrations() {
+  const i = MIGRATIONS.findIndex((m) => m.id === HOSTED_BASELINE);
+  if (i < 0) throw new Error(`${HOSTED_BASELINE} is not a known migration.`);
+  return MIGRATIONS.slice(i + 1);
+}
+
+/** Tables 01 cannot do without; if one is missing the database is not a Leave OS schema. */
+const WIPE_REQUIRED = [
+  'user_account',
+  'employee',
+  'team',
+  'app_setting',
+  'audit_event',
+  'balance_ledger',
+  'policy_assignment',
+] as const;
+
+/** Every table and column 02 reads or writes, so a short schema stops with a clear list. */
+const ROSTER_TABLES = [
+  'role',
+  'permission',
+  'role_permission',
+  'company',
+  'location',
+  'leave_period',
+  'leave_type',
+  'leave_policy_version',
+  'policy_assignment',
+  'approval_workflow',
+  'approval_workflow_step',
+  'employment_type',
+  'job_title',
+  'department',
+  'employee',
+  'user_account',
+  'user_role',
+  'app_setting',
+  'audit_event',
+] as const;
+const ROSTER_COLUMNS: [string, string][] = [
+  ['employee', 'employee_code'],
+  ['employee', 'work_email'],
+  ['employee', 'joined_on'],
+  ['employee', 'retention_class'],
+  ['user_account', 'username'],
+  ['user_account', 'password_algo'],
+  ['user_account', 'must_change_password'],
+  ['user_account', 'is_disabled'],
+  ['employment_type', 'is_leave_eligible'],
+  ['approval_workflow', 'match_json'],
+  ['leave_type', 'archived_at'],
+];
+
 export function buildPreviewSql(): string {
-  const wipe = WIPE_TABLES.map(
-    (t) => `SELECT 'delete' AS action, '${t}' AS "table", count(*)::bigint AS rows FROM ${t}`,
-  );
-  const keep = KEEP_TABLES.map(
-    (t) => `SELECT 'keep' AS action, '${t}' AS "table", count(*)::bigint AS rows FROM ${t}`,
-  );
+  const count = (action: string, list: readonly string[]) => `  FOREACH t IN ARRAY ${arr(list)} LOOP
+    IF ${HAS_TABLE('t')} THEN
+      EXECUTE format('SELECT count(*) FROM public.%I', t) INTO n;
+      INSERT INTO _leaveos_preview VALUES ('${action}', t, n, NULL);
+    ELSE
+      INSERT INTO _leaveos_preview VALUES ('${action}', t, NULL, 'MISSING: table not in this database');
+    END IF;
+  END LOOP;`;
+  const counted = (action: string, label: string, table: string, column: string, where: string) =>
+    `  IF ${HAS_TABLE(q(table))} AND ${HAS_COLUMN(table, column)} THEN
+    EXECUTE ${q(`SELECT count(*) FROM public.${table} WHERE ${where}`)} INTO n;
+    INSERT INTO _leaveos_preview VALUES ('${action}', ${q(label)}, n, NULL);
+  ELSE
+    INSERT INTO _leaveos_preview VALUES ('${action}', ${q(label)}, NULL, 'MISSING: ${table}.${column} not in this database');
+  END IF;`;
+  const ids = MIGRATIONS.map((m) => m.id);
   return `-- 00 Preview. READ ONLY: counts what 01_partA_wipe_sample.sql would delete and keep.
--- Safe to run any number of times. Changes nothing.
+-- Safe to run any number of times. Changes nothing in the database; it builds one temporary
+-- table that lives only for this session. A table or column that is not there is reported as
+-- MISSING in the note column instead of stopping the script.
+--
+-- Read the "schema" rows: PENDING means 03_schema_upgrade.sql has not been applied (or the
+-- new app version has not started once). Read the "check" rows: both must be 0 for 01 to run.
 
-${[...wipe, ...keep].join('\nUNION ALL\n')}
-UNION ALL SELECT 'delete', 'policy_assignment (employee/department scope only)', count(*)::bigint
-  FROM policy_assignment WHERE scope_type IN ('employee', 'department')
-UNION ALL SELECT 'keep', 'policy_assignment (company/location/employment_type scope)', count(*)::bigint
-  FROM policy_assignment WHERE scope_type NOT IN ('employee', 'department')
-UNION ALL SELECT 'delete', 'app_setting (demo.* keys)', count(*)::bigint
-  FROM app_setting WHERE key LIKE 'demo.%'
-UNION ALL SELECT 'keep', 'app_setting (all other keys)', count(*)::bigint
-  FROM app_setting WHERE key NOT LIKE 'demo.%'
-ORDER BY 1, 2;
+DROP TABLE IF EXISTS pg_temp._leaveos_preview;
+CREATE TEMP TABLE _leaveos_preview (action text, "table" text, rows bigint, note text);
 
--- Safety checks for 01. Both must be 0 for 01 to run.
-SELECT 'accounts with a non-sample email (01 refuses if > 0)' AS check_name, count(*)::bigint AS n
-  FROM user_account WHERE NOT ${SAMPLE_EMAIL.replaceAll('email', 'user_account.email')}
-UNION ALL
-SELECT 'production roster already loaded (01 refuses if > 0)', count(*)::bigint
-  FROM app_setting WHERE key = '${PRODUCTION_MARKER}';
+DO $$
+DECLARE t text; n bigint; m text;
+BEGIN
+${count('delete', WIPE_TABLES)}
+${count('keep', KEEP_TABLES)}
+${counted('delete', 'policy_assignment (employee/department scope only)', 'policy_assignment', 'scope_type', "scope_type IN ('employee', 'department')")}
+${counted('keep', 'policy_assignment (company/location/employment_type scope)', 'policy_assignment', 'scope_type', "scope_type NOT IN ('employee', 'department')")}
+${counted('delete', 'app_setting (demo.* keys)', 'app_setting', 'key', "key LIKE 'demo.%'")}
+${counted('keep', 'app_setting (all other keys)', 'app_setting', 'key', "key NOT LIKE 'demo.%'")}
+${counted('check', 'accounts with a non-sample email (01 refuses if > 0)', 'user_account', 'email', `NOT ${SAMPLE_EMAIL.replaceAll('email', 'user_account.email')}`)}
+${counted('check', 'production roster already loaded (01 refuses if > 0)', 'app_setting', 'key', `key = '${PRODUCTION_MARKER}'`)}
+  FOREACH m IN ARRAY ${arr(ids)} LOOP
+    IF NOT ${HAS_TABLE("'schema_migration'")} THEN
+      INSERT INTO _leaveos_preview VALUES ('schema', m, NULL, 'PENDING: schema_migration table missing');
+    ELSE
+      EXECUTE 'SELECT count(*) FROM public.schema_migration WHERE id = $1' INTO n USING m;
+      INSERT INTO _leaveos_preview VALUES ('schema', m, n,
+        CASE WHEN n > 0 THEN 'applied' ELSE 'PENDING: run 03_schema_upgrade.sql (or let the new app version start once)' END);
+    END IF;
+  END LOOP;
+END $$;
+
+SELECT * FROM _leaveos_preview ORDER BY action, "table";
+`;
+}
+
+export function buildSchemaUpgradeSql(): string {
+  const pending = pendingMigrations();
+  const baselineIds = MIGRATIONS.slice(0, MIGRATIONS.length - pending.length).map((m) => m.id);
+  const steps = pending
+    .map((m) => {
+      // The app's migrator appends the append-only triggers to every migration; they are
+      // recreated once, below, which leaves the same end state.
+      const body = migrationSql(m.id, 'postgres').replace(PG_APPEND_ONLY_TRIGGERS, '').trim();
+      if (body.includes('$sql$') || body.includes('$mig$')) {
+        throw new Error(`${m.id} uses a quote tag reserved by the upgrade script.`);
+      }
+      return `-- ${m.id}
+DO $mig$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM schema_migration WHERE id = ${q(m.id)}) THEN
+    EXECUTE $sql$
+${body}
+    $sql$;
+    INSERT INTO schema_migration (id, applied_at) VALUES (${q(m.id)}, ${NOW})
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+END $mig$;`;
+    })
+    .join('\n\n');
+  return `-- 03 Schema upgrade: applies the migrations this database has not had yet (${pending.map((m) => m.id).join(', ')}).
+-- Idempotent and ONE TRANSACTION. Each migration is recorded in schema_migration (id, applied_at),
+-- exactly as the application's own migrator records it, so the app does not run it again when it
+-- starts. If the app already applied them (it migrates on start), this script changes nothing.
+--
+-- Beyond new tables: 0014 archives every leave type other than Annual Leave. It deletes
+-- nothing; history keeps pointing at the archived type.
+--
+-- It stops, changing nothing, if this is not a Leave OS database or is older than the baseline
+-- (${HOSTED_BASELINE}); then deploy the current app version and let it migrate in order.
+
+BEGIN;
+
+DO $$
+DECLARE missing text;
+BEGIN
+  IF to_regclass('public.schema_migration') IS NULL THEN
+    RAISE EXCEPTION 'Stopping: public.schema_migration does not exist. This is not a Leave OS database, or the app has never started on it. Run 99_inspect_live_schema.sql to see what is here.';
+  END IF;
+  SELECT string_agg(id, ', ') INTO missing
+    FROM unnest(${arr(baselineIds)}) AS id
+   WHERE id NOT IN (SELECT id FROM schema_migration);
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'Stopping: this database is older than the expected baseline (missing: %). Do not patch it by hand; deploy the current app version so it migrates in order.', missing;
+  END IF;
+END $$;
+
+${steps}
+
+-- Append-only protection for audit_event and balance_ledger (recreated, as the migrator does).
+${PG_APPEND_ONLY_TRIGGERS.trim()}
+
+COMMIT;
+`;
+}
+
+export function buildInspectSql(): string {
+  const managed = [
+    'auth',
+    'storage',
+    'realtime',
+    'extensions',
+    'graphql',
+    'graphql_public',
+    'vault',
+    'pgbouncer',
+    'net',
+    'cron',
+    'pgsodium',
+    'pgsodium_masks',
+    '_realtime',
+    '_analytics',
+  ];
+  const isManaged = `(n.nspname IN (${managed.map(q).join(', ')}) OR n.nspname LIKE 'supabase\\_%')`;
+  return `-- 99 Inspect. READ ONLY: what is in this database, and which migrations the app has recorded.
+-- Changes nothing in the database; it builds one temporary table that lives only for this
+-- session. Run it whenever you are unsure what state the database is in.
+--
+-- Sections in the result: schema (every schema; Supabase-managed ones are labelled), table (every
+-- table outside the Supabase-managed schemas, with its row count), migration (the rows of
+-- public.schema_migration, if that table exists), pending (migrations this app version expects
+-- that are not recorded), trigger (the append-only protections).
+
+DROP TABLE IF EXISTS pg_temp._leaveos_inspect;
+CREATE TEMP TABLE _leaveos_inspect (section text, name text, detail text);
+
+DO $$
+DECLARE r record; n bigint; m text;
+BEGIN
+  FOR r IN
+    SELECT n.nspname AS name, pg_get_userbyid(n.nspowner) AS owner, ${isManaged} AS managed
+      FROM pg_namespace n
+     WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
+  LOOP
+    INSERT INTO _leaveos_inspect VALUES ('schema', r.name,
+      'owner ' || r.owner || CASE WHEN r.managed THEN ' (Supabase-managed, not touched by any Leave OS script)' ELSE '' END);
+  END LOOP;
+
+  FOR r IN
+    SELECT n.nspname AS nsp, c.relname AS rel, c.relrowsecurity AS rls
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind IN ('r', 'p')
+       AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
+       AND NOT ${isManaged}
+  LOOP
+    EXECUTE format('SELECT count(*) FROM %I.%I', r.nsp, r.rel) INTO n;
+    INSERT INTO _leaveos_inspect VALUES ('table', r.nsp || '.' || r.rel,
+      n || ' rows' || CASE WHEN r.rls THEN ', row level security on' ELSE '' END);
+  END LOOP;
+
+  IF to_regclass('public.schema_migration') IS NULL THEN
+    INSERT INTO _leaveos_inspect VALUES ('migration', 'public.schema_migration', 'TABLE DOES NOT EXIST');
+  ELSE
+    FOR r IN EXECUTE 'SELECT id, applied_at FROM public.schema_migration ORDER BY id' LOOP
+      INSERT INTO _leaveos_inspect VALUES ('migration', r.id, 'applied_at ' || r.applied_at);
+    END LOOP;
+    FOREACH m IN ARRAY ${arr(MIGRATIONS.map((x) => x.id))} LOOP
+      EXECUTE 'SELECT count(*) FROM public.schema_migration WHERE id = $1' INTO n USING m;
+      IF n = 0 THEN
+        INSERT INTO _leaveos_inspect VALUES ('pending', m, 'expected by the current app version, not recorded: run 03_schema_upgrade.sql or let the app start once');
+      END IF;
+    END LOOP;
+  END IF;
+
+  FOR r IN
+    SELECT c.relname AS rel, t.tgname AS trg
+      FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE NOT t.tgisinternal AND n.nspname = 'public' AND c.relname IN ('audit_event', 'balance_ledger')
+  LOOP
+    INSERT INTO _leaveos_inspect VALUES ('trigger', r.rel, r.trg);
+  END LOOP;
+END $$;
+
+SELECT * FROM _leaveos_inspect ORDER BY section, name;
 `;
 }
 
 export function buildWipeSql(): string {
-  const deletes = WIPE_TABLES.filter((t) => t !== 'employee')
-    .map((t) => {
-      if (t === 'team')
-        return `UPDATE employee SET manager_employee_id = NULL;\nDELETE FROM employee;\nDELETE FROM team;`;
-      return `DELETE FROM ${t};`;
-    })
-    .join('\n');
+  const at = WIPE_TABLES.indexOf('employee');
+  // employee and team are deleted together, after clearing the manager links between people.
+  const before = WIPE_TABLES.slice(0, at);
+  const after = WIPE_TABLES.slice(at + 1).filter((t) => t !== 'team');
+  const loop = (list: readonly string[]) => `DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ${arr(list)} LOOP
+    IF ${HAS_TABLE('t')} THEN
+      EXECUTE format('DELETE FROM public.%I', t);
+    ELSE
+      RAISE NOTICE 'skipping %: table not present in this database', t;
+    END IF;
+  END LOOP;
+END $$;`;
   return `-- 01 Part A: delete all sample/demo data. Keeps the schema and the configuration listed in
 -- README.md. ONE TRANSACTION: it all happens or none of it does.
 --
 -- Run 00_preview_counts.sql first and read it. Run 02_partB_employees.sql IMMEDIATELY after:
 -- with no accounts, the first-run setup page is open again (it still needs SETUP_TOKEN).
+--
+-- Tables that do not exist in this database are skipped with a notice. It stops, changing
+-- nothing, if a core table is missing (then this is not a Leave OS schema: run 99 and 03).
 --
 -- audit_event and balance_ledger are append-only. Their triggers are dropped for this one
 -- transaction so the sample rows can go, then recreated before COMMIT. If anything fails,
@@ -142,7 +385,13 @@ export function buildWipeSql(): string {
 BEGIN;
 
 DO $$
+DECLARE missing text;
 BEGIN
+  SELECT string_agg(t, ', ') INTO missing
+    FROM unnest(${arr(WIPE_REQUIRED)}) AS t WHERE NOT ${HAS_TABLE('t')};
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'Refusing to wipe: core table(s) missing: %. Run 99_inspect_live_schema.sql and 03_schema_upgrade.sql first.', missing;
+  END IF;
   IF EXISTS (SELECT 1 FROM app_setting WHERE key = '${PRODUCTION_MARKER}') THEN
     RAISE EXCEPTION 'Refusing to wipe: the production roster is already loaded. This script is for sample data only.';
   END IF;
@@ -156,7 +405,11 @@ DROP TRIGGER IF EXISTS balance_ledger_no_update ON balance_ledger;
 DROP TRIGGER IF EXISTS audit_event_no_delete ON audit_event;
 DROP TRIGGER IF EXISTS audit_event_no_update ON audit_event;
 
-${deletes}
+${loop(before)}
+UPDATE employee SET manager_employee_id = NULL;
+DELETE FROM employee;
+DELETE FROM team;
+${loop(after)}
 
 -- Rules scoped to a sample employee or department; company-wide rules stay.
 DELETE FROM policy_assignment WHERE scope_type IN ('employee', 'department');
@@ -299,6 +552,24 @@ ${steps}`;
 -- Balances: none posted. They stay at zero until the monthly accrual job or HR credits them.
 
 BEGIN;
+
+-- 0. Stops, changing nothing, if the schema is missing a table or column this script writes.
+DO $$
+DECLARE missing text;
+BEGIN
+  SELECT string_agg(x, ', ') INTO missing FROM (
+    SELECT t AS x FROM unnest(${arr(ROSTER_TABLES)}) AS t WHERE NOT ${HAS_TABLE('t')}
+    UNION ALL
+    SELECT c.t || '.' || c.col
+      FROM (VALUES ${ROSTER_COLUMNS.map(([t, c]) => `(${q(t)}, ${q(c)})`).join(', ')}) AS c(t, col)
+     WHERE ${HAS_TABLE('c.t')}
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns i
+                        WHERE i.table_schema = 'public' AND i.table_name = c.t AND i.column_name = c.col)
+  ) m;
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'Cannot load the roster: missing %. Run 99_inspect_live_schema.sql and 03_schema_upgrade.sql first.', missing;
+  END IF;
+END $$;
 
 -- 1. System roles and permissions (what the app's first-run setup would insert). No-ops if present.
 INSERT INTO role (id, code, name, is_system) VALUES

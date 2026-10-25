@@ -178,10 +178,11 @@ self-approval report. Where a second Admin exists, requests route to them first.
 9. Admin self-approval (D-08). A separate permission from ordinary approval so it can be
    audited, reported, and withdrawn independently. Applies only to the Admin's own request.
 10. HR and administrators manage sign-in accounts from Users & access: create an employee
-    with any role, edit the account, or remove it. Removal deactivates the employee and
+    with a role, edit the account, or remove it. Removal deactivates the employee and
     disables the sign-in; the record is kept (D-21). Only an administrator can grant or
-    remove the administrator role. A manager, payroll officer, auditor, or employee who
-    calls these endpoints receives 403.
+    change the administrator or managing director role, or change an account that already
+    has one of those roles. The last active administrator cannot be demoted or deactivated.
+    A manager, payroll officer, auditor, or employee who calls these endpoints receives 403.
 
 ---
 

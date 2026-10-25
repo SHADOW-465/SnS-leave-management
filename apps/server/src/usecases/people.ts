@@ -6,6 +6,7 @@ import { authorizeAction, graphFor, requirePrincipal, type RequestContext } from
 import { grantOpeningBalances, currentPeriodId } from './setup.js';
 import { audit } from './leave.js';
 import {
+  assertMayDeactivateUser,
   assertMayGrantAdmin,
   authorizeReportingManagers,
   changeReportingManager,
@@ -141,6 +142,12 @@ export async function updateEmployee(
         httpStatus: 409,
       },
     );
+  }
+  if (input.status === 'exited' && existing.status !== 'exited') {
+    const account = (await ctx.sqlite
+      .prepare(`SELECT id FROM user_account WHERE employee_id = ?`)
+      .get(employeeId)) as { id: string } | undefined;
+    if (account) await assertMayDeactivateUser(ctx, account.id);
   }
 
   // Who approves whose leave is kept with the date it took effect, on the same path as
@@ -472,6 +479,10 @@ export async function deactivateEmployee(
 ) {
   const p = requirePrincipal(ctx);
   await authorizeAction(ctx, 'employee.archive', employeeId);
+  const account = (await ctx.sqlite
+    .prepare(`SELECT id FROM user_account WHERE employee_id = ?`)
+    .get(employeeId)) as { id: string } | undefined;
+  if (account) await assertMayDeactivateUser(ctx, account.id);
   await withTx(ctx.sqlite, async () => {
     const bump = await ctx.sqlite
       .prepare(

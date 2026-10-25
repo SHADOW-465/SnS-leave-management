@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, ErrorState, Select, Skeleton } from '@sns/ui';
 import { api, type Me } from '../api.js';
+import { canEditRoleSet, roleChoiceLocked } from '../role-choices.js';
 import { formatRelativeTime } from '../format.js';
 
 type User = {
@@ -178,7 +179,7 @@ export function UsersPage({ me }: { me: Me }) {
       const rolesChanged =
         editing.roles.length !== editing.originalRoles.length ||
         editing.roles.some((r) => !editing.originalRoles.includes(r));
-      const mayEditRoles = actorIsAdmin || !editing.originalRoles.includes('admin');
+      const mayEditRoles = canEditRoleSet(actorIsAdmin, editing.originalRoles);
       if (rolesChanged && mayEditRoles) {
         await api(`/api/v1/admin/users/${editing.id}/roles`, {
           method: 'PUT',
@@ -527,7 +528,7 @@ export function UsersPage({ me }: { me: Me }) {
                   <label key={r.code}>
                     <input
                       type="checkbox"
-                      disabled={r.code === 'admin' && !actorIsAdmin}
+                      disabled={roleChoiceLocked(actorIsAdmin, r.code)}
                       checked={adding.roles.includes(r.code)}
                       onChange={(e) =>
                         setAdding({
@@ -633,13 +634,13 @@ export function UsersPage({ me }: { me: Me }) {
                 />
               </label>
             )}
-            {actorIsAdmin || !editing.originalRoles.includes('admin') ? (
+            {canEditRoleSet(actorIsAdmin, editing.originalRoles) ? (
               <div className="roles">
                 {roles.map((r) => (
                   <label key={r.code}>
                     <input
                       type="checkbox"
-                      disabled={r.code === 'admin' && !actorIsAdmin}
+                      disabled={roleChoiceLocked(actorIsAdmin, r.code)}
                       checked={editing.roles.includes(r.code)}
                       onChange={(e) =>
                         setEditing({
@@ -751,7 +752,7 @@ export function UsersPage({ me }: { me: Me }) {
                             <label key={r.code}>
                               <input
                                 type="checkbox"
-                                disabled={r.code === 'admin' && !actorIsAdmin}
+                                disabled={roleChoiceLocked(actorIsAdmin, r.code)}
                                 checked={creating.roles.includes(r.code)}
                                 onChange={(e) =>
                                   setCreating({

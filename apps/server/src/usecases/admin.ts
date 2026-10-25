@@ -5,7 +5,8 @@
  * department heads, cover while someone is away, and reassigning a stuck request stay
  * on `approval.routing.manage` (administrator only).
  * Sign-in accounts (`user.account.create`, `role.assign`, `user.account.disable`) are
- * HR and the administrator. Only an administrator may grant or remove the administrator role.
+ * HR and the administrator. Only an administrator may grant or change the administrator
+ * or managing director role. The last active administrator cannot be removed.
  */
 import { generateTemporaryPassword, hashPassword } from '@sns/auth';
 import { uniqueUsername } from '../username.js';
@@ -827,7 +828,7 @@ export async function reassignRequest(
 // Users and access
 // ---------------------------------------------------------------------------------------
 
-/** Only an administrator may grant the administrator role, or change an account that has it. */
+/** Only an administrator may grant administrator or director, or change an account that has either. */
 export function assertMayGrantAdmin(
   actorIsAdmin: boolean,
   next: readonly string[],
@@ -839,6 +840,33 @@ export function assertMayGrantAdmin(
       'ADMIN_ROLE',
       'Only an administrator can grant or change the administrator role.',
       { httpStatus: 403 },
+    );
+  }
+  if (next.includes('director') || previous.includes('director')) {
+    throw new DomainError(
+      'DIRECTOR_ROLE',
+      'Only an administrator can grant or change the managing director role.',
+      { httpStatus: 403 },
+    );
+  }
+}
+
+/** HR cannot deactivate an administrator. Nobody can deactivate the last active one. */
+export async function assertMayDeactivateUser(ctx: RequestContext, userId: string): Promise<void> {
+  await assertMayChangeAccount(ctx, userId);
+  const isAdmin = Boolean(
+    await ctx.sqlite
+      .prepare(
+        `SELECT 1 FROM user_role ur JOIN role r ON r.id = ur.role_id
+          WHERE ur.user_account_id = ? AND r.code = 'admin'`,
+      )
+      .get(userId),
+  );
+  if (isAdmin && (await activeAdminCount(ctx, userId)) === 0) {
+    throw new DomainError(
+      'LAST_ADMIN',
+      'This is the only active administrator and cannot be deactivated.',
+      { httpStatus: 409 },
     );
   }
 }

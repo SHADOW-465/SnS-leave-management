@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ROLE_CODES } from '@sns/domain';
 import { openDatabase, type Db } from '@sns/database';
 import { loadConfig } from '@sns/config';
 import { buildApp } from './app.js';
@@ -787,6 +788,125 @@ describe('users and access', () => {
       roles: ['employee'],
     });
     expect(duplicate.statusCode).toBe(409);
+  });
+
+  it('lets an administrator promote and demote every role, and writes an audit entry', async () => {
+    const target = await userId('vijay@sns.test');
+    for (const role of ROLE_CODES) {
+      const res = await call(admin, 'PUT', `/api/v1/admin/users/${target}/roles`, {
+        roles: [role],
+      });
+      expect(res.statusCode, role).toBe(200);
+      const audit = (await sqlite
+        .prepare(
+          `SELECT after_json AS after FROM audit_event
+            WHERE action = 'user.roles.changed' AND entity_id = ?
+            ORDER BY occurred_at DESC LIMIT 1`,
+        )
+        .get(target)) as { after: string };
+      expect(JSON.parse(audit.after) as { roles: string[] }).toEqual({ roles: [role] });
+    }
+    const back = await call(admin, 'PUT', `/api/v1/admin/users/${target}/roles`, {
+      roles: ['employee'],
+    });
+    expect(back.statusCode).toBe(200);
+    const roles = (await sqlite
+      .prepare(
+        `SELECT r.code FROM user_role ur JOIN role r ON r.id = ur.role_id WHERE ur.user_account_id = ?`,
+      )
+      .all(target)) as { code: string }[];
+    expect(roles.map((r) => r.code)).toEqual(['employee']);
+  });
+
+  it('refuses HR granting the managing director role, on an existing account and a new one', async () => {
+    const helen = await signIn('anitha@sns.test');
+    const grant = await call(
+      helen,
+      'PUT',
+      `/api/v1/admin/users/${await userId('vijay@sns.test')}/roles`,
+      { roles: ['director'] },
+    );
+    expect(grant.statusCode).toBe(403);
+    expect((grant.json() as { error: { code: string } }).error.code).toBe('DIRECTOR_ROLE');
+
+    const created = await call(helen, 'POST', '/api/v1/employees', {
+      employeeCode: 'SNS-9091',
+      firstName: 'Nila',
+      lastName: 'Example',
+      workEmail: 'nila@sns.test',
+      joinedOn: '2026-09-01',
+      locationId: (
+        (await sqlite.prepare(`SELECT id FROM location LIMIT 1`).get()) as { id: string }
+      ).id,
+      departmentId: (
+        (await sqlite.prepare(`SELECT id FROM department LIMIT 1`).get()) as { id: string }
+      ).id,
+      jobTitleId: (
+        (await sqlite.prepare(`SELECT id FROM job_title LIMIT 1`).get()) as { id: string }
+      ).id,
+      employmentTypeId: (
+        (await sqlite.prepare(`SELECT id FROM employment_type LIMIT 1`).get()) as { id: string }
+      ).id,
+      createAccount: true,
+      roles: ['director'],
+    });
+    expect(created.statusCode).toBe(403);
+    expect((created.json() as { error: { code: string } }).error.code).toBe('DIRECTOR_ROLE');
+  });
+
+  it('will not demote or deactivate the last active administrator', async () => {
+    const adaUser = await userId('admin@example.invalid');
+    const adaEmployee = await employeeId('admin@example.invalid');
+    const demote = await call(admin, 'PUT', `/api/v1/admin/users/${adaUser}/roles`, {
+      roles: ['employee'],
+    });
+    expect(demote.statusCode).toBe(409);
+    expect((demote.json() as { error: { code: string } }).error.code).toBe('SELF_LOCKOUT');
+    const stillAdmin = (await sqlite
+      .prepare(
+        `SELECT r.code FROM user_role ur JOIN role r ON r.id = ur.role_id WHERE ur.user_account_id = ?`,
+      )
+      .all(adaUser)) as { code: string }[];
+    expect(stillAdmin.map((r) => r.code)).toContain('admin');
+
+    const version = (
+      (await sqlite.prepare(`SELECT version FROM employee WHERE id = ?`).get(adaEmployee)) as {
+        version: number;
+      }
+    ).version;
+    const exited = await call(admin, 'POST', `/api/v1/employees/${adaEmployee}/deactivate`, {
+      reason: 'Should not remove the last administrator',
+      exitedOn: '2026-10-25',
+      expectedVersion: Number(version),
+    });
+    expect(exited.statusCode).toBe(409);
+    expect((exited.json() as { error: { code: string } }).error.code).toBe('LAST_ADMIN');
+
+    const helen = await signIn('anitha@sns.test');
+    const hrExit = await call(helen, 'POST', `/api/v1/employees/${adaEmployee}/deactivate`, {
+      reason: 'HR must not remove an administrator',
+      exitedOn: '2026-10-25',
+      expectedVersion: Number(version),
+    });
+    expect(hrExit.statusCode).toBe(403);
+    expect((hrExit.json() as { error: { code: string } }).error.code).toBe('ADMIN_ROLE');
+
+    await call(admin, 'PUT', `/api/v1/admin/users/${await userId('anitha@sns.test')}/roles`, {
+      roles: ['hr_officer', 'admin'],
+    });
+    const second = await signIn('anitha@sns.test');
+    const removed = await call(second, 'PUT', `/api/v1/admin/users/${adaUser}/roles`, {
+      roles: ['employee'],
+    });
+    expect(removed.statusCode).toBe(200);
+    const last = await call(
+      second,
+      'PUT',
+      `/api/v1/admin/users/${await userId('anitha@sns.test')}/roles`,
+      { roles: ['hr_officer'] },
+    );
+    expect(last.statusCode).toBe(409);
+    expect((last.json() as { error: { code: string } }).error.code).toBe('SELF_LOCKOUT');
   });
 });
 

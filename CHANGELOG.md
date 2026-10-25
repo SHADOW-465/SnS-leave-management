@@ -2,7 +2,11 @@
 
 ## Unreleased
 
+### Changed
+- **Hosted is production-only.** On Vercel, or whenever a Postgres URL is configured, Leave OS now runs as production: no demo accounts, no shared sample password, no first-run sample seed, whatever `LEAVEOS_ENV`, `LEAVEOS_DEMO_ACCOUNTS` or `LEAVEOS_SEED_DEMO` are set to. The sign-in page's "Demo accounts" panel moved to `DemoAccounts.tsx` and exists only in local development builds. The forced-password-change screen no longer mentions a demo password.
+
 ### Added
+- **Production data load scripts.** `scripts/generate-production-sql.ts` writes three Postgres scripts for the Supabase SQL editor (preview counts, delete sample data, load a roster by employee code) and a one-time administrator password file, all outside the repository. See `docs/PRODUCTION-DATA-LOAD.md`.
 - **Hosted setup token.** On Vercel or Postgres, creating the first administrator requires `SETUP_TOKEN` (compared with a fixed-length hash). If the token is not set, setup answers `403 SETUP_TOKEN_NOT_CONFIGURED`. A wrong token answers `403 SETUP_TOKEN_REQUIRED`. The first-run page shows the token field only when setup status says it is required. Sample people cannot be loaded on a hosted installation. The office SQLite build is unchanged: first run stays on the host computer and does not ask for a token.
 - **Roster import scripts.** `scripts/roster-to-import.mjs` turns `employee_id,name` into the import columns. `scripts/import-roster.mjs` upserts staff by employee code into a throwaway SQLite copy, forces a password change, and does not print passwords. See `docs/EMPLOYEE-IMPORT.md` for the columns the roster does not have.
 - **Browser end-to-end tests.** `pnpm e2e` runs a Playwright suite against the built app and a real server on a throwaway data folder: sign-in, applying within and beyond the quota, approval and rejection, notifications, password reset, host-panel recovery, rate limits, session expiry, backups and number inputs. See `docs/TESTING.md` §6.

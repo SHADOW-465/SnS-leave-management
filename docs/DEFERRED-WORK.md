@@ -10,7 +10,7 @@ repository root makes that obligation explicit for anyone who touches the code a
 **Status values:** `DEFERRED` (decided, not built) · `BLOCKED` (waiting on external input) ·
 `IN PROGRESS` · `DONE` (with date and evidence).
 
-Last reviewed: **2026-10-21** (code review pass: section 4i, DW-110 to DW-141).
+Last reviewed: **2026-10-25** (hosted hardening: DW-142 to DW-144).
 Next review: at the next scheduled release milestone.
 
 ---
@@ -268,6 +268,16 @@ item has a test that failed before the fix. Full list and remaining risks:
 | DW-120 | **Anyone on the LAN could create the first administrator**, and first run loaded 17 sample accounts with a published password by default                                                 | DONE 2026-10-21 | `auth.test.ts` "first-run setup in an office installation"; 0887d81                            |
 | DW-121 | **An end date before the start date was a 500** on preview and submit                                                                                                                    | DONE 2026-10-21 | `loss-of-pay.test.ts` "dates the wrong way round"; 5e687c2                                     |
 | DW-122 | **A month missed while the host was off was never accrued**                                                                                                                              | DONE 2026-10-21 | `rollover.test.ts` "monthly accrual after the host was off"; 8ab7d68                           |
+
+---
+
+## 4j. Hosted hardening — 2026-10-25
+
+| ID     | Item                                                                                                                                                                                                                                                               | Status          | Evidence                                                                                                                                                                                                               |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DW-142 | **Hosted first-run listed demo passwords and accepted setup from anywhere.** Demo accounts now require local dev/test SQLite. Hosted setup requires `SETUP_TOKEN`. Sample data is refused on hosted.                                                               | DONE 2026-10-25 | `hosted-setup.test.ts`; `postgres-path.test.ts` "does not list demo passwords"                                                                                                                                         |
+| DW-143 | **HR could grant the managing director role, and the last administrator could be removed** by deactivating their employee record                                                                                                                                   | DONE 2026-10-25 | `admin-controls.test.ts` "promote and demote every role", "managing director", "last active administrator"                                                                                                             |
+| DW-144 | **Employee CSV has a template and no commit route.** A roster converter and a SQLite copy importer exist (`scripts/roster-to-import.mjs`, `scripts/import-roster.mjs`). The importer opens a database file, which the architecture reserves for the server process | DEFERRED        | Move the upsert into a use-case behind `import.run`, so only the server opens the live database. Until then the script refuses the installed folder and the repository `data` directory. See `docs/EMPLOYEE-IMPORT.md` |
 
 ---
 

@@ -146,7 +146,14 @@ export async function buildApp(
             .get(ctx.principal.userId);
         }
         const method = req.method.toUpperCase();
-        if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !PUBLIC.has(key)) {
+        // Host-panel routes are loopback-only and carry their own form token, so a
+        // signed-in browser on the host PC must not trip the header CSRF check.
+        if (
+          !['GET', 'HEAD', 'OPTIONS'].includes(method) &&
+          !PUBLIC.has(key) &&
+          !hostLocal &&
+          !hostLocal
+        ) {
           const header = String(req.headers['x-csrf-token'] ?? '');
           if (!csrfEqual(header, session.csrf_token)) {
             return reply.status(403).send({

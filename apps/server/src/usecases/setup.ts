@@ -96,6 +96,8 @@ export async function setupStatus(ctx: RequestContext) {
   return {
     needsSetup: !(await isBootstrapped(ctx.sqlite)),
     setupTokenRequired: isHostedDeployment(ctx),
+    // Office installs (production SQLite) never offer the sample organisation.
+    sampleDataAllowed: ctx.config.env !== 'production' && !isHostedDeployment(ctx),
   };
 }
 

@@ -124,6 +124,41 @@ describe('host control panel', () => {
     expect(status80.json().links.mdns).toBe('http://sns-leave.local');
   });
 
+  it('does not offer sample data on an office (production) install', async () => {
+    const { app } = await boot({
+      LEAVEOS_ENV: 'production',
+      LEAVEOS_SEED_DEMO: '1',
+      LEAVEOS_DEMO_ACCOUNTS: '1',
+    });
+    const status = await app.inject({ method: 'GET', url: '/api/v1/setup/status' });
+    expect(status.json().data.sampleDataAllowed).toBe(false);
+    const demo = await app.inject({ method: 'GET', url: '/api/v1/setup/demo-accounts' });
+    expect(demo.json().data.accounts).toEqual([]);
+  });
+
+  it('backs up from the host panel even when the browser is signed in (no CSRF 403)', async () => {
+    const { app } = await boot();
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'admin@example.invalid', password: 'ChangeMe_admin_1' },
+    });
+    const session = cookieFrom(login);
+    expect(session).toContain('leaveos.sid');
+    const panel = await openPanel(app);
+    const backup = await app.inject({
+      method: 'POST',
+      url: '/api/v1/host/backup',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: [panel.cookie, session].filter(Boolean).join('; '),
+      },
+      payload: `token=${panel.token}`,
+    });
+    expect(backup.statusCode).toBe(303);
+    expect(String(backup.headers.location)).toContain('notice=');
+  });
+
   it('backs up, stages a restore, and approves a waiting browser', async () => {
     const { app, sqlite, dbPath } = await boot();
     const panel = await openPanel(app);

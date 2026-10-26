@@ -44,7 +44,8 @@ The wizard shows Next, then the install progress, then Finish. It does not ask f
 - Creates the backup folder `%PROGRAMDATA%\SimonAndSons\LeaveOS\backups`. Daily copies go there until an administrator changes the folder.
 - Writes a local root and a site certificate into `%PROGRAMDATA%\SimonAndSons\LeaveOS\certs` and trusts the root on this computer (`certutil -addstore` of `ca.pem`). Other staff computers open the setup page. Trust is one click (`docs/TLS-TRUST.md`). A certificate warning is a defect. Do not continue past one.
 - Registers a service named `LeaveOS` (display name **Simon and Sons Leave OS**) with [WinSW](https://github.com/winsw/winsw) 2.12 x64, shipped as `LeaveOS-service.exe` beside `LeaveOS-service.xml`. The service starts at boot, runs the bundled `node.exe` on `leaveos-run.cjs`, restarts if that process exits, and writes its log under `%PROGRAMDATA%\SimonAndSons\LeaveOS\logs`. Setup runs `LeaveOS-service.exe install` and `start`, then waits until the service state is Running and `https://127.0.0.1:8443/healthz` answers. Plain `node.exe` is not registered with `sc.exe` (that times out with error 1053). The host panel still uses `sc.exe` to query, start, and stop the installed service. Uninstall runs `LeaveOS-service.exe stop` and `uninstall`.
-- Adds firewall rules for TCP port 8443, for the setup ports TCP 80 and 8080 (`Leave OS HTTP`), and for UDP 5353 (mDNS) and UDP 5355 (LLMNR) so staff computers can resolve the office name.
+- Locks the data folder `%PROGRAMDATA%\SimonAndSons\LeaveOS` to SYSTEM and Administrators (`icacls`, inheritance removed).
+- Adds firewall rules (local subnet only, any network profile, old copies deleted first) for TCP port 8443, for the setup ports TCP 80 and 8080 (`Leave OS HTTP`), and for UDP 5353 (mDNS) and UDP 5355 (LLMNR) so staff computers can resolve the office name.
 - The office name is `sns-leave` until an administrator changes it on the host panel or with `PUT /api/v1/settings/hostname`. First-time staff use `http://sns-leave` (or `http://sns-leave:8080`). After trust they use `https://sns-leave:8443` and `https://sns-leave.local:8443`. The LAN address is the fallback. A NetBIOS alias is not registered: Windows applies one only by restarting the Server service or renaming the PC. Uninstall removes the HTTP, mDNS, and LLMNR firewall rules with the TCP 8443 rule.
 - Puts a **Leave OS** shortcut on the desktop. It opens `https://127.0.0.1:8443/host`. That address is the host panel on this computer. It is not the staff setup link, and it does not change when port 80 is taken.
 - Finish opens that same control panel. When the service is up, the page shows **Running**, the staff link, and a QR code.
@@ -62,3 +63,13 @@ Data stays in `%PROGRAMDATA%\SimonAndSons\LeaveOS`.
 Uninstall stops and removes the service (`LeaveOS-service.exe stop` and `uninstall`), removes the firewall rules (including `Leave OS HTTP`), removes the desktop shortcut, removes this computer's trust for the Leave OS root, and restores the saved power timeouts. It then deletes `power-previous.json` and the program folder `Program Files\SimonAndSons\LeaveOS`.
 
 It keeps `%PROGRAMDATA%\SimonAndSons\LeaveOS` unless the person uninstalling chooses to delete it. That folder holds the database, the backup files, the certificates, the service logs, and `logs\install.log`. Logs and certificates are not removed on their own. The delete question defaults to No. Choosing Yes removes the whole folder, including the database.
+
+## Load the office roster (offline install)
+
+Run first-run setup on the host (it creates a temporary setup administrator), then from an elevated prompt:
+
+    sc stop LeaveOS
+    pnpm --filter @sns/server exec tsx src/ops/load-offline-roster.ts --db "%PROGRAMDATA%\SimonAndSons\LeaveOS\db\app.db" --hosted-sql <folder with 02_partB_employees.sql> --password-out <new file> --disable-other-admins
+    sc start LeaveOS
+
+SnS001 becomes the administrator with a one-time password written only to `--password-out`. SnS078 gets HR + Employee, everyone else Employee, with no password until HR or the administrator sets a temporary one on the Users page. `--disable-other-admins` disables the setup administrator. Running it again changes nothing.

@@ -4,7 +4,13 @@ import { Button } from '@sns/ui';
 import { api, ApiError } from '../api.js';
 import { setupPayload } from '../setup-form.js';
 
-export function SetupPage({ setupTokenRequired = false }: { setupTokenRequired?: boolean }) {
+export function SetupPage({
+  setupTokenRequired = false,
+  sampleDataAllowed = false,
+}: {
+  setupTokenRequired?: boolean;
+  sampleDataAllowed?: boolean;
+}) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -28,7 +34,12 @@ export function SetupPage({ setupTokenRequired = false }: { setupTokenRequired?:
     try {
       await api('/api/v1/setup', {
         method: 'POST',
-        body: JSON.stringify(setupPayload(form, setupTokenRequired)),
+        body: JSON.stringify(
+          setupPayload(
+            { ...form, loadSampleData: sampleDataAllowed && form.loadSampleData },
+            setupTokenRequired,
+          ),
+        ),
       });
       await api('/api/v1/auth/login', {
         method: 'POST',
@@ -176,7 +187,7 @@ export function SetupPage({ setupTokenRequired = false }: { setupTokenRequired?:
               onChange={(e) => setForm({ ...form, setupToken: e.target.value })}
             />
           </div>
-        ) : (
+        ) : sampleDataAllowed ? (
           <label className="inline-opt">
             <input
               type="checkbox"
@@ -185,7 +196,7 @@ export function SetupPage({ setupTokenRequired = false }: { setupTokenRequired?:
             />
             Load the Simon &amp; Sons sample organisation (17 people, @sns.test)
           </label>
-        )}
+        ) : null}
         <Button variant="primary" type="submit" disabled={pending}>
           {pending ? 'Creating…' : 'Create administrator'}
         </Button>

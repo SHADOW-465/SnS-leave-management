@@ -114,7 +114,10 @@ function configureRecovery() {
   console.log('Leave OS starts automatically and restarts if it stops unexpectedly.');
 }
 
-/** Private and Domain networks only: never open the service on a Public network. */
+/**
+ * Local subnet only, on any profile: office networks are often classed as
+ * Public, which would lock staff out, but traffic from outside the LAN is refused.
+ */
 function firewallRuleArgs(name, protocol, port) {
   return [
     'advfirewall',
@@ -126,16 +129,52 @@ function firewallRuleArgs(name, protocol, port) {
     'action=allow',
     `protocol=${protocol}`,
     `localport=${port}`,
-    'profile=private,domain',
+    'profile=any',
+    'remoteip=localsubnet',
   ];
 }
 
+function firewallDeleteArgs(name) {
+  return ['advfirewall', 'firewall', 'delete', 'rule', `name=${name}`];
+}
+
+/** SYSTEM and Administrators only, no inheritance, so ordinary users cannot read the database. */
+function dataAclArgs(dir) {
+  return [
+    dir,
+    '/inheritance:r',
+    '/grant:r',
+    '*S-1-5-18:(OI)(CI)F',
+    '/grant:r',
+    '*S-1-5-32-544:(OI)(CI)F',
+    '/T',
+    '/C',
+  ];
+}
+
+function dataDir() {
+  return path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'SimonAndSons', 'LeaveOS');
+}
+
+function lockDataDir() {
+  const dir = dataDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const res = spawnSync('icacls', dataAclArgs(dir), { encoding: 'utf8' });
+  if (res.status !== 0) {
+    console.error(res.stderr || res.stdout);
+    throw new Error('Could not lock down the Leave OS data folder.');
+  }
+}
+
 function allowInbound(name, protocol, port) {
+  // Remove any earlier copy first so a reinstall never leaves duplicate rules.
+  spawnSync('netsh', firewallDeleteArgs(name), { encoding: 'utf8' });
   const firewall = spawnSync('netsh', firewallRuleArgs(name, protocol, port), {
     encoding: 'utf8',
   });
   if (firewall.status !== 0) {
     console.error(firewall.stderr || firewall.stdout);
+    throw new Error(`Could not add the firewall rule ${name}.`);
   }
 }
 
@@ -272,6 +311,7 @@ async function main() {
     console.error('The Leave OS service can only be registered on Windows.');
     process.exit(1);
   }
+  lockDataDir();
   openFirewall();
   await installAndStart();
 }
@@ -286,6 +326,8 @@ module.exports = {
   isAutoStart,
   restartsOnFailure,
   firewallRuleArgs,
+  firewallDeleteArgs,
+  dataAclArgs,
 };
 
 if (require.main === module) {

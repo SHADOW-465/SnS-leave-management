@@ -12,6 +12,8 @@ const {
   isAutoStart,
   restartsOnFailure,
   firewallRuleArgs,
+  firewallDeleteArgs,
+  dataAclArgs,
 } = createRequire(import.meta.url)('../../../installer/install-service.cjs') as {
   serviceStateFromStatus: (text: string) => string;
   nextRunningWait: (
@@ -25,6 +27,8 @@ const {
   isAutoStart: (text: string) => boolean;
   restartsOnFailure: (text: string) => boolean;
   firewallRuleArgs: (name: string, protocol: string, port: string) => string[];
+  firewallDeleteArgs: (name: string) => string[];
+  dataAclArgs: (dir: string) => string[];
 };
 
 describe('WinSW service registration', () => {
@@ -75,11 +79,31 @@ describe('WinSW service registration', () => {
 });
 
 describe('firewall rules', () => {
-  it('apply to the Private and Domain profiles only, never Public', () => {
+  it('accept only the local subnet, on any profile so a Public office network still works', () => {
     const args = firewallRuleArgs('Leave OS', 'TCP', '8443');
-    expect(args).toContain('profile=private,domain');
+    expect(args).toContain('profile=any');
+    expect(args).toContain('remoteip=localsubnet');
     expect(args).toContain('name=Leave OS');
     expect(args).toContain('localport=8443');
-    expect(args.join(' ')).not.toMatch(/public|profile=any/i);
+  });
+
+  it('delete the old rule by the same name before adding', () => {
+    expect(firewallDeleteArgs('Leave OS')).toEqual([
+      'advfirewall',
+      'firewall',
+      'delete',
+      'rule',
+      'name=Leave OS',
+    ]);
+  });
+});
+
+describe('data folder ACL (DW-123)', () => {
+  it('grants only SYSTEM and Administrators and drops inherited Users access', () => {
+    const args = dataAclArgs('C:\\ProgramData\\SimonAndSons\\LeaveOS');
+    expect(args).toContain('/inheritance:r');
+    expect(args).toContain('*S-1-5-18:(OI)(CI)F');
+    expect(args).toContain('*S-1-5-32-544:(OI)(CI)F');
+    expect(args.join(' ')).not.toMatch(/S-1-5-32-545|Users|Everyone/i);
   });
 });

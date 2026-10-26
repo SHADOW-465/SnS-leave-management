@@ -138,7 +138,11 @@ function firewallDeleteArgs(name) {
   return ['advfirewall', 'firewall', 'delete', 'rule', `name=${name}`];
 }
 
-/** SYSTEM and Administrators only, no inheritance, so ordinary users cannot read the database. */
+/**
+ * SYSTEM and Administrators only, no inheritance from ProgramData, so ordinary users cannot read
+ * the database. Set on the folder only: files inside inherit it. Never use /T here, it strips
+ * inheritance from every file and leaves them with no access at all (even for SYSTEM).
+ */
 function dataAclArgs(dir) {
   return [
     dir,
@@ -147,8 +151,6 @@ function dataAclArgs(dir) {
     '*S-1-5-18:(OI)(CI)F',
     '/grant:r',
     '*S-1-5-32-544:(OI)(CI)F',
-    '/T',
-    '/C',
   ];
 }
 

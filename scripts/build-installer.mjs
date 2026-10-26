@@ -123,10 +123,14 @@ await esbuild.build({
       setup(build) {
         build.onLoad({ filter: /[\\/]open\.ts$/ }, async (args) => {
           let src = await fs.promises.readFile(args.path, 'utf8');
-          src = src.replace(
-            /let sql = fs\.readFileSync\(new URL\(`\.\/sql\/\$\{m\.id\}\.sql`, import\.meta\.url\), 'utf8'\);/,
-            `let sql = (${JSON.stringify(migrationSql)})[m.id];`,
-          );
+          // The installed program has no sql/ folder, so every migration must be inlined.
+          // Fail the build if the read in open.ts ever changes shape (it did once, silently).
+          const read =
+            /(let|const) sql = fs\.readFileSync\(new URL\(`\.\/sql\/\$\{([\w.]+)\}\.sql`, import\.meta\.url\), 'utf8'\);/;
+          if (!read.test(src)) {
+            throw new Error('inline-sql: the migration read in open.ts was not found. Update build-installer.mjs.');
+          }
+          src = src.replace(read, (_m, kind, id) => `${kind} sql = (${JSON.stringify(migrationSql)})[${id}];`);
           return { contents: src, loader: 'ts' };
         });
       },

@@ -105,5 +105,7 @@ describe('data folder ACL (DW-123)', () => {
     expect(args).toContain('*S-1-5-18:(OI)(CI)F');
     expect(args).toContain('*S-1-5-32-544:(OI)(CI)F');
     expect(args.join(' ')).not.toMatch(/S-1-5-32-545|Users|Everyone/i);
+    // /T would strip inheritance from every file and lock SYSTEM out of the database.
+    expect(args).not.toContain('/T');
   });
 });

@@ -12,6 +12,7 @@ export {
 export {
   changePasswordBodySchema,
   loginBodySchema,
+  resetPasswordBodySchema,
   sessionViewSchema,
   setupBodySchema,
 } from './auth.js';

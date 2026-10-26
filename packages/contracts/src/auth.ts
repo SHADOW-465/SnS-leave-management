@@ -17,6 +17,21 @@ export const changePasswordBodySchema = z
   })
   .strict();
 
+/** Body of an administrator / HR password reset. Omit the password to generate a random one. */
+export const resetPasswordBodySchema = z
+  .object({
+    temporaryPassword: z
+      .string()
+      .min(12, 'The temporary password must be at least 12 characters.')
+      .max(200, 'The temporary password must be at most 200 characters.')
+      .refine(
+        (v) => v.trim().length === v.length,
+        'The temporary password cannot start or end with a space.',
+      )
+      .optional(),
+  })
+  .strict();
+
 function isTimeZone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat('en-CA', { timeZone: tz });

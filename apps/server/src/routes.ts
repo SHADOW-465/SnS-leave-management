@@ -5,6 +5,7 @@ import {
   bulkProvisionBodySchema,
   cancelLeaveBodySchema,
   changePasswordBodySchema,
+  resetPasswordBodySchema,
   createDepartmentBodySchema,
   createEmployeeBodySchema,
   createTeamBodySchema,
@@ -46,6 +47,7 @@ import {
 } from './usecases/attendance.js';
 import {
   adminResetPassword,
+  setEmployeeTemporaryPassword,
   changePassword,
   currentUserView,
   login,
@@ -532,7 +534,25 @@ export async function registerRoutes(app: FastifyInstance) {
       const { id } = req.params as {
         id: string;
       };
-      return reply.send(ok(await adminResetPassword(req.ctx, id), req.ctx.requestId));
+      const body = parse(resetPasswordBodySchema, req.body ?? {});
+      return reply.send(
+        ok(await adminResetPassword(req.ctx, id, body.temporaryPassword), req.ctx.requestId),
+      );
+    } catch (err) {
+      return sendError(req, reply, err);
+    }
+  });
+  app.post('/api/v1/employees/:id/temporary-password', async (req, reply) => {
+    try {
+      await authorizeAction(req.ctx, 'user.password.reset', null);
+      const { id } = req.params as { id: string };
+      const body = parse(resetPasswordBodySchema, req.body ?? {});
+      return reply.send(
+        ok(
+          await setEmployeeTemporaryPassword(req.ctx, id, body.temporaryPassword),
+          req.ctx.requestId,
+        ),
+      );
     } catch (err) {
       return sendError(req, reply, err);
     }

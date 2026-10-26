@@ -12,6 +12,7 @@ import { withTx } from '@sns/database';
 import { DomainError, NotAuthenticatedError, newId } from '@sns/domain';
 import { requirePrincipal, type RequestContext } from '../ctx.js';
 import { addHoursIso } from '../time.js';
+import { uniqueUsername } from '../username.js';
 import { claimDeviceForLogin } from './devices.js';
 import { weekendDaysFor } from './leave.js';
 function sleep(ms: number) {
@@ -473,10 +474,11 @@ async function issueTemporaryPassword(
   ctx: RequestContext,
   userId: string,
   audit: { action: string; actorUserId: string | null; actorLabel: string },
+  chosen?: string,
 ): Promise<string> {
   const exists = await ctx.sqlite.prepare(`SELECT id FROM user_account WHERE id = ?`).get(userId);
   if (!exists) throw new DomainError('NOT_FOUND', 'Account not found.', { httpStatus: 404 });
-  const temp = generateTemporaryPassword();
+  const temp = chosen ?? generateTemporaryPassword();
   const hash = await hashPassword(temp);
   await withTx(ctx.sqlite, async () => {
     await ctx.sqlite
@@ -537,7 +539,11 @@ export async function hostRecoverAdmin(
   return { email: account?.email ?? '', temporaryPassword };
 }
 
-export async function adminResetPassword(ctx: RequestContext, userId: string) {
+export async function adminResetPassword(
+  ctx: RequestContext,
+  userId: string,
+  chosen?: string,
+): Promise<{ temporaryPassword?: string; generated: boolean }> {
   const p = requirePrincipal(ctx);
   if (p.userId === userId) {
     throw new DomainError(
@@ -556,12 +562,77 @@ export async function adminResetPassword(ctx: RequestContext, userId: string) {
       },
     );
   }
-  const temp = await issueTemporaryPassword(ctx, userId, {
-    action: 'user.password.reset',
-    actorUserId: p.userId,
-    actorLabel: p.email,
+  const temp = await issueTemporaryPassword(
+    ctx,
+    userId,
+    {
+      action: chosen ? 'user.password.temporary_set' : 'user.password.reset',
+      actorUserId: p.userId,
+      actorLabel: p.email,
+    },
+    chosen,
+  );
+  // A password the administrator typed is never sent back; only a generated one is shown once.
+  return chosen ? { generated: false } : { temporaryPassword: temp, generated: true };
+}
+
+/**
+ * Set a temporary password for an employee, by employee id. Replaces the existing password
+ * (or the '!no-password-set' placeholder). If the employee has no sign-in yet, creates one
+ * with username = lowercase employee code and the Employee role.
+ */
+export async function setEmployeeTemporaryPassword(
+  ctx: RequestContext,
+  employeeId: string,
+  chosen?: string,
+): Promise<{ temporaryPassword?: string; generated: boolean; created: boolean; username: string }> {
+  const p = requirePrincipal(ctx);
+  const emp = (await ctx.sqlite
+    .prepare(`SELECT id, employee_code, work_email FROM employee WHERE id = ?`)
+    .get(employeeId)) as { id: string; employee_code: string; work_email: string } | undefined;
+  if (!emp) throw new DomainError('NOT_FOUND', 'Employee not found.', { httpStatus: 404 });
+  const account = (await ctx.sqlite
+    .prepare(`SELECT id, username, email FROM user_account WHERE employee_id = ?`)
+    .get(employeeId)) as { id: string; username: string | null; email: string } | undefined;
+  if (account) {
+    const r = await adminResetPassword(ctx, account.id, chosen);
+    return { ...r, created: false, username: account.username ?? account.email };
+  }
+  if (p.employeeId && p.employeeId === employeeId) {
+    throw new DomainError('USE_OWN_PASSWORD', 'You cannot set your own password here.', {
+      httpStatus: 400,
+    });
+  }
+  const temp = chosen ?? generateTemporaryPassword();
+  const hash = await hashPassword(temp);
+  const userId = newId();
+  const username = await uniqueUsername(ctx.sqlite, emp.employee_code || emp.work_email);
+  await withTx(ctx.sqlite, async () => {
+    await ctx.sqlite
+      .prepare(
+        `INSERT INTO user_account (id, employee_id, email, username, password_hash, password_algo, must_change_password, is_disabled, created_at, created_by, updated_at, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'argon2id', 1, 0, ?, ?, ?, ?)`,
+      )
+      .run(userId, emp.id, emp.work_email, username, hash, ctx.now, p.userId, ctx.now, p.userId);
+    const role = (await ctx.sqlite.prepare(`SELECT id FROM role WHERE code = 'employee'`).get()) as
+      { id: string } | undefined;
+    if (role) {
+      await ctx.sqlite
+        .prepare(
+          `INSERT INTO user_role (user_account_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)`,
+        )
+        .run(userId, role.id, p.userId, ctx.now);
+    }
+    await ctx.sqlite
+      .prepare(
+        `INSERT INTO audit_event (id, occurred_at, actor_user_id, actor_label, action, entity_type, entity_id, request_id, result)
+         VALUES (?, ?, ?, ?, 'user.account.created_with_temporary_password', 'user_account', ?, ?, 'ok')`,
+      )
+      .run(newId(), ctx.now, p.userId, p.email, userId, ctx.requestId);
   });
-  return { temporaryPassword: temp };
+  return chosen
+    ? { generated: false, created: true, username }
+    : { temporaryPassword: temp, generated: true, created: true, username };
 }
 export async function revokeSession(ctx: RequestContext, sessionId: string) {
   await ctx.sqlite

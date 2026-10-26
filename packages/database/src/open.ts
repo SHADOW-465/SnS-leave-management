@@ -61,6 +61,7 @@ export const MIGRATIONS: readonly { id: string; postgresOnly?: boolean }[] = [
   { id: '0012_password_rls', postgresOnly: true },
   { id: '0013_browser_device' },
   { id: '0014_single_leave_type' },
+  { id: '0015_hr_password_reset' },
 ];
 
 /** The SQL `migrate` runs for one migration, translated for Postgres when needed. */

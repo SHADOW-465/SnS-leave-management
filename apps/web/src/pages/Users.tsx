@@ -4,6 +4,7 @@ import { Button, ErrorState, Select, Skeleton } from '@sns/ui';
 import { api, type Me } from '../api.js';
 import { canEditRoleSet, roleChoiceLocked } from '../role-choices.js';
 import { formatRelativeTime } from '../format.js';
+import { TempPasswordDialog } from './TempPasswordDialog.js';
 
 type User = {
   id: string;
@@ -102,6 +103,13 @@ export function UsersPage({ me }: { me: Me }) {
     roles: string[];
   } | null>(null);
   const [issued, setIssued] = useState<Issued | null>(null);
+  const [pwFor, setPwFor] = useState<{
+    name: string;
+    accountId?: string;
+    employeeId?: string;
+    login: string;
+    employeeCode: string | null;
+  } | null>(null);
 
   function startAdd() {
     const directory = org.data;
@@ -261,34 +269,13 @@ export function UsersPage({ me }: { me: Me }) {
     }
   }
 
-  async function resetPassword(u: User) {
-    if (
-      !window.confirm(
-        `Reset ${u.name ?? u.email} to a new random temporary password? They will be signed out and must choose a new password. Their current password cannot be viewed.`,
-      )
-    )
-      return;
-    try {
-      const r = await api<{ temporaryPassword: string }>(
-        `/api/v1/accounts/${u.id}/reset-password`,
-        {
-          method: 'POST',
-          body: JSON.stringify({}),
-        },
-      );
-      setIssued({
-        name: u.name ?? u.email,
-        login: u.email,
-        employeeCode: u.employeeCode,
-        password: r.temporaryPassword,
-      });
-      await qc.invalidateQueries();
-    } catch (e) {
-      setFlash({
-        ok: false,
-        text: e instanceof Error ? e.message : 'Could not reset the password.',
-      });
-    }
+  function resetPassword(u: User) {
+    setPwFor({
+      name: u.name ?? u.email,
+      accountId: u.id,
+      login: u.username ?? u.email,
+      employeeCode: u.employeeCode,
+    });
   }
 
   async function run(
@@ -354,6 +341,24 @@ export function UsersPage({ me }: { me: Me }) {
             ×
           </button>
         </div>
+      ) : null}
+      {pwFor ? (
+        <TempPasswordDialog
+          name={pwFor.name}
+          accountId={pwFor.accountId ?? null}
+          employeeId={pwFor.employeeId ?? null}
+          onClose={() => setPwFor(null)}
+          onDone={(r) => {
+            setIssued({
+              name: pwFor.name,
+              login: r.username ?? pwFor.login,
+              employeeCode: pwFor.employeeCode,
+              password: r.password,
+            });
+            setPwFor(null);
+            void qc.invalidateQueries();
+          }}
+        />
       ) : null}
       {issued ? (
         <section className="card issued" role="status">
@@ -798,6 +803,21 @@ export function UsersPage({ me }: { me: Me }) {
                         Create sign-in
                       </Button>
                     )}
+                    {creating?.employeeId === w.employeeId ? null : (
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          setPwFor({
+                            name: w.name,
+                            employeeId: w.employeeId,
+                            login: w.code.toLowerCase(),
+                            employeeCode: w.code,
+                          })
+                        }
+                      >
+                        Set temporary password
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -946,8 +966,8 @@ export function UsersPage({ me }: { me: Me }) {
                           Sign out everywhere
                         </Button>
                       ) : null}
-                      {!self ? (
-                        <Button size="sm" onClick={() => void resetPassword(u)}>
+                      {!self && (actorIsAdmin || !u.roles.includes('admin')) ? (
+                        <Button size="sm" onClick={() => resetPassword(u)}>
                           Reset password
                         </Button>
                       ) : null}

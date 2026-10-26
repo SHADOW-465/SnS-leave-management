@@ -1,4 +1,5 @@
 import { useState, useMemo, type FormEvent } from 'react';
+import { TempPasswordDialog } from './TempPasswordDialog.js';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, EmptyState, StatusPill, Select } from '@sns/ui';
 import { api, can, type Me } from '../api.js';
@@ -828,12 +829,18 @@ export function PeoplePage({ me }: { me: Me }) {
 
       {/* 5. Reset Password Modal */}
       {resettingEmp && (
-        <ResetPasswordModal
-          emp={resettingEmp}
+        <TempPasswordDialog
+          name={`${resettingEmp.first_name} ${resettingEmp.last_name}`}
+          employeeId={resettingEmp.id}
           onClose={() => setResettingEmp(null)}
-          onSuccess={(info) => {
+          onDone={(r) => {
+            const emp = resettingEmp;
             setResettingEmp(null);
-            setTempPasswordInfo(info);
+            setTempPasswordInfo({
+              name: `${emp.first_name} ${emp.last_name}`,
+              email: r.username ?? emp.work_email,
+              temp: r.password,
+            });
           }}
         />
       )}
@@ -2241,86 +2248,6 @@ function ReactivateEmployeeModal({
             disabled={loading}
           >
             {loading ? 'Reactivating…' : 'Reactivate'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ResetPasswordModal({
-  emp,
-  onClose,
-  onSuccess,
-}: {
-  emp: EmployeeRecord;
-  onClose: () => void;
-  onSuccess: (info: { name: string; email: string; temp: string }) => void;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleConfirm() {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await api<{ temporaryPassword: string }>(
-        `/api/v1/accounts/${emp.id}/reset-password`,
-        {
-          method: 'POST',
-        },
-      );
-      onSuccess({
-        name: `${emp.first_name} ${emp.last_name}`,
-        email: emp.work_email,
-        temp: res.temporaryPassword,
-      });
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to reset password');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="curved-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3 className="modal-title">Reset Employee Password</h3>
-          <button type="button" className="modal-close-btn" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="modal-body">
-          {error && <div className="form-error">{error}</div>}
-
-          <p style={{ margin: '0 0 12px', fontSize: 13.5, color: 'var(--fg, #0f172a)' }}>
-            Generate a new temporary password for{' '}
-            <strong>
-              {emp.first_name} {emp.last_name}
-            </strong>{' '}
-            (<code>{emp.work_email}</code>)?
-          </p>
-
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted, #64748b)' }}>
-            Their existing password will be revoked immediately, and they will be prompted to choose
-            a new password upon their next login.
-          </p>
-        </div>
-
-        <div className="modal-footer">
-          <Button variant="secondary" onClick={onClose} type="button" disabled={loading}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              void handleConfirm();
-            }}
-            disabled={loading}
-          >
-            {loading ? 'Resetting…' : 'Generate Temporary Password'}
           </Button>
         </div>
       </div>

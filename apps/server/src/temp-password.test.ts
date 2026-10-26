@@ -294,3 +294,19 @@ describe('temporary passwords set by an administrator or HR', () => {
     expect(Number(n.n)).toBe(1);
   });
 });
+
+describe('migration SQL files', () => {
+  it('never put a semicolon in a comment (Postgres splits statements on it)', () => {
+    const sqlDir = new URL('../../../packages/database/src/sql/', import.meta.url);
+    const bad: string[] = [];
+    for (const name of fs.readdirSync(sqlDir)) {
+      if (!name.endsWith('.sql')) continue;
+      const text = fs.readFileSync(new URL(name, sqlDir), 'utf8');
+      text.split(/\r?\n/).forEach((line, i) => {
+        const at = line.indexOf('--');
+        if (at >= 0 && line.slice(at).includes(';')) bad.push(`${name}:${i + 1}`);
+      });
+    }
+    expect(bad).toEqual([]);
+  });
+});

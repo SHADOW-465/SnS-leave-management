@@ -1,5 +1,5 @@
 -- HR officers may set a temporary password for anyone except an administrator (the server
--- enforces that guardrail). Older databases may lack the grant; add it if missing. Idempotent,
+-- enforces that guardrail). Older databases may lack the grant, so add it if missing. Idempotent,
 -- inserts only, deletes nothing. On a fresh database (no roles yet) this inserts nothing.
 INSERT INTO role_permission (role_id, permission_id)
 SELECT r.id, p.id

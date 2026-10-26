@@ -116,8 +116,8 @@ export async function loadOfflineRoster(
       await sqlite
         .prepare(
           `INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on,
-             location_id, department_id, retention_class, created_at, created_by, updated_at, updated_by)
-           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, 'standard', ?, ?, ?, ?)`,
+             location_id, department_id, job_title_id, retention_class, created_at, created_by, updated_at, updated_by)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, (SELECT id FROM job_title ORDER BY CASE WHEN id = 'ops-jt-staff' THEN 0 WHEN name = 'Staff' THEN 1 ELSE 2 END, created_at LIMIT 1), 'standard', ?, ?, ?, ?)`,
         )
         .run(
           emp.id,

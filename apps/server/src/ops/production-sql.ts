@@ -645,14 +645,16 @@ INSERT INTO _ops_roster VALUES
 ${people};
 
 INSERT INTO employee (id, employee_code, first_name, last_name, work_email, status, joined_on,
-                      location_id, department_id, retention_class, created_at, created_by, updated_at, updated_by)
+                      location_id, department_id, job_title_id, retention_class, created_at, created_by, updated_at, updated_by)
 SELECT 'emp-' || lower(r.code), r.code, r.first_name, r.last_name, r.email, 'active', '${o.joinedOn}',
        (SELECT id FROM location ORDER BY created_at LIMIT 1),
        (SELECT id FROM department WHERE code = 'GEN'),
+       (SELECT id FROM job_title ORDER BY CASE WHEN id = 'ops-jt-staff' THEN 0 WHEN name = 'Staff' THEN 1 ELSE 2 END, created_at LIMIT 1),
        'standard', ${NOW}, 'ops-sql', ${NOW}, 'ops-sql'
   FROM _ops_roster r
 ON CONFLICT (employee_code) DO UPDATE
    SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name,
+       job_title_id = COALESCE(employee.job_title_id, EXCLUDED.job_title_id),
        updated_at = EXCLUDED.updated_at, updated_by = 'ops-sql';
 
 -- A sign-in for anyone without one. The administrator gets a one-time password that must be

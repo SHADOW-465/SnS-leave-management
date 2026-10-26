@@ -39,7 +39,7 @@ interface EmployeeRecord {
   location_id: string;
   location_name: string;
   job_title_id: string;
-  job_title_name: string;
+  job_title_name: string | null;
   employment_type_id: string;
   employment_name: string;
   manager_employee_id: string | null;
@@ -1694,7 +1694,7 @@ function CreateEmployeeModal({
                         .filter((e) => e.status !== 'exited' && e.user_account_id)
                         .map((e) => ({
                           value: e.id,
-                          label: `${e.first_name} ${e.last_name} — ${e.job_title_name}`,
+                          label: `${e.first_name} ${e.last_name} — ${e.job_title_name ?? e.employee_code ?? 'no title'}`,
                         })),
                     ]}
                   />
@@ -1975,7 +1975,7 @@ function EditEmployeeModal({
                           )
                           .map((e) => ({
                             value: e.id,
-                            label: `${e.first_name} ${e.last_name} — ${e.job_title_name}`,
+                            label: `${e.first_name} ${e.last_name} — ${e.job_title_name ?? e.employee_code ?? 'no title'}`,
                           })),
                       ]}
                     />
@@ -2416,7 +2416,7 @@ function CreateDepartmentModal({
                       .filter((e) => e.status !== 'exited')
                       .map((e) => ({
                         value: e.id,
-                        label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                        label: `${e.first_name} ${e.last_name} (${e.job_title_name ?? e.employee_code ?? 'no title'})`,
                       })),
                   ]}
                 />
@@ -2531,7 +2531,7 @@ function EditDepartmentModal({
                       .filter((e) => e.status !== 'exited')
                       .map((e) => ({
                         value: e.id,
-                        label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                        label: `${e.first_name} ${e.last_name} (${e.job_title_name ?? e.employee_code ?? 'no title'})`,
                       })),
                   ]}
                 />
@@ -2739,7 +2739,7 @@ function CreateTeamModal({
                       .filter((e) => e.status !== 'exited')
                       .map((e) => ({
                         value: e.id,
-                        label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                        label: `${e.first_name} ${e.last_name} (${e.job_title_name ?? e.employee_code ?? 'no title'})`,
                       })),
                   ]}
                 />
@@ -2856,7 +2856,7 @@ function EditTeamModal({
                       .filter((e) => e.status !== 'exited')
                       .map((e) => ({
                         value: e.id,
-                        label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                        label: `${e.first_name} ${e.last_name} (${e.job_title_name ?? e.employee_code ?? 'no title'})`,
                       })),
                   ]}
                 />
@@ -3005,7 +3005,7 @@ function ManageTeamMembersModal({
                   { value: '', label: 'Select an employee to add…' },
                   ...availableToAdd.map((e) => ({
                     value: e.id,
-                    label: `${e.first_name} ${e.last_name} — ${e.job_title_name}, ${
+                    label: `${e.first_name} ${e.last_name} — ${e.job_title_name ?? e.employee_code ?? 'no title'}, ${
                       e.team_name ? `currently in ${e.team_name}` : e.department_name
                     }`,
                   })),
@@ -3204,7 +3204,7 @@ function ManageDepartmentMembersModal({
                   { value: '', label: 'Select an employee to add…' },
                   ...availableToAdd.map((e) => ({
                     value: e.id,
-                    label: `${e.first_name} ${e.last_name} — ${e.job_title_name}, currently ${e.department_name}`,
+                    label: `${e.first_name} ${e.last_name} — ${e.job_title_name ?? e.employee_code ?? 'no title'}, currently ${e.department_name}`,
                   })),
                 ]}
               />
@@ -3352,7 +3352,7 @@ function SetTeamLeadModal({
                     .filter((e) => e.status !== 'exited')
                     .map((e) => ({
                       value: e.id,
-                      label: `${e.first_name} ${e.last_name} (${e.job_title_name})`,
+                      label: `${e.first_name} ${e.last_name} (${e.job_title_name ?? e.employee_code ?? 'no title'})`,
                     })),
                 ]}
               />

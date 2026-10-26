@@ -10,7 +10,13 @@ export const isoDate = z
     return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
   }, 'Not a calendar date');
 export const email = z.string().email().max(320);
-export const ulid = z.string().min(16).max(40);
+// Ids are ULIDs/UUIDs from the app, but operator-loaded rows use short readable ids such as
+// 'ops-dept-gen' and 'emp-sns001'. Existence is checked against the database, not the shape.
+export const ulid = z
+  .string()
+  .min(3)
+  .max(64)
+  .regex(/^[A-Za-z0-9_-]+$/, 'Not a valid id');
 export const cursorQuery = z
   .object({
     cursor: z.string().optional(),

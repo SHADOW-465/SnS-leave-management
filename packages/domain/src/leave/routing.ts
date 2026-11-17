@@ -47,15 +47,18 @@ export const HIERARCHY_LEVEL: Record<RequesterKind, number> = {
   admin: 5,
 };
 
-/** Who can be someone's reporting manager: the next level up (or the one above if it is empty). */
+/**
+ * Who can be someone's reporting manager: anyone at a higher level in the hierarchy
+ * (or the peer top-level role for `director` / `admin`).
+ */
 export function allowedManagerKinds(kind: RequesterKind): RequesterKind[] {
   switch (kind) {
     case 'employee':
-      return ['team_lead', 'department_head'];
+      return ['team_lead', 'department_head', 'hr_officer', 'director', 'admin'];
     case 'team_lead':
-      return ['department_head'];
+      return ['department_head', 'hr_officer', 'director', 'admin'];
     case 'department_head':
-      return ['hr_officer'];
+      return ['hr_officer', 'director', 'admin'];
     case 'hr_officer':
       return ['director', 'admin'];
     case 'director':

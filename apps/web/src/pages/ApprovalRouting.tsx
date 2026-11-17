@@ -284,8 +284,7 @@ function ManagersTab({ d, run }: { d: MapData; run: Run }) {
     );
   }, [d.people, filter, dept]);
 
-  // Only people one level up can be chosen: a team lead or manager for an employee, a
-  // manager for a team lead, HR for a manager, the MD or an administrator for HR.
+  // Anyone more senior in the hierarchy can be chosen (never the person themselves).
   const managerOptions = (forPeople: Person[]) => {
     const allowed = forPeople.length
       ? forPeople

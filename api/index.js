@@ -138898,11 +138898,11 @@ var HIERARCHY_LEVEL = {
 function allowedManagerKinds(kind) {
   switch (kind) {
     case "employee":
-      return ["team_lead", "department_head"];
+      return ["team_lead", "department_head", "hr_officer", "director", "admin"];
     case "team_lead":
-      return ["department_head"];
+      return ["department_head", "hr_officer", "director", "admin"];
     case "department_head":
-      return ["hr_officer"];
+      return ["hr_officer", "director", "admin"];
     case "hr_officer":
       return ["director", "admin"];
     case "director":

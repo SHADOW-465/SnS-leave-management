@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   NoApproverError,
+  allowedManagerKinds,
   approvalLadder,
   requesterKindFrom,
   resolveApproverChain,
@@ -273,5 +274,31 @@ describe('administrator controls', () => {
       delegations: { 'emp-u-ravi': ok('u-paul') },
     });
     expect(r.approverUserId).toBe('u-ravi');
+  });
+});
+
+describe('allowedManagerKinds', () => {
+  it('allows anyone more senior in the hierarchy for each kind', () => {
+    expect(allowedManagerKinds('employee')).toEqual([
+      'team_lead',
+      'department_head',
+      'hr_officer',
+      'director',
+      'admin',
+    ]);
+    expect(allowedManagerKinds('team_lead')).toEqual([
+      'department_head',
+      'hr_officer',
+      'director',
+      'admin',
+    ]);
+    expect(allowedManagerKinds('department_head')).toEqual([
+      'hr_officer',
+      'director',
+      'admin',
+    ]);
+    expect(allowedManagerKinds('hr_officer')).toEqual(['director', 'admin']);
+    expect(allowedManagerKinds('director')).toEqual(['admin']);
+    expect(allowedManagerKinds('admin')).toEqual(['director']);
   });
 });
